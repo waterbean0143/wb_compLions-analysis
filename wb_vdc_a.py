@@ -88,6 +88,33 @@ hybrid_prompt = PromptTemplate(
 """
 )
 
+
+# ✅ 대표 질문 목록 6x3 grid UI
+st.markdown("## 📋 대표 질문 안내")
+st.markdown("""
+다음은 자주 묻는 질문 목록입니다. 클릭하여 답변을 확인할 수 있습니다.
+""")
+
+rows = 6
+cols_per_row = 3
+chunks = [qna[i:i+cols_per_row] for i in range(0, len(qna), cols_per_row)]
+
+def adjust_height(text, base_lines=2):
+    word_count = len(text.split())
+    est_lines = max(1, word_count // 5)
+    pad = max(0, base_lines - est_lines)
+    return text + "<br>" * pad
+
+for row in chunks[:rows]:
+    cols = st.columns(cols_per_row)
+    for col, q in zip(cols, row):
+        with col:
+            qtext = adjust_height(q['question'], base_lines=2)
+            st.markdown(f"**Q{q['id'][1:]}. {qtext}**", unsafe_allow_html=True)
+            with st.expander("💡 답변 보기"):
+                st.markdown(q["answer"])
+
+
 # 챗봇 이력
 if "history" not in st.session_state:
     st.session_state["history"] = []
