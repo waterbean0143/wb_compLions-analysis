@@ -17,7 +17,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 load_dotenv()
 st.set_page_config(page_title="VDC-A 임베딩 유사 질문 연결", page_icon="🧠")
-st.title("🤖 VDC-A 문서 기반 + 벡터 유사 Q&A 시스템")
+st.title("🤖 AI이행봇 : VDC-A")
 
 openai_api_key = os.getenv("OPENAI_API_KEY")
 if not openai_api_key:
