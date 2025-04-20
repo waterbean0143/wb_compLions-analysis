@@ -4,118 +4,95 @@ import json
 import tempfile
 import requests
 import numpy as np
+import pandas as pd
 from dotenv import load_dotenv
+
 from langchain.chat_models import ChatOpenAI
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.document_loaders import PyMuPDFLoader
-from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
-
+from langchain.chains import RetrievalQA
 from sklearn.metrics.pairwise import cosine_similarity
 
+# 기본 사용자 프로필 (향후 확장 가능)
+DEFAULT_PROFILE = {
+    "소속": "AI이행2본부",
+    "역할": "이행 PM",
+    "사업": "기존 예정대로 VDC-A 절차를 밟는 사업"
+}
+
+# 환경 설정
 load_dotenv()
-st.set_page_config(page_title="VDC-A 임베딩 유사 질문 연결", page_icon="🧠")
-st.title("🤖 AI이행봇 : VDC-A")
+st.set_page_config(page_title="VDC-A 사용자 프로필 기반 Q&A", page_icon="👤")
+st.title("👤 사용자 프로필 기반 VDC-A Q&A")
 
 openai_api_key = os.getenv("OPENAI_API_KEY")
 if not openai_api_key:
     st.error("OPENAI_API_KEY가 설정되지 않았습니다.")
     st.stop()
 
-# QNA 불러오기
+# QNA 로딩
 with open("vdc_a_대표질문.json", "r", encoding="utf-8") as f:
     qna = json.load(f)
 qna_questions = [q["question"] for q in qna]
-
-# QNA 임베딩 벡터 생성
 embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
 qna_vectors = embeddings.embed_documents(qna_questions)
 
-# 벡터 기반 유사 질문 연결 함수
-def find_most_similar_qna_vector(user_question, qna_data, qna_vectors, threshold=0.82):
-    user_vec = embeddings.embed_query(user_question)
-    sims = cosine_similarity([user_vec], qna_vectors)[0]
-    best_idx = int(np.argmax(sims))
-    if sims[best_idx] >= threshold:
-        return qna_data[best_idx]
-    return None
-
-# 문서 기반 리트리버
-def load_pdf_from_url(url):
-    response = requests.get(url)
-    if response.status_code == 200:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as f:
-            f.write(response.content)
-            f.flush()
-            loader = PyMuPDFLoader(f.name)
-            return loader.load()
-    return []
-
-def create_pdf_vector_retriever():
+# 문서 로딩 및 벡터화
+@st.cache_resource
+def load_documents():
     urls = {
-        "vdc_a_프로세스": "https://drive.google.com/uc?export=download&id=1lSEWk7KDgHR71yHcjEKniWzhqwL7T2fC",
+        "vdc_a_프로세스": "https://drive.google.com/uc?export=download&id=1cEFCFC7fp3JuDRgdPS3BdJuHPKhLF3yn",
         "vdc_a_qna": "https://drive.google.com/uc?export=download&id=1KGJv9ttGD7ErcSWymE-0jiMjOzbnq6iI"
     }
     all_docs = []
     for name, url in urls.items():
-        docs = load_pdf_from_url(url)
-        for doc in docs:
-            doc.metadata["source_name"] = name
-        all_docs.extend(docs)
+        response = requests.get(url)
+        if response.status_code == 200:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as f:
+                f.write(response.content)
+                f.flush()
+                from langchain.document_loaders import PyMuPDFLoader
+                docs = PyMuPDFLoader(f.name).load()
+                for d in docs:
+                    d.metadata["source_name"] = name
+                all_docs.extend(docs)
     splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
-    split_docs = splitter.split_documents(all_docs)
-    vectordb = FAISS.from_documents(split_docs, embeddings)
-    return vectordb.as_retriever()
+    return splitter.split_documents(all_docs)
 
-retriever = create_pdf_vector_retriever()
+split_docs = load_documents()
+vectordb = FAISS.from_documents(split_docs, embeddings)
+
+# 사용자 프로필
+if "user_profile" not in st.session_state:
+    st.session_state["user_profile"] = DEFAULT_PROFILE.copy()
 
 # 프롬프트 정의
-hybrid_prompt = PromptTemplate(
+profile_info = st.session_state["user_profile"]
+prompt = PromptTemplate(
     input_variables=["context", "question"],
-    template="""당신은 VDC-A 문서 기반 전문가입니다.
+    template=f"""당신은 다음 조건을 가진 사용자의 질문에 답하는 문서 기반 AI 어시스턴트입니다.
 
-이전 대화 문맥과 질문:
-{question}
+[사용자 조건]
+- 소속: {profile_info['소속']}
+- 역할: {profile_info['역할']}
+- 사업 유형: {profile_info['사업']}
 
-관련 문서 내용:
-{context}
+[질문]
+{{question}}
 
-답변 형식:
-1. 💡 핵심 요약
-2. 📋 관련 절차 위치 또는 판단 주체
+[문서 내용]
+{{context}}
+
+[응답 형식]
+💡 핵심 요약
+📋 절차 또는 판단 주체
 """
 )
 
-
-# ✅ 대표 질문 목록 6x3 grid UI
-st.markdown("## 📋 대표 질문 안내")
-st.markdown("""
-다음은 자주 묻는 질문 목록입니다. 클릭하여 답변을 확인할 수 있습니다.
-""")
-
-rows = 6
-cols_per_row = 3
-chunks = [qna[i:i+cols_per_row] for i in range(0, len(qna), cols_per_row)]
-
-def adjust_height(text, base_lines=2):
-    word_count = len(text.split())
-    est_lines = max(1, word_count // 5)
-    pad = max(0, base_lines - est_lines)
-    return text + "<br>" * pad
-
-for row in chunks[:rows]:
-    cols = st.columns(cols_per_row)
-    for col, q in zip(cols, row):
-        with col:
-            qtext = adjust_height(q['question'], base_lines=2)
-            st.markdown(f"**Q{q['id'][1:]}. {qtext}**", unsafe_allow_html=True)
-            with st.expander("💡 답변 보기"):
-                st.markdown(q["answer"])
-
-
-# 챗봇 이력
+# 질의 입력
 if "history" not in st.session_state:
     st.session_state["history"] = []
 
@@ -123,35 +100,26 @@ query = st.chat_input("VDC-A 관련 질문을 입력하세요:")
 if not query:
     st.stop()
 
-# QNA 유사도 매칭 (임베딩 기반)
-matched_qna = find_most_similar_qna_vector(query, qna, qna_vectors)
+llm = ChatOpenAI(temperature=0, model_name="gpt-4o", openai_api_key=openai_api_key)
+retriever = vectordb.as_retriever(search_type="similarity", search_kwargs={"k": 4})
 
-if matched_qna:
-    # QNA 직접 응답
-    st.session_state["history"].append((query, matched_qna["answer"], []))
-else:
-    # 문서 기반 GPT 사용
-    chat_history_text = "\n".join([f"Q: {q}\nA: {a}" for q, a, _ in st.session_state["history"][-3:]])
-    contextual_query = chat_history_text + f"\nQ: {query}"
+qa_chain = RetrievalQA.from_chain_type(
+    llm=llm,
+    retriever=retriever,
+    chain_type="stuff",
+    chain_type_kwargs={"prompt": prompt},
+    return_source_documents=True
+)
 
-    llm = ChatOpenAI(temperature=0, model_name="gpt-4", openai_api_key=openai_api_key)
-    qa_chain = RetrievalQA.from_chain_type(
-        llm=llm,
-        retriever=retriever,
-        chain_type="stuff",
-        chain_type_kwargs={"prompt": hybrid_prompt},
-        return_source_documents=True
-    )
-    with st.spinner("문서 기반 답변 생성 중..."):
-        result = qa_chain.invoke({"query": contextual_query})
-        st.session_state["history"].append((query, result["result"], result["source_documents"]))
+with st.spinner("문서 기반 응답 생성 중..."):
+    result = qa_chain.invoke({"query": query})
+    st.session_state["history"].append((query, result["result"], result["source_documents"]))
 
-# 채팅 출력
+# 출력
 for q, a, sources in st.session_state["history"]:
     st.chat_message("user").write(q)
     st.chat_message("assistant").markdown(f"### 💡 핵심 요약\n{a.strip()}")
-    if sources:
-        with st.expander("📎 문서 근거 보기"):
-            for i, doc in enumerate(sources):
-                st.markdown(f"**[{i+1}]** `{doc.metadata.get('source_name', 'unknown')}`")
-                st.code(doc.page_content[:400] + ("..." if len(doc.page_content) > 400 else ""))
+    with st.expander("📎 문서 근거 보기"):
+        for i, doc in enumerate(sources):
+            st.markdown(f"**[{i+1}]** `{doc.metadata.get('source_name', 'unknown')}`")
+            st.code(doc.page_content[:400] + ("..." if len(doc.page_content) > 400 else ""))
