@@ -16,14 +16,14 @@ from langchain.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
 from sklearn.metrics.pairwise import cosine_similarity
 
-# 기본 사용자 프로필 (향후 확장 가능)
+# --- 기본 프로필 설정 ---
 DEFAULT_PROFILE = {
     "소속": "AI이행2본부",
     "역할": "이행 PM",
     "사업": "기존 예정대로 VDC-A 절차를 밟는 사업"
 }
 
-# 환경 설정
+# --- 환경 설정 ---
 load_dotenv()
 st.set_page_config(page_title="VDC-A 사용자 프로필 기반 Q&A", page_icon="👤")
 st.title("👤 사용자 프로필 기반 VDC-A Q&A")
@@ -33,44 +33,56 @@ if not openai_api_key:
     st.error("OPENAI_API_KEY가 설정되지 않았습니다.")
     st.stop()
 
-# QNA 로딩
-with open("vdc_a_대표질문.json", "r", encoding="utf-8") as f:
-    qna = json.load(f)
-qna_questions = [q["question"] for q in qna]
 embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
-qna_vectors = embeddings.embed_documents(qna_questions)
 
-# 문서 로딩 및 벡터화
+# --- 문서 로딩 함수 ---
 @st.cache_resource
-def load_documents():
-    urls = {
-        "vdc_a_프로세스": "https://drive.google.com/uc?export=download&id=1cEFCFC7fp3JuDRgdPS3BdJuHPKhLF3yn",
-        "vdc_a_qna": "https://drive.google.com/uc?export=download&id=1KGJv9ttGD7ErcSWymE-0jiMjOzbnq6iI"
-    }
-    all_docs = []
-    for name, url in urls.items():
-        response = requests.get(url)
-        if response.status_code == 200:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as f:
-                f.write(response.content)
-                f.flush()
-                from langchain.document_loaders import PyMuPDFLoader
-                docs = PyMuPDFLoader(f.name).load()
-                for d in docs:
-                    d.metadata["source_name"] = name
-                all_docs.extend(docs)
-    splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
-    return splitter.split_documents(all_docs)
+def load_process_documents():
+    url = "https://drive.google.com/uc?export=download&id=1cEFCFC7fp3JuDRgdPS3BdJuHPKhLF3yn"
+    response = requests.get(url)
+    if response.status_code == 200:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as f:
+            f.write(response.content)
+            f.flush()
+            docs = PyMuPDFLoader(f.name).load()
+            for d in docs:
+                d.metadata["source_name"] = "vdc_a_프로세스"
+            splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
+            return splitter.split_documents(docs)
+    return []
 
-split_docs = load_documents()
-vectordb = FAISS.from_documents(split_docs, embeddings)
+@st.cache_resource
+def load_qna_documents():
+    url = "https://drive.google.com/uc?export=download&id=1KGJv9ttGD7ErcSWymE-0jiMjOzbnq6iI"
+    response = requests.get(url)
+    if response.status_code == 200:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as f:
+            f.write(response.content)
+            f.flush()
+            docs = PyMuPDFLoader(f.name).load()
+            for d in docs:
+                d.metadata["source_name"] = "vdc_a_qna"
+            splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
+            return splitter.split_documents(docs)
+    return []
 
-# 사용자 프로필
+# --- 문서 로딩 및 벡터화 ---
+process_docs = load_process_documents()
+qna_docs = load_qna_documents()
+
+process_vectordb = FAISS.from_documents(process_docs, embeddings)
+qna_vectordb = FAISS.from_documents(qna_docs, embeddings)
+
+process_retriever = process_vectordb.as_retriever(search_type="similarity", search_kwargs={"k": 4})
+qna_retriever = qna_vectordb.as_retriever(search_type="similarity", search_kwargs={"k": 4})
+
+# --- 사용자 프로필 ---
 if "user_profile" not in st.session_state:
     st.session_state["user_profile"] = DEFAULT_PROFILE.copy()
 
-# 프롬프트 정의
 profile_info = st.session_state["user_profile"]
+
+# --- 프롬프트 템플릿 ---
 prompt = PromptTemplate(
     input_variables=["context", "question"],
     template=f"""당신은 다음 조건을 가진 사용자의 질문에 답하는 문서 기반 AI 어시스턴트입니다.
@@ -92,7 +104,7 @@ prompt = PromptTemplate(
 """
 )
 
-# 질의 입력
+# --- 질의 입력 ---
 if "history" not in st.session_state:
     st.session_state["history"] = []
 
@@ -101,7 +113,10 @@ if not query:
     st.stop()
 
 llm = ChatOpenAI(temperature=0, model_name="gpt-4o", openai_api_key=openai_api_key)
-retriever = vectordb.as_retriever(search_type="similarity", search_kwargs={"k": 4})
+
+# --- retriever 선택 (기본은 프로세스 문서) ---
+
+retriever = process_retriever
 
 qa_chain = RetrievalQA.from_chain_type(
     llm=llm,
@@ -115,7 +130,7 @@ with st.spinner("문서 기반 응답 생성 중..."):
     result = qa_chain.invoke({"query": query})
     st.session_state["history"].append((query, result["result"], result["source_documents"]))
 
-# 출력
+# --- 출력 ---
 for q, a, sources in st.session_state["history"]:
     st.chat_message("user").write(q)
     st.chat_message("assistant").markdown(f"### 💡 핵심 요약\n{a.strip()}")
