@@ -1,0 +1,2619 @@
+{
+  "1_SI_Methodology_Overview": {
+    "project_management": {
+      "purpose": "대외 SI 사업의 체계적인 사업관리를 통한 성공률 향상",
+      "scope": "영업기회식별부터 종료까지 생명주기 전 단계 적용. 프로젝트의 규모, 특성에 따라 방법론 테일러링 적용",
+      "references": [
+        "ISO9001",
+        "CMMI",
+        "PM Bok",
+        "L-OSSP (사내 OSSP)"
+      ],
+      "main_contents": [
+        "제안/계약",
+        "착수/계획",
+        "실행/통제",
+        "종료/사후관리",
+        "R&R 정의",
+        "산출물 정의",
+        "절차 기반 프로젝트 관리"
+      ],
+      "strength": "공공 및 대외 SI 사업 중심의 사업관리 활동을 실제 현업 용어 및 흐름에 맞게 설명",
+      "target_roles": [
+        "영업대표",
+        "BD",
+        "PM/PL",
+        "사업관리자",
+        "프로젝트 QA"
+      ]
+    },
+    "software_development": {
+      "purpose": "대외 SI 사업의 표준화된 SW개발 통한 개발생산성 및 품질 향상",
+      "scope": "SW개발 요구사항분석부터 전개까지 전 단계 적용. 규모와 일정에 따라 유연한 테일러링 가능",
+      "references": [
+        "ISO/IEC12207",
+        "CMMI",
+        "정보공학기법 (IE)",
+        "CBD 방법론"
+      ],
+      "main_contents": [
+        "요구사항분석",
+        "설계",
+        "구현",
+        "테스트",
+        "전개",
+        "단계별 개발 산출물 정의",
+        "품질 점검 및 이관 프로세스"
+      ],
+      "strength": "대규모 개발 프로젝트에 적용 가능한 정보공학/CBD 기반 실무 중심 방법론 설명",
+      "target_roles": [
+        "개발 PL",
+        "개발자",
+        "아키텍트",
+        "프로젝트 QA",
+        "테스터"
+      ]
+    }
+  },
+  "2_RnR_Definitions": [
+    {
+      "role": "고객",
+      "subrole": "사업주관책임자",
+      "activities": [
+        "프로젝트에 대한 총괄적인 관리 및 책임을 지는 고객 조직",
+        "사업계획 및 프로젝트 표준, 프로젝트 산출물에 대한 승인",
+        "개발될 시스템의 요구사항을 제공하고 이를 최종적으로 검증할 책임을 가짐",
+        "시스템 개발 결과에 직접적으로 영향을 받는 모든 이해관계자들을 대표함",
+        "업무별 위험 식별 및 영향도 평가, 대응방안 수립, 위험 모니터링 및 통제하는 관리 업무를 이행"
+      ],
+      "department": "발주사(고객사)"
+    }
+  ],
+  "3_Abbreviation_Dictionary": [
+    {
+      "abbreviation": "AA",
+      "name": "Application Architect",
+      "meaning": "어플리케이션 분석/설계자"
+    },
+    {
+      "abbreviation": "BA",
+      "name": "Business Architect",
+      "meaning": "업무전문가, 분석/설계자"
+    },
+    {
+      "abbreviation": "BD",
+      "name": "Business Development",
+      "meaning": "사업 개발"
+    }
+  ],
+  "4_Main_Process": [
+    {
+      "step": "제안/계약",
+      "activity": "1. 영업기회 등록(K)",
+      "timing": "사업기회 식별 후",
+      "owner": [
+        "영업대표"
+      ],
+      "worker": [
+        "영업대표"
+      ],
+      "support": [
+        "사업부서",
+        "BD"
+      ],
+      "system": "KOS"
+    },
+    {
+      "step": "제안/계약",
+      "activity": "2. VDC-A 실시",
+      "timing": "",
+      "owner": [],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "제안/계약",
+      "activity": "2.1 VDC-A 심의 준비(K)",
+      "timing": "사전규격 / RFI 1개월 이전",
+      "owner": [
+        "영업대표",
+        "BD",
+        "PM"
+      ],
+      "worker": [
+        "영업대표",
+        "BD"
+      ],
+      "support": [
+        "품질/PRM"
+      ],
+      "system": "KOS"
+    },
+    {
+      "step": "제안/계약",
+      "activity": "2.2 VDC-A 심의 실시 및 공조 요청(K)",
+      "timing": "사전규격 / RFI 1개월 이전",
+      "owner": [
+        "영업대표",
+        "BD"
+      ],
+      "worker": [
+        "심의부서"
+      ],
+      "support": [
+        "품질/PRM"
+      ],
+      "system": "KOS"
+    },
+    {
+      "step": "제안/계약",
+      "activity": "3. 제안서 작성",
+      "timing": "",
+      "owner": [],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "제안/계약",
+      "activity": "3.1 제안환경 구성",
+      "timing": "VDC- A 실시 및 공조 승인 후",
+      "owner": [
+        "제안PM"
+      ],
+      "worker": [
+        "제안PM"
+      ],
+      "support": [
+        "E부문 제안/이행지원부서",
+        "영업대표",
+        "BD"
+      ],
+      "system": "KOS"
+    },
+    {
+      "step": "제안/계약",
+      "activity": "3.2 사전공고 분석 및 Risk 검토",
+      "timing": "사전공고 후",
+      "owner": [
+        "영업대표",
+        "BD",
+        "제안PM"
+      ],
+      "worker": [
+        "영업대표",
+        "BD",
+        "제안팀"
+      ],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "제안/계약",
+      "activity": "3.3 RFP 분석",
+      "timing": "RFP 접수 후",
+      "owner": [
+        "영업대표",
+        "BD",
+        "제안PM"
+      ],
+      "worker": [
+        "영업대표",
+        "BD",
+        "제안팀"
+      ],
+      "support": [
+        "제안지원부서",
+        "아키텍처",
+        "품질/PRM"
+      ],
+      "system": ""
+    },
+    {
+      "step": "제안/계약",
+      "activity": "3.4 제안서 작성",
+      "timing": "제안서제출 최소 1일전까지",
+      "owner": [
+        "제안PM"
+      ],
+      "worker": [
+        "제안팀"
+      ],
+      "support": [
+        "영업대표",
+        "BD",
+        "제안지원부서",
+        "아키텍처",
+        "품질/PRM"
+      ],
+      "system": ""
+    },
+    {
+      "step": "제안/계약",
+      "activity": "3.5 하도급사 검증(K)",
+      "timing": "VDC-B 발의전까지",
+      "owner": [
+        "구매(원가)"
+      ],
+      "worker": [
+        "BD",
+        "제안PM",
+        "이행PM"
+      ],
+      "support": [
+        "구매(원가)부서"
+      ],
+      "system": ""
+    },
+    {
+      "step": "제안/계약",
+      "activity": "3.6 견적 확보 및 원가 산정",
+      "timing": "VDC-B 발의 전까지",
+      "owner": [
+        "영업대표",
+        "제안PM"
+      ],
+      "worker": [
+        "BD",
+        "구매"
+      ],
+      "support": [
+        "구매부서"
+      ],
+      "system": ""
+    },
+    {
+      "step": "제안/계약",
+      "activity": "3.7 Risk 검토 및 대응방안 수립",
+      "timing": "VDC-B 심의 전까지",
+      "owner": [
+        "영업대표",
+        "제안PM"
+      ],
+      "worker": [
+        "PRM",
+        "BD",
+        "PL"
+      ],
+      "support": [
+        "품질/PRM",
+        "BD"
+      ],
+      "system": ""
+    },
+    {
+      "step": "제안/계약",
+      "activity": "4. VDC-B 실시(K)",
+      "timing": "발의: 입찰일 기준 영업일수 3일전\n심의: 입찰전까지",
+      "owner": [
+        "영업대표",
+        "재무"
+      ],
+      "worker": [
+        "영업대표",
+        "BD",
+        "재무"
+      ],
+      "support": [
+        "구매",
+        "재무",
+        "법무",
+        "품질/PRM"
+      ],
+      "system": "KOS"
+    },
+    {
+      "step": "제안/계약",
+      "activity": "5. 입찰 및 제안발표",
+      "timing": "",
+      "owner": [],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "제안/계약",
+      "activity": "5.1 입찰 및 제안서 제출",
+      "timing": "제출마감까지",
+      "owner": [
+        "영업대표"
+      ],
+      "worker": [
+        "BD",
+        "제안PM",
+        "제안팀"
+      ],
+      "support": [
+        "사업부서",
+        "이행부서"
+      ],
+      "system": "나라장터 및 고객사 전자입찰시스템"
+    },
+    {
+      "step": "제안/계약",
+      "activity": "5.2 제안 발표",
+      "timing": "",
+      "owner": [
+        "이행PM"
+      ],
+      "worker": [
+        "제안PM",
+        "제안팀"
+      ],
+      "support": [
+        "영업대표",
+        "BD"
+      ],
+      "system": ""
+    },
+    {
+      "step": "제안/계약",
+      "activity": "6. 기술협상",
+      "timing": "",
+      "owner": [],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "제안/계약",
+      "activity": "6.1 기술협상 준비 및 실시",
+      "timing": "우선협상대상 선정 후",
+      "owner": [
+        "이행PM"
+      ],
+      "worker": [
+        "BD",
+        "영업대표",
+        "제안PM"
+      ],
+      "support": [
+        "컨소사",
+        "재무",
+        "구매",
+        "법무",
+        "아키텍처"
+      ],
+      "system": ""
+    },
+    {
+      "step": "제안/계약",
+      "activity": "6.2 이행 원가 재산정 및 계약서 검토",
+      "timing": "우선협상대상 선정 후",
+      "owner": [
+        "영업대표"
+      ],
+      "worker": [
+        "BD",
+        "이행PM",
+        "제안PM"
+      ],
+      "support": [
+        "재무",
+        "구매",
+        "법무",
+        "아키텍처"
+      ],
+      "system": ""
+    },
+    {
+      "step": "제안/계약",
+      "activity": "7. VDC-C 실시(K)",
+      "timing": "발의는 계약체결 기준 영업일수 3일 전",
+      "owner": [
+        "영업대표",
+        "재무"
+      ],
+      "worker": [
+        "영업대표",
+        "BD",
+        "재무"
+      ],
+      "support": [
+        "구매",
+        "재무",
+        "법무",
+        "품질/PRM"
+      ],
+      "system": "KOS"
+    },
+    {
+      "step": "제안/계약",
+      "activity": "",
+      "timing": "심의는 계약전",
+      "owner": [],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "제안/계약",
+      "activity": "8. 계약 체결",
+      "timing": "",
+      "owner": [],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "제안/계약",
+      "activity": "8.1 계약 체결",
+      "timing": "발주사 계약 시",
+      "owner": [
+        "영업대표"
+      ],
+      "worker": [
+        "영업대표"
+      ],
+      "support": [
+        "BD",
+        "PM",
+        "법무",
+        "계약관리부서"
+      ],
+      "system": "계약서 검토: KT Legal"
+    },
+    {
+      "step": "제안/계약",
+      "activity": "8.2 프로젝트 발주 처리(K)",
+      "timing": "발주사 계약 시",
+      "owner": [
+        "영업대표",
+        "BD"
+      ],
+      "worker": [
+        "제안PM"
+      ],
+      "support": [
+        "품질/PRM"
+      ],
+      "system": "KOS"
+    },
+    {
+      "step": "제안/계약",
+      "activity": "9. 하도급 업체 분석(변경시)",
+      "timing": "하도급 계약 체결 전",
+      "owner": [
+        "구매(원가)"
+      ],
+      "worker": [
+        "BD",
+        "제안PM"
+      ],
+      "support": [
+        "구매(원가)부서"
+      ],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "1. 착수전 준비",
+      "timing": "",
+      "owner": [],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "1.1 PM업무 인수/인계",
+      "timing": "수주결정후부터 착수전까지",
+      "owner": [
+        "제안PM",
+        "영업대표",
+        "BD"
+      ],
+      "worker": [
+        "영업대표",
+        "BD",
+        "이행PM"
+      ],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "1.2 하도급 승인 요청",
+      "timing": "하도급 계약 체결 전",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "영업대표",
+        "BD"
+      ],
+      "support": [
+        "영업대표",
+        "BD",
+        "구매부서"
+      ],
+      "system": "KATE>인장관리"
+    },
+    {
+      "step": "착수/계획",
+      "activity": "1.3 착수 PRB 실시(E)",
+      "timing": "계약체결일 D+7 이내",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "영업대표",
+        "BD"
+      ],
+      "support": [
+        "이행팀장/품질/PRM"
+      ],
+      "system": "EasyERP> 기업매출프로젝트> 수행프로젝트관리 > 착수 PRB관리 > 착수 PRB등록/변경"
+    },
+    {
+      "step": "착수/계획",
+      "activity": "1.4 사업 기본정보 수집",
+      "timing": "수주결정 후부터 착수 시까지",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO"
+      ],
+      "support": [
+        "영업대표",
+        "BD"
+      ],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "1.5 수행 사무실 환경 구축",
+      "timing": "수주결정 후부터 착수전까지",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "영업대표",
+        "BD",
+        "PMO"
+      ],
+      "support": [
+        "사업부서",
+        "기획부서"
+      ],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "1.6 관리/작업 환경 구축",
+      "timing": "수주결정후부터 착수전까지",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "영업대표",
+        "BD",
+        "PMO"
+      ],
+      "support": [
+        "사업부서",
+        "기획부서",
+        "구매부서"
+      ],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "1.7 수행조직 및 역할 정의",
+      "timing": "계약체결일 D+7 이내,",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "PL"
+      ],
+      "support": [
+        "영업대표",
+        "BD",
+        "사업부서",
+        "이행부서"
+      ],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "",
+      "timing": "착수계 제출 전",
+      "owner": [],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "1.8 관리정책(Ground Rule) 수립",
+      "timing": "계약체결일 D+7 이내",
+      "owner": [
+        "PMO"
+      ],
+      "worker": [
+        "PL"
+      ],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "1.9 프로젝트 착수 지원 요청",
+      "timing": "착수 시",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO"
+      ],
+      "support": [
+        "품질/PRM",
+        "아키텍처"
+      ],
+      "system": "Kate 메일로 요청"
+    },
+    {
+      "step": "착수/계획",
+      "activity": "2.  산출물 정의 및 도구 설치",
+      "timing": "",
+      "owner": [],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "2.1 방법론 테일러링",
+      "timing": "수주 후부터 착수계 제출전까지",
+      "owner": [
+        "전사 QA"
+      ],
+      "worker": [
+        "프로젝트 QA",
+        "PL"
+      ],
+      "support": [
+        "품질/PRM",
+        "고객"
+      ],
+      "system": "Kate > K-Box"
+    },
+    {
+      "step": "착수/계획",
+      "activity": "2.2 산출물 표준 작성",
+      "timing": "수주결정후부터 착수계 제출전까지",
+      "owner": [
+        "전사 QA"
+      ],
+      "worker": [
+        "프로젝트 QA",
+        "PL"
+      ],
+      "support": [
+        "품질/PRM"
+      ],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "2.3 PMS 설치(필요시)",
+      "timing": "착수 후 14일 이내",
+      "owner": [
+        "PMS 책임자"
+      ],
+      "worker": [
+        "PMO",
+        "프로젝트 QA"
+      ],
+      "support": [
+        "품질/PRM",
+        "CTO 조직 PMS 담당부서"
+      ],
+      "system": "PMS"
+    },
+    {
+      "step": "착수/계획",
+      "activity": "3. 하도급 계약",
+      "timing": "",
+      "owner": [],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "3.1 하도급 계약 요청 및 계약 검토",
+      "timing": "착수 시, 매출 계약 전",
+      "owner": [
+        "하도급 최초계약 요청: 영업대표"
+      ],
+      "worker": [
+        "PMO",
+        "BD",
+        "구매"
+      ],
+      "support": [
+        "BD",
+        "구매부서",
+        "협력업체"
+      ],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "",
+      "timing": "",
+      "owner": [
+        "변경/추가/신규 계약 요청: PM"
+      ],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "3.2 최초 하도급 계약(E)",
+      "timing": "매출 계약 후~용역/발주 전",
+      "owner": [
+        "하도급 최초계약 요청: 영업대표"
+      ],
+      "worker": [
+        "PMO",
+        "BD",
+        "구매"
+      ],
+      "support": [
+        "BD",
+        "구매부서",
+        "협력업체"
+      ],
+      "system": "EasyERP> 기업매출프로젝트> 하도급계약 관리 > 하도급계약 요청"
+    },
+    {
+      "step": "착수/계획",
+      "activity": "",
+      "timing": "",
+      "owner": [
+        "변경/추가/신규 계약 요청: PM"
+      ],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "3.3 하도급 사업수행계획서 확인",
+      "timing": "하도급 계약 완료 후",
+      "owner": [
+        "하도급 최초계약 요청: 영업대표"
+      ],
+      "worker": [
+        "PMO",
+        "BD",
+        "구매"
+      ],
+      "support": [
+        "BD",
+        "구매부서",
+        "협력업체"
+      ],
+      "system": "구매시스템"
+    },
+    {
+      "step": "착수/계획",
+      "activity": "",
+      "timing": "",
+      "owner": [
+        "변경/추가/신규 계약 요청: PM"
+      ],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "4. 사업수행계획서 작성",
+      "timing": "수주 후~계약체결일 D+7 이내\n(RFP의 착수계 제출일 확인)",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "프로젝트 QA",
+        "PL"
+      ],
+      "support": [
+        "품질/PRM"
+      ],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "4.1 과업대비표 작성",
+      "timing": "수주 후~계약체결일 D+7 이내",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "프로젝트 QA",
+        "PL"
+      ],
+      "support": [
+        "품질/PRM"
+      ],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "4.2 WBS 작성",
+      "timing": "수주 후~계약체결일 D+7 이내",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "프로젝트 QA",
+        "PL"
+      ],
+      "support": [
+        "품질/PRM"
+      ],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "4.3 품질관리계획",
+      "timing": "수주 후~계약체결일 D+7 이내",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "프로젝트 QA",
+        "PMO",
+        "PL"
+      ],
+      "support": [
+        "품질/PRM"
+      ],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "4.4 형상관리계획",
+      "timing": "수주 후~계약체결일 D+7 이내",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "프로젝트 QA",
+        "PMO",
+        "PL"
+      ],
+      "support": [
+        "품질/PRM"
+      ],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "4.5 인력관리 계획",
+      "timing": "수주 후~계약체결일 D+7 이내",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "PL"
+      ],
+      "support": [
+        "영업대표",
+        "BD",
+        "이행부서"
+      ],
+      "system": "인재 DB 추가 예정(TBD)"
+    },
+    {
+      "step": "착수/계획",
+      "activity": "4.6 의사소통관리 계획",
+      "timing": "수주 후~계약체결일 D+7 이내",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO"
+      ],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "4.7 위험관리 계획",
+      "timing": "수주 후~계약체결일 D+7 이내",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO"
+      ],
+      "support": [
+        "품질/PRM"
+      ],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "4.8 보안관리 계획",
+      "timing": "수주 후~계약체결일 D+7 이내",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "보안PL",
+        "PMO"
+      ],
+      "support": [
+        "보안부서"
+      ],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "4.9 교육 및 기술이전 계획",
+      "timing": "수주 후~계약체결일 D+7 이내",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "PL"
+      ],
+      "support": [
+        "교육부서",
+        "고객",
+        "벤더사"
+      ],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "5. 착수계 준비 및 제출",
+      "timing": "수주 후~계약체결일 D+7 이내\n(RFP의 착수계 제출일 확인)",
+      "owner": [],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "5.1 착수계 제출 시 유의사항 점검",
+      "timing": "수주 후~계약체결일 D+7 이내",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO"
+      ],
+      "support": [
+        "영업대표",
+        "BD"
+      ],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "5.2 착수계 제출서류 준비",
+      "timing": "수주 후~계약체결일 D+7 이내",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO"
+      ],
+      "support": [
+        "영업대표",
+        "BD"
+      ],
+      "system": "KATE>BPM"
+    },
+    {
+      "step": "착수/계획",
+      "activity": "5.3 착수계 제출",
+      "timing": "수주 후~계약체결일 D+7 이내",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO"
+      ],
+      "support": [
+        "영업대표",
+        "BD"
+      ],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "6. 선급금 청구 및 지급",
+      "timing": "",
+      "owner": [],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "6.1 선금급 신청",
+      "timing": "사업수행계획서(착수계) 승인 후 ",
+      "owner": [
+        "PM",
+        "영업대표"
+      ],
+      "worker": [
+        "PMO",
+        "BD",
+        "재무부서"
+      ],
+      "support": [
+        "구매부서",
+        "재무부서"
+      ],
+      "system": "EasyERP"
+    },
+    {
+      "step": "착수/계획",
+      "activity": "6.2 하도급 선급금 지급(E)",
+      "timing": "선급금 수금 후 D+15 이내",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "영업대표",
+        "BD",
+        "재무부서"
+      ],
+      "support": [
+        "구매",
+        "재무",
+        "협력업체"
+      ],
+      "system": "KOS"
+    },
+    {
+      "step": "착수/계획",
+      "activity": "7. 공사성 사업 신고",
+      "timing": "",
+      "owner": [],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "7.1 사업개시 신고",
+      "timing": "계약체결일 D+14 이내",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO"
+      ],
+      "support": [
+        "영업대표",
+        "BD"
+      ],
+      "system": "KATE>인장관리"
+    },
+    {
+      "step": "착수/계획",
+      "activity": "7.2 하수급인 사업주 신고",
+      "timing": "하도급 계약체결일 D+30 이내",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO"
+      ],
+      "support": [
+        "영업대표",
+        "BD"
+      ],
+      "system": "KATE > BPM > 근로복지공단 고용산재보험 토탈서비스 접속 신청"
+    },
+    {
+      "step": "착수/계획",
+      "activity": "7.3 퇴직공제부금 성립신고",
+      "timing": "실 착공일 D+14 이내",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO"
+      ],
+      "support": [
+        "영업대표",
+        "BD"
+      ],
+      "system": "건설근로자 공제회>퇴직공제EDI시스템"
+    },
+    {
+      "step": "착수/계획",
+      "activity": "8. 착수보고회 실시(고객 요청시)",
+      "timing": "계약체결일 D+10 이내",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "PL"
+      ],
+      "support": [
+        "고객",
+        "영업대표",
+        "BD",
+        "사업부서",
+        "이행부서"
+      ],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "9. 팀 착수 워크숍(팀 착수 교육)",
+      "timing": "계약체결일 D+30 이내",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "PL"
+      ],
+      "support": [
+        "기획부서"
+      ],
+      "system": ""
+    },
+    {
+      "step": "착수/계획",
+      "activity": "10. 계획 등록: 인력/매출인식공정율(E)",
+      "timing": "계약체결 후",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "영업대표",
+        "BD"
+      ],
+      "support": [
+        "사업부서",
+        "이행부서"
+      ],
+      "system": "EasyERP> 기업매출프로젝트> 수행프로젝트관리 >"
+    },
+    {
+      "step": "실행/통제",
+      "activity": "1. 통합 관리",
+      "timing": "",
+      "owner": [],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "1.1. 프로젝트계획 변경 및 승인(필요시)",
+      "timing": "프로젝트계획 변경 필요시",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "PL"
+      ],
+      "support": [
+        "영업대표",
+        "BD",
+        "품질/PRM",
+        "계약관련부서"
+      ],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "1.2. 일반 관리 및 지원",
+      "timing": "계약체결일 D+14 이내",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO"
+      ],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "2. 범위 및 요구사항 관리",
+      "timing": "",
+      "owner": [],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "2,1 요구사항 정의",
+      "timing": "요구사항 분석단계",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "프로젝트 QA",
+        "PL"
+      ],
+      "support": [
+        "영업대표",
+        "BD",
+        "품질/PRM"
+      ],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "2.2 요구사항추적표 작성",
+      "timing": "계약체결일 D+14 이내, ",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "프로젝트 QA",
+        "PL"
+      ],
+      "support": [
+        "영업대표",
+        "BD",
+        "품질/PRM"
+      ],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "",
+      "timing": "분석/설계/구현/테스트/종료 단계말",
+      "owner": [],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "2.3 변경 요구사항 관리",
+      "timing": "사안 발생 시",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "프로젝트 QA",
+        "PL"
+      ],
+      "support": [
+        "고객",
+        "영업대표",
+        "BD",
+        "품질/PRM"
+      ],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "3. 일정관리",
+      "timing": "",
+      "owner": [],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "3.1 일정계획 vs 실적 평가",
+      "timing": "주별/월별, 사안 발생 시",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "PL"
+      ],
+      "support": [
+        "고객",
+        "영업대표",
+        "BD"
+      ],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "3.2 일정변경 및 고객승인(필요시)",
+      "timing": "사안 발생 시",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "PL"
+      ],
+      "support": [
+        "고객",
+        "영업대표",
+        "BD"
+      ],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "4. 비용관리",
+      "timing": "",
+      "owner": [],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "4.1 프로젝트 비용 집행",
+      "timing": "프로젝트 전체 단계",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO"
+      ],
+      "support": [
+        "영업대표",
+        "BD",
+        "재무부서"
+      ],
+      "system": "EasyERP"
+    },
+    {
+      "step": "실행/통제",
+      "activity": "4.2 중도금 신청(E)",
+      "timing": "프로젝트 전체 단계",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "PL"
+      ],
+      "support": [
+        "영업대표",
+        "BD",
+        "구매",
+        "재무",
+        "협력업체"
+      ],
+      "system": "EasyERP"
+    },
+    {
+      "step": "실행/통제",
+      "activity": "5. 품질관리",
+      "timing": "",
+      "owner": [],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "5.1 산출물 작성지침 교육",
+      "timing": "각 단계 시작 전",
+      "owner": [
+        "프로젝트 QA"
+      ],
+      "worker": [
+        "PL",
+        "프로젝트팀 전원"
+      ],
+      "support": [
+        "전사 QA"
+      ],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "5.2 단계별 동료검토",
+      "timing": "각 단계말",
+      "owner": [
+        "프로젝트 QA"
+      ],
+      "worker": [
+        "PL",
+        "프로젝트팀 전원"
+      ],
+      "support": [
+        "전사 QA"
+      ],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "5.3 단계별 품질점검",
+      "timing": "각 단계말",
+      "owner": [
+        "전사 QA"
+      ],
+      "worker": [
+        "전사 QA",
+        "프로젝트 QA"
+      ],
+      "support": [
+        "품질/PRM",
+        "아키텍처"
+      ],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "5.4 단계별 외부감리 수검",
+      "timing": "각 단계말",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "프로젝트 QA",
+        "PMO",
+        "PL"
+      ],
+      "support": [
+        "전사 QA"
+      ],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "5.5 부적합 및 개선사항 시정조치",
+      "timing": "각 단계말",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "프로젝트 QA",
+        "PMO",
+        "PL"
+      ],
+      "support": [
+        "전사 QA"
+      ],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "5.6 품질지표 기록 및 통계 분석",
+      "timing": "프로젝트 전체 단계",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "프로젝트 QA",
+        "PMO",
+        "PL"
+      ],
+      "support": [
+        "전사 QA"
+      ],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "6. 형상관리",
+      "timing": "프로젝트 전체 단계",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "프로젝트 QA",
+        "PMO",
+        "PL"
+      ],
+      "support": [
+        "전사 QA"
+      ],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "6.1 형상 변경 및 백업 관리",
+      "timing": "프로젝트 전체 단계",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "프로젝트 QA",
+        "PMO",
+        "PL"
+      ],
+      "support": [
+        "전사 QA"
+      ],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "7. 인력관리",
+      "timing": "",
+      "owner": [],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "7.1 인력 조달/투입/철수 관리",
+      "timing": "프로젝트 전체 단계",
+      "owner": [
+        "PM",
+        "영업대표",
+        "BD"
+      ],
+      "worker": [
+        "PM",
+        "영업대표",
+        "BD"
+      ],
+      "support": [
+        "사업부서",
+        "이행부서",
+        "구매부서",
+        "인사부서"
+      ],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "7.2 인력 검증 및 투입 실적 관리",
+      "timing": "프로젝트 전체 단계",
+      "owner": [
+        "PM",
+        "영업대표",
+        "BD"
+      ],
+      "worker": [
+        "PM",
+        "영업대표",
+        "BD"
+      ],
+      "support": [
+        "사업부서",
+        "이행부서",
+        "구매부서",
+        "인사부서"
+      ],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "8. 의사소통관리",
+      "timing": "",
+      "owner": [],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "8.1 이해관계자 의사소통",
+      "timing": "수행중",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "PL",
+        "영업대표",
+        "BD"
+      ],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "8.2 긴급상황 보고체계",
+      "timing": "수행중",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "PL"
+      ],
+      "support": [
+        "영업대표",
+        "BD",
+        "품질/PRM",
+        "리스크관리부서"
+      ],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "8.3 고객 보고(주간/월간보고 등)",
+      "timing": "주별/월별, 주요 마일스톤,",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "PL"
+      ],
+      "support": [
+        "BD",
+        "품질/PRM"
+      ],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "",
+      "timing": "사안 발생 시",
+      "owner": [],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "8.4 회의 실시",
+      "timing": "프로젝트 전체 단계",
+      "owner": [
+        "PM",
+        "PL"
+      ],
+      "worker": [
+        "PMO",
+        "프로젝트팀 전원"
+      ],
+      "support": [
+        "BD",
+        "이행부서"
+      ],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "8.5 Action Item 관리",
+      "timing": "프로젝트 전체 단계",
+      "owner": [
+        "PM",
+        "PL"
+      ],
+      "worker": [
+        "PMO",
+        "프로젝트팀 전원"
+      ],
+      "support": [
+        "BD",
+        "이행부서"
+      ],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "8.6. 행사의 기획 및 진행",
+      "timing": "프로젝트 전체 단계",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO"
+      ],
+      "support": [
+        "BD",
+        "영업대표",
+        "기획부서"
+      ],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "9. 위험관리",
+      "timing": "",
+      "owner": [],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "9.1 위험/이슈 식별 및 해결",
+      "timing": "프로젝트 전체 단계",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "PL",
+        "프로젝트팀 전원"
+      ],
+      "support": [
+        "품질/PRM"
+      ],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "9.2 위험/이슈 현황 분석평가",
+      "timing": "프로젝트 전체 단계",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "PL",
+        "프로젝트팀 전원"
+      ],
+      "support": [
+        "품질/PRM"
+      ],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "9.3 장애/재해 대응 및 보고",
+      "timing": "장애/재해 발생 시",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "PL",
+        "프로젝트팀 전원"
+      ],
+      "support": [
+        "리스크관리부서",
+        "품질/PRM",
+        "아키텍처"
+      ],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "10. 하도급 관리",
+      "timing": "",
+      "owner": [],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "10.1 하도급 관리",
+      "timing": "수행중",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO"
+      ],
+      "support": [
+        "영업대표",
+        "BD",
+        "구매",
+        "재무",
+        "협력업체"
+      ],
+      "system": "EasyERP"
+    },
+    {
+      "step": "실행/통제",
+      "activity": "10.2 하도급 검수 및 대가 지급(E)",
+      "timing": "하도급 검수일 D+60 이내",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO"
+      ],
+      "support": [
+        "영업대표",
+        "BD",
+        "구매",
+        "재무",
+        "협력업체"
+      ],
+      "system": "EasyERP>기업매출프로젝트>하도급계약관리>지급요청>대가 지급요청"
+    },
+    {
+      "step": "실행/통제",
+      "activity": "",
+      "timing": "발주사 대가수금일 D+15 이내",
+      "owner": [],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "10.4 변경 계약 (필요시)",
+      "timing": "구매계약 변경 필요시",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "구매계약담당자"
+      ],
+      "support": [
+        "영업대표",
+        "BD",
+        "구매",
+        "재무",
+        "협력업체"
+      ],
+      "system": "EasyERP> 기업매출프로젝트> 하도급계약 관리 > 하도급계약 요청 > 변경계약 요청, 하도급계약 요청"
+    },
+    {
+      "step": "실행/통제",
+      "activity": "11. 보안관리",
+      "timing": "정기, 수시, 매입 납품 완료 시, 통합테스트시",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "보안담당자",
+        "PMO",
+        "PL"
+      ],
+      "support": [
+        "구매부서",
+        "보안부서",
+        "아키텍처"
+      ],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "12. 교육관리",
+      "timing": "계약 후,",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "프로젝트 QA",
+        "PL"
+      ],
+      "support": [
+        "교욱부서",
+        "품질/PRM",
+        "아키텍처"
+      ],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "13. 안전관리(공사성)",
+      "timing": "수행중",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "안전관리자",
+        "PMO"
+      ],
+      "support": [
+        "안전관리부서",
+        "영업대표",
+        "BD"
+      ],
+      "system": ""
+    },
+    {
+      "step": "실행/통제",
+      "activity": "14. SW 임치(필요시)",
+      "timing": "수행중",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "PL",
+        "프로젝트 QA"
+      ],
+      "support": [
+        "영업대표",
+        "BD"
+      ],
+      "system": "한국저작권위원회(www.copyright.or.kr)"
+    },
+    {
+      "step": "실행/통제",
+      "activity": "15. 진행 PRB 실시(E)",
+      "timing": "수행중 사안 발생시",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "사업리스크팀 PRB담당자"
+      ],
+      "support": [
+        "영업대표",
+        "BD",
+        "품질/PRM"
+      ],
+      "system": "EasyERP>기업매출프로젝트>수행프로젝트관리>진행 PRB관리>진행 PRB/ISSUE요청 등록/변경"
+    },
+    {
+      "step": "실행/통제",
+      "activity": "16. 실적 등록: 인력/매출인식공정율 (E)",
+      "timing": "수행중",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "영업대표",
+        "BD"
+      ],
+      "support": [
+        "품질/PRM",
+        "재무실"
+      ],
+      "system": "EasyERP> 기업매출프로젝트> 수행프로젝트관리 >"
+    },
+    {
+      "step": "종료/사후관리",
+      "activity": "1. 프로젝트 종료 준비",
+      "timing": "계약 종료일 30일 이전",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "BD"
+      ],
+      "support": [
+        "영업대표",
+        "재무"
+      ],
+      "system": ""
+    },
+    {
+      "step": "종료/사후관리",
+      "activity": "2. 하자보수 및 유지보수 계획 수립",
+      "timing": "통합테스트 완료 전 후",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "PL"
+      ],
+      "support": [
+        "이행부서"
+      ],
+      "system": ""
+    },
+    {
+      "step": "종료/사후관리",
+      "activity": "3. 검사요청 및 검수",
+      "timing": "",
+      "owner": [],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "종료/사후관리",
+      "activity": "3.1 예비준공검사원 수검(필요시)",
+      "timing": "준공 30일 전",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "프로젝트 QA",
+        "PMO",
+        "PL"
+      ],
+      "support": [
+        "외부감리"
+      ],
+      "system": ""
+    },
+    {
+      "step": "종료/사후관리",
+      "activity": "3.2 검수(준공검사)",
+      "timing": "계약 종료일 전 D+14 이내",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "프로젝트 QA",
+        "PL"
+      ],
+      "support": [
+        "BD",
+        "품질/PRM",
+        "고객"
+      ],
+      "system": "KATE>문서결재>전자결재시스템"
+    },
+    {
+      "step": "종료/사후관리",
+      "activity": "3.3 최종산출물 취합/정리",
+      "timing": "검수요청 이전",
+      "owner": [
+        "PL",
+        "프로젝트 QA"
+      ],
+      "worker": [
+        "프로젝트팀 전원"
+      ],
+      "support": [
+        "품질/PRM"
+      ],
+      "system": ""
+    },
+    {
+      "step": "종료/사후관리",
+      "activity": "3.4 공식산출물 제출/산출물 반출 요청",
+      "timing": "검수요청 이전",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "프로젝트 QA",
+        "PL"
+      ],
+      "support": [
+        "품질/PRM"
+      ],
+      "system": ""
+    },
+    {
+      "step": "종료/사후관리",
+      "activity": "3.5 고객 인수/인계",
+      "timing": "검수요청 이전",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "PL"
+      ],
+      "support": [
+        "사업부서",
+        "이행부서"
+      ],
+      "system": ""
+    },
+    {
+      "step": "종료/사후관리",
+      "activity": "4. 인력 및 자원 철수",
+      "timing": "프로젝트 종료 전",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "영업대표",
+        "BD"
+      ],
+      "support": [
+        "사업부서",
+        "이행부서"
+      ],
+      "system": ""
+    },
+    {
+      "step": "종료/사후관리",
+      "activity": "5. 종료보고회 실시(고객 요청시)",
+      "timing": "검수 완료 후",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "PL"
+      ],
+      "support": [
+        "사업부서",
+        "이행부서"
+      ],
+      "system": ""
+    },
+    {
+      "step": "종료/사후관리",
+      "activity": "6. 잔금 신청",
+      "timing": "검수 완료후",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "PL"
+      ],
+      "support": [
+        "영업대표",
+        "BD",
+        "재무"
+      ],
+      "system": "EasyERP"
+    },
+    {
+      "step": "종료/사후관리",
+      "activity": "7. 업체 검수 및 대가 지급(E)",
+      "timing": "검수: 하도급사 목적물 수령일 D+10 이내",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "PL"
+      ],
+      "support": [
+        "구매부서",
+        "재무부서"
+      ],
+      "system": "EasyERP>기업매출프로젝트>하도급계약관리>지급요청>대가 지급요청"
+    },
+    {
+      "step": "종료/사후관리",
+      "activity": "8. 종료 PRB 실시",
+      "timing": "",
+      "owner": [],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "종료/사후관리",
+      "activity": "8.1. 종료 PRB 자료 시스템 등록(E)",
+      "timing": "준공일 D+60 이내",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO"
+      ],
+      "support": [
+        "BD",
+        "품질/PRM"
+      ],
+      "system": "EasyERP> 기업매출프로젝트 > 수행프로젝트관리 > 종료 PRB관리 > 종료 PRB등록/변경"
+    },
+    {
+      "step": "종료/사후관리",
+      "activity": "8.2. 종료 PRB 실시",
+      "timing": "준공일 D+50 이내",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO"
+      ],
+      "support": [
+        "BD",
+        "품질/PRM"
+      ],
+      "system": "EasyERP"
+    },
+    {
+      "step": "종료/사후관리",
+      "activity": "9. 사후관리",
+      "timing": "",
+      "owner": [],
+      "worker": [],
+      "support": [],
+      "system": ""
+    },
+    {
+      "step": "종료/사후관리",
+      "activity": "9.1 무상 하자보수",
+      "timing": "무상하자보수기간 내",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "PL"
+      ],
+      "support": [
+        "BD",
+        "품질/PRM"
+      ],
+      "system": ""
+    },
+    {
+      "step": "종료/사후관리",
+      "activity": "9.2. 사후관리 PRB 처리(E)",
+      "timing": "프로젝트 종료 후",
+      "owner": [
+        "PM"
+      ],
+      "worker": [
+        "PMO",
+        "PRB담당자"
+      ],
+      "support": [
+        "영업대표",
+        "BD",
+        "품질/PRM"
+      ],
+      "system": "EasyERP> 기업매출프로젝트> 이행 프로젝트 관리 > "
+    }
+  ],
+  "5_Deliverables": [
+    {
+      "phase": "착수",
+      "activity": "착수 준비",
+      "task": "방법론 및 라이프사이클 정의",
+      "output": "테일러링결과서",
+      "tool": "엑셀",
+      "doc_id": "SI-PM-ST-01"
+    },
+    {
+      "phase": "착수",
+      "activity": "착수 준비",
+      "task": "산출물 목록 정의",
+      "output": "산출물목록",
+      "tool": "엑셀",
+      "doc_id": "SI-PM-ST-02"
+    },
+    {
+      "phase": "착수",
+      "activity": "착수 준비",
+      "task": "문서 표준 수립",
+      "output": "문서작성표준",
+      "tool": "워드/한글",
+      "doc_id": "SI-PM-ST-03"
+    },
+    {
+      "phase": "계획",
+      "activity": "프로젝트 계획 수립",
+      "task": "사업수행계획수립",
+      "output": "사업수행계획서",
+      "tool": "워드/한글",
+      "doc_id": "SI-PM-PP-01"
+    },
+    {
+      "phase": "계획",
+      "activity": "프로젝트 계획 수립",
+      "task": "일정 계획 수립",
+      "output": "WBS",
+      "tool": "엑셀",
+      "doc_id": "SI-PM-PP-02"
+    },
+    {
+      "phase": "계획",
+      "activity": "프로젝트 계획 확정",
+      "task": "착공계 제출",
+      "output": "착수계",
+      "tool": "워드/한글",
+      "doc_id": "SI-PM-PP-03"
+    },
+    {
+      "phase": "계획",
+      "activity": "프로젝트 계획 확정",
+      "task": "프로젝트 착수보고 실시",
+      "output": "착수보고서",
+      "tool": "PPT",
+      "doc_id": "SI-PM-PP-04"
+    },
+    {
+      "phase": "실행통제",
+      "activity": "범위관리",
+      "task": "범위정의",
+      "output": "과업대비표",
+      "tool": "엑셀",
+      "doc_id": "SI-PM-SC-01"
+    },
+    {
+      "phase": "실행통제",
+      "activity": "범위관리",
+      "task": "요구사항정의",
+      "output": "요구사항정의서",
+      "tool": "엑셀",
+      "doc_id": "SI-PM-SC-02"
+    },
+    {
+      "phase": "실행통제",
+      "activity": "범위관리",
+      "task": "검사기준 관리",
+      "output": "검사기준서",
+      "tool": "엑셀",
+      "doc_id": "SI-PM-SC-03"
+    },
+    {
+      "phase": "실행통제",
+      "activity": "범위관리",
+      "task": "요구사항추적관리",
+      "output": "요구사항추적표",
+      "tool": "엑셀",
+      "doc_id": "SI-PM-SC-04"
+    },
+    {
+      "phase": "실행통제",
+      "activity": "일정관리",
+      "task": "WBS 관리(주별 실적관리)",
+      "output": "WBS",
+      "tool": "엑셀",
+      "doc_id": "중복"
+    },
+    {
+      "phase": "실행통제",
+      "activity": "품질관리",
+      "task": "품질점검 계획수립",
+      "output": "품질점검계획서",
+      "tool": "워드/한글",
+      "doc_id": "SI-PM-QA-01"
+    },
+    {
+      "phase": "실행통제",
+      "activity": "품질관리",
+      "task": "품질점검 결과작성",
+      "output": "품질점검결과서",
+      "tool": "워드/한글",
+      "doc_id": "SI-PM-QA-02"
+    },
+    {
+      "phase": "실행통제",
+      "activity": "품질관리",
+      "task": "부적합및개선사항목록",
+      "output": "부적합및개선사항목록",
+      "tool": "엑셀",
+      "doc_id": "SI-PM-QA-02-별첨01"
+    },
+    {
+      "phase": "실행통제",
+      "activity": "품질관리",
+      "task": "시정조치 계획수립",
+      "output": "시정조치계획및결과서",
+      "tool": "엑셀",
+      "doc_id": "SI-PM-QA-03"
+    },
+    {
+      "phase": "종료",
+      "activity": "시범운영",
+      "task": "시범운영 계획수립",
+      "output": "시범운영계획서",
+      "tool": "워드/한글",
+      "doc_id": "SI-PM-CL-01"
+    },
+    {
+      "phase": "종료",
+      "activity": "시범운영",
+      "task": "시범운영 이행",
+      "output": "시범운영결과서",
+      "tool": "엑셀",
+      "doc_id": "SI-PM-CL-02"
+    },
+    {
+      "phase": "종료",
+      "activity": "유지보수 계획",
+      "task": "유지보수 계획수립",
+      "output": "유지보수계획서",
+      "tool": "워드/한글",
+      "doc_id": "SI-PM-CL-03"
+    },
+    {
+      "phase": "종료",
+      "activity": "유지보수 계획",
+      "task": "기술지원확약서 제출",
+      "output": "기술지원확약서",
+      "tool": "엑셀",
+      "doc_id": "SI-PM-CL-04"
+    },
+    {
+      "phase": "종료",
+      "activity": "검수",
+      "task": "검수요청",
+      "output": "검수요청서",
+      "tool": "워드/한글",
+      "doc_id": "SI-PM-CL-05"
+    },
+    {
+      "phase": "종료",
+      "activity": "검수",
+      "task": "인수인계",
+      "output": "인수인계확인서",
+      "tool": "워드/한글",
+      "doc_id": "SI-PM-CL-06"
+    },
+    {
+      "phase": "종료",
+      "activity": "프로젝트 종료보고",
+      "task": "프로젝트 종료보고",
+      "output": "완료보고서",
+      "tool": "PPT",
+      "doc_id": "SI-PM-CL-07"
+    }
+  ],
+  "6_Folder_Structure": [
+    {
+      "method_type": "사업관리",
+      "lv1": "1. 착수계획",
+      "lv2": "01. 착수",
+      "lv3": ""
+    },
+    {
+      "method_type": "사업관리",
+      "lv1": "1. 착수계획",
+      "lv2": "02. 표준절차",
+      "lv3": ""
+    },
+    {
+      "method_type": "사업관리",
+      "lv1": "1. 착수계획",
+      "lv2": "03. 계획",
+      "lv3": ""
+    },
+    {
+      "method_type": "사업관리",
+      "lv1": "2. 실행통제",
+      "lv2": "01. 범위관리",
+      "lv3": ""
+    },
+    {
+      "method_type": "사업관리",
+      "lv1": "2. 실행통제",
+      "lv2": "02. 일정관리",
+      "lv3": ""
+    },
+    {
+      "method_type": "사업관리",
+      "lv1": "2. 실행통제",
+      "lv2": "03. 품질관리",
+      "lv3": ""
+    },
+    {
+      "method_type": "사업관리",
+      "lv1": "2. 실행통제",
+      "lv2": "04. 변경관리",
+      "lv3": ""
+    },
+    {
+      "method_type": "사업관리",
+      "lv1": "2. 실행통제",
+      "lv2": "05. 백업관리",
+      "lv3": ""
+    },
+    {
+      "method_type": "사업관리",
+      "lv1": "2. 실행통제",
+      "lv2": "06. 자원관리",
+      "lv3": ""
+    },
+    {
+      "method_type": "사업관리",
+      "lv1": "2. 실행통제",
+      "lv2": "07. 의사소통관리",
+      "lv3": "01. 주간보고"
+    },
+    {
+      "method_type": "사업관리",
+      "lv1": "2. 실행통제",
+      "lv2": "07. 의사소통관리",
+      "lv3": "02. 월간보고"
+    },
+    {
+      "method_type": "사업관리",
+      "lv1": "2. 실행통제",
+      "lv2": "07. 의사소통관리",
+      "lv3": "03. 단계보고"
+    },
+    {
+      "method_type": "사업관리",
+      "lv1": "2. 실행통제",
+      "lv2": "07. 의사소통관리",
+      "lv3": "04. 회의록"
+    },
+    {
+      "method_type": "사업관리",
+      "lv1": "2. 실행통제",
+      "lv2": "08. 위험관리",
+      "lv3": ""
+    },
+    {
+      "method_type": "사업관리",
+      "lv1": "2. 실행통제",
+      "lv2": "09. 보안관리",
+      "lv3": ""
+    },
+    {
+      "method_type": "사업관리",
+      "lv1": "2. 실행통제",
+      "lv2": "10. 교육관리",
+      "lv3": ""
+    },
+    {
+      "method_type": "사업관리",
+      "lv1": "30. 종료",
+      "lv2": "",
+      "lv3": ""
+    },
+    {
+      "method_type": "SW개발",
+      "lv1": "1. 분석",
+      "lv2": "01. 현행시스템분석",
+      "lv3": "99.backup"
+    },
+    {
+      "method_type": "SW개발",
+      "lv1": "1. 분석",
+      "lv2": "02. 요구사항분석",
+      "lv3": ""
+    },
+    {
+      "method_type": "SW개발",
+      "lv1": "2. 설계",
+      "lv2": "01. 아키텍처설계",
+      "lv3": ""
+    },
+    {
+      "method_type": "SW개발",
+      "lv1": "2. 설계",
+      "lv2": "02. 개발표준수립",
+      "lv3": ""
+    },
+    {
+      "method_type": "SW개발",
+      "lv1": "2. 설계",
+      "lv2": "03. 데이터베이스설계",
+      "lv3": ""
+    },
+    {
+      "method_type": "SW개발",
+      "lv1": "2. 설계",
+      "lv2": "04. 화면설계",
+      "lv3": ""
+    },
+    {
+      "method_type": "SW개발",
+      "lv1": "2. 설계",
+      "lv2": "05. 프로그램설계",
+      "lv3": ""
+    },
+    {
+      "method_type": "SW개발",
+      "lv1": "2. 설계",
+      "lv2": "06. 단위테스트계획수립",
+      "lv3": ""
+    },
+    {
+      "method_type": "SW개발",
+      "lv1": "2. 설계",
+      "lv2": "07. 데이터이관계획수립",
+      "lv3": ""
+    },
+    {
+      "method_type": "SW개발",
+      "lv1": "3. 구축",
+      "lv2": "",
+      "lv3": ""
+    },
+    {
+      "method_type": "SW개발",
+      "lv1": "4. 테스트",
+      "lv2": "",
+      "lv3": ""
+    },
+    {
+      "method_type": "SW개발",
+      "lv1": "5. 전개",
+      "lv2": "",
+      "lv3": ""
+    }
+  ]
+}
