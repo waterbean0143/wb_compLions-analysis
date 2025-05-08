@@ -135,59 +135,80 @@ def main():
             display_table(df[df['step_name']==step['step_name']])
 
     # Q&A: 범위 필터 + RetrievalQA + Groundedness
-    with qa_tab:
+            with qa_tab:
         st.header("Q&A")
-        scope_options = ["전체"] + step_names
-        scope = st.selectbox("질문 범위 선택 (전체 또는 단계)", scope_options, key="qa_scope")
-        query = st.text_input("질문 입력")
-        if st.button("질문하기", key="ask_button") and query:
-            # 범위 검증
-            if scope != "전체" and scope not in step_names:
-                st.error("잘못된 범위입니다. 다른 범위를 선택해주세요.")
+        query = st.text_input("질문 입력", key="qna_input")
+        if st.button("질문하기", key="qna_button") and query:
+            # 분류된 단계 찾기
+            step_list = [
+                "영업기회 등록","VDC-A 심의 준비","VDC-A 심의 실시 및 공조 요청",
+                "제안환경 구성","사전공고 분석 및 Risk 검토","RFP 분석","제안서 작성",
+                "하도급사 검증","견적 확보 및 원가 산정","Risk 검토 및 대응방안 수립",
+                "VDC-B 실시","입찰 및 제안서 제출","제안 발표",
+                "기술협상 준비 및 실시","이행원가 재산정 및 계약서 검토",
+                "VDC-C 실시","계약 체결","프로젝트 발주 처리"
+            ]
+            norm = lambda t: re.sub(r'[^a-z0-9]', '', t.lower())
+            match = difflib.get_close_matches(query, step_list, n=1, cutoff=0.4)
+            if not match:
+                st.error("해당 질문에 맞는 주제를 찾지 못했습니다. 다른 표현으로 다시 시도해주세요.")
             else:
-                # 문서 불러오기
-                docs = []
-                if scope == "전체":
-                    for s in steps:
-                        if s['document_url']:
-                            docs.extend(PyMuPDFLoader(download_to_temp(s['document_url'])).load())
-                else:
-                    url = next((s['document_url'] for s in steps if s['step_name']==scope), '')
-                    if url:
-                        docs = PyMuPDFLoader(download_to_temp(url)).load()
-                if not docs:
-                    st.error("선택된 범위에 문서가 없습니다.")
-                else:
-                    # 분할 및 벡터화
-                    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
-                    chunks = splitter.split_documents(docs)
-                    vectorstore = FAISS.from_documents(chunks, OpenAIEmbeddings())
-                    prompt = PromptTemplate(
-                        input_variables=["context","question"],
-                        template="""
-                        당신은 SI 프로세스 문서 기반 질문에 답하는 어시스턴트입니다.
-                        [문서]
-                        {context}
-                        [질문]
-                        {question}
-                        [답변 형식]
-                        💡 핵심 요약
-                        📋 절차 또는 판단 주체
-                        """
-                    )
-                    qa_chain = RetrievalQA.from_chain_type(
-                        llm=ChatOpenAI(temperature=0.0),
-                        retriever=vectorstore.as_retriever(),
-                        chain_type="stuff",
-                        chain_type_kwargs={"prompt": prompt}
-                    )
-                    # 답변 실행
-                    with st.spinner("답변 생성 중..."):
-                        ans = qa_chain.run(query)
-                        rel = UpstageGroundednessCheck().invoke(ans)
-                    if not rel.get("grounded", False):
-                        st.warning("📌 문서 근거가 부족할 수 있습니다.")
-                    st.markdown(f"**답변:**\n> {ans}")
+                topic = match[0]
+                st.subheader(f"🔎 주제: {topic}")
+                # 원본 문서 URL 가져오기
+                df_row = df[df['major'].str.contains(re.escape(topic), na=False)]
+                if df_row.empty:
+                    st.warning("주제에 해당하는 문서 URL이 없습니다.")
+                    return
+                doc_url = df_row['document_url'].iloc[0]
+                st.markdown(f"**원본 문서 URL:** {doc_url}")
+                # 문서 로드
+                temp_path = download_to_temp(doc_url)
+                loader = PyMuPDFLoader(temp_path)
+                docs = loader.load()
+                # BM25 인덱싱
+                texts = [d.page_content for d in docs]
+                tokenized = [t.split() for t in texts]
+                bm25 = BM25Okapi(tokenized)
+                q_tokens = query.split()
+                top_n = bm25.get_top_n(q_tokens, texts, n=5)
+                context = "
+
+".join(top_n)
+                # LLM에 질의
+                llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0.0)
+                prompt = PromptTemplate(
+                    input_variables=["context","question"],
+                    template="""
+                    당신은 SI 프로세스 문서 기반 질문에 답하는 어시스턴트입니다.
+
+                    [문서]
+                    {context}
+
+                    [질문]
+                    {question}
+
+                    [답변 형식]
+                    💡 핵심 요약
+                    📋 절차 또는 판단 주체
+                    """
+                )
+                chain = RetrievalQA.from_chain_type(
+                    llm=llm,
+                    retriever=None,
+                    chain_type="stuff",
+                    chain_type_kwargs={"prompt": prompt}
+                )
+                # chain.run won't use retriever; pass context manually
+                answer = chain.llm.predict(prompt.format(context=context, question=query))
+                # 근거 검사
+                relevance = UpstageGroundednessCheck().invoke(answer)
+                if not relevance.get("grounded", False):
+                    st.warning("📌 문서 근거가 부족할 수 있습니다.")
+                st.markdown(f"**답변:**
+> {answer}")
 
 if __name__ == "__main__":
+    main()
+    main()
     main()
