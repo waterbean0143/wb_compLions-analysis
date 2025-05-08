@@ -26,7 +26,6 @@ st.set_page_config(
 # 앱 제목
 st.title("👤 사용자 프로필 기반 Q&A - VDC-A")
 
-# 문서 로딩 함수
 @st.cache_resource
 def load_process_documents():
     url = "https://drive.google.com/uc?export=download&id=1lSEWk7KDgHR71yHcjEKniWzhqwL7T2fC"
@@ -44,7 +43,10 @@ def load_process_documents():
 process_docs = load_process_documents()
 splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
 process_chunks = splitter.split_documents(process_docs)
-process_retriever = FAISS.from_documents(process_chunks, OpenAIEmbeddings())
+
+# FAISS 인덱스 생성 후 retriever로 변환
+faiss_index = FAISS.from_documents(process_chunks, OpenAIEmbeddings())
+process_retriever = faiss_index.as_retriever()
 
 # LLM 및 프롬프트 설정
 llm = ChatOpenAI(temperature=0)
@@ -64,14 +66,14 @@ if query:
     with st.spinner("문서 기반 응답 생성 중..."):
         qa_chain = RetrievalQA.from_chain_type(
             llm=llm,
-            retriever=process_retriever,
             chain_type="stuff",
+            retriever=process_retriever,
             chain_type_kwargs={"prompt": prompt},
             return_source_documents=True
         )
         result = qa_chain.invoke({"query": query})
         st.session_state["history"].append(
-            (query, result["result"], result.get("source_documents", []))
+            (query, result.get("result", ""), result.get("source_documents", []))
         )
 
 # 대화 및 근거 출력
