@@ -1,89 +1,81 @@
+# SIBOT.py
 import streamlit as st
 import os
-import tempfile
 import requests
-from langchain.document_loaders import PyPDFLoader
-from langchain.vectorstores import FAISS
+import tempfile
+
+from langchain.document_loaders import PyMuPDFLoader
+from langchain.text_splitter import CharacterTextSplitter
 from langchain.embeddings import OpenAIEmbeddings
+from langchain.vectorstores import FAISS
 from langchain.chains import RetrievalQA
 from langchain.chat_models import ChatOpenAI
 
-# OpenAI API 키 설정
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+# 1) 하드코딩된 Google Drive 파일 ID
+PROCESS_DOC_ID = "1TNOhmUds7hMpwz3NO4QD-mO-J1sUJoEa"
+QNA_DOC_ID     = "17M1mnMZVl29EahbSVqzcyZEX8LYsx5ER"
 
-# 문서 다운로드 함수
-def download_pdf_from_gdrive(gdrive_url, save_path):
-    file_id = gdrive_url.split('/d/')[1].split('/')[0]
-    download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
-    response = requests.get(download_url)
-    with open(save_path, 'wb') as f:
-        f.write(response.content)
+# 2) PDF를 GDrive에서 내려받아 임시파일에 저장
+def download_gdrive_pdf(file_id: str, dst_path: str):
+    url = f"https://drive.google.com/uc?export=download&id={file_id}"
+    r = requests.get(url)
+    r.raise_for_status()
+    with open(dst_path, "wb") as f:
+        f.write(r.content)
 
-# 문서 벡터화 함수
-def load_and_vectorize(pdf_path):
-    loader = PyPDFLoader(pdf_path)
-    documents = loader.load()
-    embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
-    vectorstore = FAISS.from_documents(documents, embeddings)
-    return vectorstore
+# 3) 문서 로딩 + 청크 분할
+@st.cache_resource
+def load_and_split(ids: list[str]):
+    paths = []
+    for fid in ids:
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+        download_gdrive_pdf(fid, tmp.name)
+        paths.append(tmp.name)
+    docs = []
+    for p in paths:
+        docs += PyMuPDFLoader(p).load()
+    splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    return splitter.split_documents(docs)
 
-# Streamlit 앱 시작
-st.set_page_config(page_title="SIBOT - SI 방법론 Q&A", layout="wide")
-st.title("📘 SIBOT: SI 방법론 문서 기반 Q&A 시스템")
+# 4) 벡터 DB 생성
+@st.cache_resource
+def build_faiss(docs):
+    emb = OpenAIEmbeddings(openai_api_key=os.getenv("OPENAI_API_KEY"))
+    return FAISS.from_documents(docs, emb)
 
-# 탭 구성
-tabs = st.tabs(["📖 소개", "🗂 프로세스 문서", "❓ 대표 질문", "💬 질문하기"])
+# 애플리케이션 시작
+st.set_page_config(page_title="SIBOT Q&A", layout="wide")
+st.title("💬 SI 방법론 문서 기반 Q&A")
 
-with tabs[0]:
-    st.markdown("""
-    ## 🔍 소개
-    SIBOT은 SI 방법론 전반에 걸친 문서 기반 Q&A 시스템입니다.
-    Google Drive에서 문서를 자동으로 다운로드하고, 이를 벡터화하여 사용자 질문에 대한 답변을 제공합니다.
-    """)
+# 5) 앱 기동 시 자동으로 문서 로드·벡터화
+process_docs = load_and_split([PROCESS_DOC_ID])
+qna_docs     = load_and_split([QNA_DOC_ID])
 
-with tabs[1]:
-    st.markdown("### 📥 프로세스 문서 다운로드 및 벡터화")
-    process_url = st.text_input("Google Drive 프로세스 문서 URL을 입력하세요:")
-    if st.button("프로세스 문서 로드"):
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-            download_pdf_from_gdrive(process_url, tmp_file.name)
-            st.session_state['process_vectorstore'] = load_and_vectorize(tmp_file.name)
-            st.success("프로세스 문서가 성공적으로 로드되었습니다.")
+process_vs = build_faiss(process_docs)
+qna_vs     = build_faiss(qna_docs)
 
-with tabs[2]:
-    st.markdown("### 📥 대표 질문 문서 다운로드 및 벡터화")
-    qna_url = st.text_input("Google Drive 대표 질문 문서 URL을 입력하세요:")
-    if st.button("대표 질문 문서 로드"):
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-            download_pdf_from_gdrive(qna_url, tmp_file.name)
-            st.session_state['qna_vectorstore'] = load_and_vectorize(tmp_file.name)
-            st.success("대표 질문 문서가 성공적으로 로드되었습니다.")
+process_retriever = process_vs.as_retriever(search_kwargs={"k":5})
+qna_retriever     = qna_vs.as_retriever(search_kwargs={"k":5})
 
-with tabs[3]:
-    st.markdown("### 💬 질문하기")
-    user_question = st.text_input("질문을 입력하세요:")
-    if st.button("질문하기"):
-        if 'process_vectorstore' in st.session_state and 'qna_vectorstore' in st.session_state:
-            # 프로세스 문서에서 검색
-            process_qa = RetrievalQA.from_chain_type(
-                llm=ChatOpenAI(openai_api_key=OPENAI_API_KEY),
-                chain_type="stuff",
-                retriever=st.session_state['process_vectorstore'].as_retriever()
-            )
-            process_answer = process_qa.run(user_question)
+llm = ChatOpenAI(openai_api_key=os.getenv("OPENAI_API_KEY"), temperature=0)
 
-            # 대표 질문 문서에서 검색
-            qna_qa = RetrievalQA.from_chain_type(
-                llm=ChatOpenAI(openai_api_key=OPENAI_API_KEY),
-                chain_type="stuff",
-                retriever=st.session_state['qna_vectorstore'].as_retriever()
-            )
-            qna_answer = qna_qa.run(user_question)
+# 채팅 이력 저장
+if "history" not in st.session_state:
+    st.session_state.history = []
 
-            st.markdown("#### 📋 프로세스 문서 기반 답변")
-            st.write(process_answer)
+# 사용자 입력
+query = st.chat_input("질문을 입력하세요:")
+if query:
+    # 프로세스 문서 기반 QA
+    proc_chain = RetrievalQA.from_chain_type(llm=llm, retriever=process_retriever, chain_type="stuff")
+    ans_proc = proc_chain.run(query)
+    # 대표질문 문서 기반 QA
+    qna_chain = RetrievalQA.from_chain_type(llm=llm, retriever=qna_retriever, chain_type="stuff")
+    ans_qna = qna_chain.run(query)
+    st.session_state.history.append((query, ans_proc, ans_qna))
 
-            st.markdown("#### 📋 대표 질문 문서 기반 답변")
-            st.write(qna_answer)
-        else:
-            st.warning("먼저 프로세스 문서와 대표 질문 문서를 로드해주세요.")
+# 대화 이력 렌더링
+for q, a1, a2 in st.session_state.history:
+    st.chat_message("user").write(q)
+    st.chat_message("assistant").markdown(f"**[프로세스 문서 답변]**\n{a1}")
+    st.chat_message("assistant").markdown(f"**[대표질문 문서 답변]**\n{a2}")
