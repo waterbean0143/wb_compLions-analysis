@@ -5,6 +5,8 @@ import pandas as pd
 import difflib
 import gdown
 import csv
+st.set_page_config(page_title="SI 방법론 챗봇", layout="wide")
+st.title("📝 SI 방법론 Q&A")
 
 from langchain.chat_models import ChatOpenAI
 from langchain.embeddings import OpenAIEmbeddings
@@ -94,10 +96,6 @@ def load_process_table(path: str) -> pd.DataFrame:
 # 호출 예:
 df = load_process_table("SI_FULL_PROCESS_HIERARCHY.csv")
 st.write("▶︎ 내부 컬럼명:", df.columns.tolist())
-
-# 4. Streamlit page setup
-st.set_page_config(page_title="SI 방법론 챗봇", layout="wide")
-st.title("📝 SI 방법론 Q&A")
 
 # 5. Load data and prepare retrievers
 # 5.1 Load process table
