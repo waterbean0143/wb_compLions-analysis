@@ -45,13 +45,28 @@ def find_matching_majors(query: str, majors: list[str]) -> list[str]:
     ni = normalize(query)
     return [m for m in majors if normalize(m).startswith(ni) or ni in normalize(m)]
 
-# 메인 로직
+# 주요 로직
 
 def main():
     st.set_page_config(page_title="SI 프로세스 챗봇", layout="wide")
 
-    # 단계별 상세정보 CSV 로드
+    # 단계별 상세정보 CSV 로드 및 컬럼명 통일
     df = load_csv("SI_FULL_PROCESS_HIERARCHY.CSV")
+    # 컬럼명 한글 -> 영문 매핑
+    rename_map = {
+        '주요 단계': 'step_name',
+        '주요 활동': 'major',
+        '시기': 'timing',
+        '책임자': 'owner',
+        '실무자': 'worker',
+        '협조 및 지원 부서': 'support',
+        '적용 시스템': 'system',
+        '문서 URL': 'document_url'
+    }
+    df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
+    # 문서 URL 컬럼이 없으면 빈값 채우기
+    if 'document_url' not in df.columns:
+        df['document_url'] = ''
 
     # configs: 고유 단계명과 문서 URL 추출
     configs = []
@@ -61,8 +76,11 @@ def main():
         configs.append({'step_name': step, 'document_url': doc_url})
 
     # 대표 Q&A JSON 로드
-    with open("vdc_a_대표질문.json", encoding='utf-8') as f:
-        rep_qna = json.load(f)
+    try:
+        with open("vdc_a_대표질문.json", encoding='utf-8') as f:
+            rep_qna = json.load(f)
+    except FileNotFoundError:
+        rep_qna = []
 
     # 사이드바: 단계 선택
     st.sidebar.title("SI 챗봇")
@@ -88,19 +106,21 @@ def main():
         query = st.text_input("질문 입력")
         if query:
             # 1) 대표 Q&A 유사도 매칭
-            questions = [e['question'] for e in rep_qna]
-            close = difflib.get_close_matches(query, questions, n=1, cutoff=0.6)
-            if close:
-                entry = next(e for e in rep_qna if e['question'] == close[0])
-                st.subheader("🔎 대표 질문 매칭 답변")
-                st.write(entry['answer'])
-                st.caption(f"출처: {entry.get('출처','없음')}")
-            else:
-                # 2) 문서 기반 Q&A
-                df_step = df[df['step_name'] == step]
-                majors = df_step['major'].dropna().unique().tolist()
-                sel_major = find_matching_majors(query, majors)[0] if find_matching_majors(query, majors) else majors[0]
+            if rep_qna:
+                questions = [e.get('question','') for e in rep_qna]
+                close = difflib.get_close_matches(query, questions, n=1, cutoff=0.6)
+                if close:
+                    entry = next(e for e in rep_qna if e.get('question','') == close[0])
+                    st.subheader("🔎 대표 질문 매칭 답변")
+                    st.write(entry.get('answer',''))
+                    st.caption(f"출처: {entry.get('출처','없음')}")
+                    return
+            # 2) 문서 기반 Q&A
+            df_step = df[df['step_name'] == step]
+            majors = df_step['major'].dropna().unique().tolist()
+            sel_major = find_matching_majors(query, majors)[0] if find_matching_majors(query, majors) else majors[0]
 
+            if cfg['document_url']:
                 loader = PyMuPDFLoader(download_to_temp(cfg['document_url']))
                 docs = loader.load()
                 splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
@@ -138,6 +158,8 @@ def main():
                 if not relevance.get("grounded", False):
                     st.warning("📌 경고: 문서 근거가 부족할 수 있습니다.")
                 st.markdown(f"**답변:**\n> {ans}")
+            else:
+                st.error("❌ 문서 URL이 설정되어 있지 않습니다.")
 
 if __name__ == "__main__":
     main()
