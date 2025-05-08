@@ -22,7 +22,7 @@ load_dotenv()
 # 사용자 인증 정보
 users = {
     "admin": {"password": "admin", "name": "관리자"},
-    "test": {"password": "test", "name": "테스트 사용자"},    
+    "test": {"password": "test", "name": "테스트 사용자"},
 }
 
 @st.cache_data
@@ -43,7 +43,6 @@ def download_to_temp(url: str) -> str:
 
 def normalize(text: str) -> str:
     return re.sub(r'[^a-z0-9]', '', (text or '').lower())
-
 
 def find_matching_majors(query: str, majors: list[str]) -> list[str]:
     ni = normalize(query)
@@ -78,15 +77,17 @@ def main():
         username = st.text_input("아이디", key="login_user")
         password = st.text_input("비밀번호", type="password", key="login_pw")
         if st.button("로그인", key="login_button"):
-            if username in USERS and password == USERS[username]:
+            if username in users and password == users[username]["password"]:
                 st.session_state['logged_in'] = True
                 st.session_state['logged_in_user'] = username
                 st.experimental_rerun()
             else:
                 st.error("로그인 정보가 올바르지 않습니다.")
-        return
+        st.stop()
 
+    # 로그인 완료 후 환영 이름
     logged_in_user = st.session_state['logged_in_user']
+    display_name = users[logged_in_user]['name']
 
     # 단계별 상세정보 CSV 로드 및 컬럼명 변환
     df = load_csv("SI_FULL_PROCESS_HIERARCHY.CSV")
@@ -118,12 +119,12 @@ def main():
         rep_qna = []
 
     # --- 사이드바 ---
-    st.sidebar.header(f"[접속자] {logged_in_user}님, 환영합니다!")
+    st.sidebar.header(f"[접속자] {display_name}님, 환영합니다!")
     if st.sidebar.button("새로운 대화 주제", key="clear_button"):
         st.session_state.clear()
         st.experimental_rerun()
 
-    model_name = st.sidebar.selectbox("언어 모델 선택", list(USERS.keys()), key="model_select")
+    model_name = st.sidebar.selectbox("언어 모델 선택", ["o3-mini"], key="model_select")
     st.session_state['answer_mode'] = st.sidebar.selectbox(
         "답변 모드 선택", ["빠른 답변", "정확한 답변"], index=0, key="answer_mode_select"
     )
@@ -135,11 +136,11 @@ def main():
     feedback = st.sidebar.text_area("전반적인 사용후기를 입력해주세요:", key="feedback_text")
     col1, col2 = st.sidebar.columns([2, 1])
     with col1:
-        if st.button("피드백 제출", key="feedback_submit"):
+        if st.sidebar.button("피드백 제출", key="feedback_submit"):
             # 피드백 저장 로직 추가 필요
             st.sidebar.success("피드백이 제출되었습니다.")
     with col2:
-        if st.button("로그아웃", key="logout_button"):
+        if st.sidebar.button("로그아웃", key="logout_button"):
             st.session_state.clear()
             st.experimental_rerun()
 
@@ -154,7 +155,7 @@ def main():
 
     with overview_tab:
         step = st.sidebar.selectbox("프로세스 단계 선택", [c['step_name'] for c in configs], key="step_select")
-        st.header(f"{step} 단계 상세 ({logged_in_user}님)")
+        st.header(f"{step} 단계 상세 ({display_name}님)")
         df_step = df[df['step_name'] == step]
         for major_label in df_step['major'].dropna().unique():
             with st.expander(major_label):
