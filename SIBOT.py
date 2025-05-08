@@ -19,6 +19,12 @@ from langchain_upstage import UpstageGroundednessCheck
 # 환경변수 로드
 load_dotenv()
 
+# 사용자 인증 정보
+users = {
+    "admin": {"password": "admin", "name": "관리자"},
+    "test": {"password": "test", "name": "테스트 사용자"},    
+}
+
 @st.cache_data
 def load_csv(path: str) -> pd.DataFrame:
     """UTF-8-sig 인코딩된 CSV를 읽어옵니다."""
@@ -37,6 +43,7 @@ def download_to_temp(url: str) -> str:
 
 def normalize(text: str) -> str:
     return re.sub(r'[^a-z0-9]', '', (text or '').lower())
+
 
 def find_matching_majors(query: str, majors: list[str]) -> list[str]:
     ni = normalize(query)
@@ -66,19 +73,19 @@ def main():
     st.set_page_config(page_title="SI 프로세스 챗봇", layout="wide")
 
     # --- 로그인 로직 ---
-    if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
+    if not st.session_state.get('logged_in', False):
         st.header("📋 SI 프로세스 챗봇 로그인")
         username = st.text_input("아이디", key="login_user")
         password = st.text_input("비밀번호", type="password", key="login_pw")
         if st.button("로그인", key="login_button"):
-            if (username == 'admin' and password == 'admin123') or (username == 'test' and password == 'test123'):
+            if username in USERS and password == USERS[username]:
                 st.session_state['logged_in'] = True
                 st.session_state['logged_in_user'] = username
+                st.experimental_rerun()
             else:
                 st.error("로그인 정보가 올바르지 않습니다.")
-        return  # 로그인 후 재실행 시 앱 계속
+        return
 
-    # 로그인된 사용자 정보
     logged_in_user = st.session_state['logged_in_user']
 
     # 단계별 상세정보 CSV 로드 및 컬럼명 변환
@@ -116,7 +123,7 @@ def main():
         st.session_state.clear()
         st.experimental_rerun()
 
-    model_name = st.sidebar.selectbox("언어 모델 선택", ["o3-mini"], key="model_select")
+    model_name = st.sidebar.selectbox("언어 모델 선택", list(USERS.keys()), key="model_select")
     st.session_state['answer_mode'] = st.sidebar.selectbox(
         "답변 모드 선택", ["빠른 답변", "정확한 답변"], index=0, key="answer_mode_select"
     )
@@ -146,8 +153,8 @@ def main():
         st.write("좌측에서 단계 선택 후 개요·Q&A 이용")
 
     with overview_tab:
-        st.header(f"{logged_in_user}님, {step} 단계 상세")
         step = st.sidebar.selectbox("프로세스 단계 선택", [c['step_name'] for c in configs], key="step_select")
+        st.header(f"{step} 단계 상세 ({logged_in_user}님)")
         df_step = df[df['step_name'] == step]
         for major_label in df_step['major'].dropna().unique():
             with st.expander(major_label):
@@ -157,7 +164,7 @@ def main():
         st.header("Q&A")
         query = st.text_input("질문 입력")
         if query:
-            # 대표 Q&A 또는 문서 기반 Q&A 로직 (생략)
+            # 대표 Q&A 또는 문서 기반 Q&A 로직
             pass
 
 if __name__ == "__main__":
