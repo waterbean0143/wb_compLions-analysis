@@ -1,4 +1,4 @@
-Phase,Step_name,timing,Lead,Assist,Support,System
+["Phase,Step_name,timing,Lead,Assist,Support,System"]
 "제안/계약,1. 영업기회 등록(K),사업기회 식별 후,영업대표,영업대표,사업부서|BD,KOS"
 "제안/계약,2. VDC-A 실시,,,,,"
 "제안/계약,2.1 VDC-A 심의 준비(K),사전규격 / RFI 1개월 이전,영업대표|BD|PM,영업대표|BD,품질/PRM,KOS"
