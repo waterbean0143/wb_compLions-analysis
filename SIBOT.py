@@ -1,4 +1,3 @@
-# SIBOT.py
 import streamlit as st
 import os
 import requests
@@ -57,7 +56,8 @@ qna_vs     = build_faiss(qna_docs)
 process_retriever = process_vs.as_retriever(search_kwargs={"k":5})
 qna_retriever     = qna_vs.as_retriever(search_kwargs={"k":5})
 
-llm = ChatOpenAI(openai_api_key=os.getenv("OPENAI_API_KEY"), temperature=0)
+# 항상 gpt-4o-mini 사용하도록 model_name 고정
+llm = ChatOpenAI(model_name="gpt-4o-mini", openai_api_key=os.getenv("OPENAI_API_KEY"), temperature=0)
 
 # 채팅 이력 저장
 if "history" not in st.session_state:
