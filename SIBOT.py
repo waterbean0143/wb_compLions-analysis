@@ -6,6 +6,10 @@ import tempfile
 import re
 import json
 import difflib
+
+@st.cache_data
+def load_csv(path: str) -> pd.DataFrame:
+    return pd.read_csv(path, dtype=str, encoding='utf-8-sig')
 from dotenv import load_dotenv
 import pandas as pd
 
