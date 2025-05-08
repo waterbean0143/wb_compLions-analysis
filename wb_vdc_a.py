@@ -15,15 +15,7 @@ from langchain.vectorstores import FAISS
 from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
 
-# 1. 환경 설정 및 페이지 설정
-load_dotenv()
-st.set_page_config(
-    page_title="VDC-A Multi-Doc Q&A",
-    page_icon="🤖",
-    layout="wide"
-)
-
-# 1. 환경 설정 및 페이지 설정
+# 1. 환경 설정 및 페이지 설정 (최상단에 한 번만 호출)
 load_dotenv()
 st.set_page_config(
     page_title="VDC-A Multi-Doc Q&A",
@@ -33,8 +25,8 @@ st.set_page_config(
 
 # 2. 로그인 정보
 users = {
-    "admin":     {"password": "admin",     "name": "관리자"},
-    "test":      {"password": "test",      "name": "테스트 사용자"},
+    "admin": {"password": "admin", "name": "관리자"},
+    "test": {"password": "test", "name": "테스트 사용자"},
     "10154371": {"password": "10154371", "name": "배수빈"},
     "10154372": {"password": "10154372", "name": "김도완"},
     "10156350": {"password": "10156350", "name": "박영준"},
@@ -46,10 +38,10 @@ users = {
 def check_password():
     def password_entered():
         user = st.session_state["username"]
-        pw   = st.session_state["password"]
+        pw = st.session_state["password"]
         if user in users and users[user]["password"] == pw:
             st.session_state["password_correct"] = True
-            st.session_state["logged_in_user"]   = users[user]["name"]
+            st.session_state["logged_in_user"] = users[user]["name"]
             st.session_state["is_admin"] = (user == "admin")
             del st.session_state["password"]
         else:
@@ -78,13 +70,11 @@ if not check_password():
 
 # 3. Embeddings & Prompt
 embeddings = OpenAIEmbeddings()
-# default LLM
-# llm_default = ChatOpenAI(temperature=0)
 prompt_template = (
     "당신은 VDC-A 프로세스 및 대표질문 문서를 바탕으로 질문에 답하는 AI 어시스턴트입니다."
     "\n\n질문: {question}\n\n문서 내용: {context}\n"
 )
-prompt = PromptTemplate(input_variables=["context","question"], template=prompt_template)
+prompt = PromptTemplate(input_variables=["context", "question"], template=prompt_template)
 
 # 4. 데이터 로드 및 FAISS 초기화
 @st.cache_resource
@@ -100,7 +90,7 @@ def init_faiss_from_pdf(url, chunk_size=300, chunk_overlap=50):
     return FAISS.from_documents(chunks, embeddings), docs
 
 @st.cache_resource
-def init_faiss_from_json(path,chunk_size=300,chunk_overlap=50):
+def init_faiss_from_json(path, chunk_size=300, chunk_overlap=50):
     items = json.load(open(path, encoding="utf-8"))
     docs = [Document(page_content=i['answer'], metadata={'question': i['question'], 'source': 'qna'}) for i in items]
     chunks = RecursiveCharacterTextSplitter(
@@ -125,10 +115,10 @@ else:
     temperature = 0.0
 
 # 7. 탭 구성
-tab1, tab2 = st.tabs(["프로세스 문서","대표질문 Q&A"])
+tab1, tab2 = st.tabs(["프로세스 문서", "대표질문 Q&A"])
 for tab, (index, docs) in zip(
     [tab1, tab2],
-    [(faiss_proc, proc_docs),(faiss_qna, qna_docs)]
+    [(faiss_proc, proc_docs), (faiss_qna, qna_docs)]
 ):
     with tab:
         query = st.text_input("질문을 입력하세요", key=tab.title)
@@ -147,6 +137,6 @@ for tab, (index, docs) in zip(
             st.markdown(f"### 💡 핵심 요약\n{answer.strip()}")
             with st.expander("📎 문서 근거 보기"):
                 for idx, d in enumerate(docs_res, 1):
-                    source = d.metadata.get('source','unknown')
+                    source = d.metadata.get('source', 'unknown')
                     st.markdown(f"**[{idx}]** `{source}`")
-                    st.code(d.page_content[:400] + ('...' if len(d.page_content)>400 else ''))
+                    st.code(d.page_content[:400] + ('...' if len(d.page_content) > 400 else ''))
