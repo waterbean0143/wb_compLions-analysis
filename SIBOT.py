@@ -36,12 +36,21 @@ def load_and_split(ids: list[str]):
     splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     return splitter.split_documents(docs)
 
+# 사용자에게 OpenAI API 키 입력받기
+api_key = st.sidebar.text_input("OpenAI API Key", type="password", key="openai_api_key_input")
+if not api_key:
+    st.sidebar.warning("🔑 OpenAI API 키를 입력해 주세요.")
+    st.stop()
+# 환경변수로 설정
+os.environ["OPENAI_API_KEY"] = api_key
+
 # 애플리케이션 시작
 st.set_page_config(page_title="SIBOT Q&A", layout="wide")
 st.title("💬 SI 방법론 문서 기반 Q&A")
 
 # 4) 앱 기동 시 자동으로 문서 로드·벡터화
 process_docs = load_and_split([PROCESS_DOC_ID])
+qna_docs     = load_and_split([QNA_DOC_ID])([PROCESS_DOC_ID])
 qna_docs     = load_and_split([QNA_DOC_ID])
 
 # 5) 벡터 DB 생성 (인자 없는 함수로 캐싱)
