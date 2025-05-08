@@ -4,88 +4,168 @@ import json
 import tempfile
 import requests
 import numpy as np
-import pandas as pd
 from dotenv import load_dotenv
-
 from langchain.chat_models import ChatOpenAI
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.document_loaders import PyMuPDFLoader
+from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
-from langchain.chains import RetrievalQA
 
-# 환경 변수 로드 및 페이지 설정 (한 번만 호출)
+# 1. 환경 설정 및 페이지 설정
 load_dotenv()
 st.set_page_config(
-    page_title="VDC-A 사용자 프로필 기반 Q&A",
-    page_icon="👤",
+    page_title="VDC-A Multi-Doc Q&A",
+    page_icon="🤖",
     layout="wide"
 )
 
-# 앱 제목
-st.title("👤 사용자 프로필 기반 Q&A - VDC-A")
+# 2. 로그인 정보 (wb_demo1.py 기준)
+users = {
+    "10128722": {"password": "10128722", "name": "이광준"},
+    "10154372": {"password": "10154372", "name": "김도완"},
+    "10154502": {"password": "10154502", "name": "김나현"},
+    "10154455": {"password": "10154455", "name": "이령현"},
+    "10030124": {"password": "10030124", "name": "김근우"},
+    "10050490": {"password": "10050490", "name": "이동원"},
+    "10053105": {"password": "10053105", "name": "윤재호"},
+    "10054788": {"password": "10054788", "name": "이민아"},
+    "10073609": {"password": "10073609", "name": "양수경"},
+    "10027921": {"password": "10027921", "name": "허주영"},
+    "10083224": {"password": "10083224", "name": "김상동"},
+    "10076957": {"password": "10076957", "name": "신유식"},
+    "10133827": {"password": "10133827", "name": "최형윤"},
+    "10116407": {"password": "10116407", "name": "김종선"},
+    "10106703": {"password": "10106703", "name": "윤형섭"},
+    "10142602": {"password": "10142602", "name": "강보문"},
+    "admin":     {"password": "admin",     "name": "관리자"},
+    "test":      {"password": "test",      "name": "테스트 사용자"},
+    "10139784": {"password": "10139784", "name": "이홍철"},
+    "10014632": {"password": "10014632", "name": "배기동"},
+    "10132778": {"password": "10132778", "name": "이경로"},
+    "10012384": {"password": "10012384", "name": "김대현"},
+    "10063841": {"password": "10063841", "name": "최준혁"},
+    "10150440": {"password": "10150440", "name": "이민지"},
+    "10153591": {"password": "10153591", "name": "이기찬"},
+    "10122965": {"password": "10122965", "name": "배원탁"},
+    "10143675": {"password": "10143675", "name": "유지원"},
+    "10154458": {"password": "10154458", "name": "백종안"},
+    "10154352": {"password": "10154352", "name": "오지윤"},
+}
 
-@st.cache_resource
-def load_process_documents():
-    url = "https://drive.google.com/uc?export=download&id=1lSEWk7KDgHR71yHcjEKniWzhqwL7T2fC"
-    response = requests.get(url)
-    if response.status_code == 200:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as f:
-            f.write(response.content)
-            docs = PyMuPDFLoader(f.name).load()
-            for d in docs:
-                d.metadata["source_name"] = "vdc_a_프로세스"
-            return docs
-    return []
+# 로그인 함수
+def check_password():
+    def password_entered():
+        user = st.session_state["username"]
+        pw   = st.session_state["password"]
+        if user in users and users[user]["password"] == pw:
+            st.session_state["password_correct"] = True
+            st.session_state["logged_in_user"]   = users[user]["name"]
+            st.session_state["is_admin"] = (user == "admin")
+            del st.session_state["password"]
+        else:
+            st.session_state["password_correct"] = False
 
-# 문서 분할 및 벡터화
-process_docs = load_process_documents()
-splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
-process_chunks = splitter.split_documents(process_docs)
+    if "password_correct" not in st.session_state:
+        st.text_input("Username", key="username")
+        st.text_input("Password", type="password", key="password")
+        st.button("Login", on_click=password_entered)
+        st.markdown("---")
+        return False
+    elif not st.session_state["password_correct"]:
+        st.text_input("Username", key="username")
+        st.text_input("Password", type="password", key="password")
+        st.button("Login", on_click=password_entered)
+        st.error("❌ 잘못된 아이디 또는 비밀번호입니다.")
+        del st.session_state["password_correct"]
+        return False
+    else:
+        st.sidebar.success(f"안녕하세요, {st.session_state['logged_in_user']}님!")
+        return True
 
-# FAISS 인덱스 생성 후 retriever로 변환
-faiss_index = FAISS.from_documents(process_chunks, OpenAIEmbeddings())
-process_retriever = faiss_index.as_retriever()
+# 로그인 검증
+if not check_password():
+    st.stop()
 
-# LLM 및 프롬프트 설정
-llm = ChatOpenAI(temperature=0)
+# 3. 공통 설정: 임베딩, 체인 프롬프트
+embeddings = OpenAIEmbeddings()
+llm_default = ChatOpenAI(temperature=0)
 prompt_template = (
-    "당신은 VDC-A 프로세스 문서를 바탕으로 질문에 답하는 AI 어시스턴트입니다."
+    "당신은 VDC-A 프로세스 및 대표질문 문서를 바탕으로 질문에 답하는 AI 어시스턴트입니다."
     "\n\n질문: {question}\n\n문서 내용: {context}\n"
 )
-prompt = PromptTemplate(input_variables=["context", "question"], template=prompt_template)
+prompt = PromptTemplate(input_variables=["context","question"], template=prompt_template)
 
-# 채팅 기록 초기화
-if "history" not in st.session_state:
-    st.session_state["history"] = []
+# 4. 데이터 로드 및 벡터스토어 초기화 (캐시)
+@st.cache_resource
+def init_faiss_from_pdf(url, chunk_size=300, chunk_overlap=50):
+    response = requests.get(url)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as f:
+        f.write(response.content)
+        docs = RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size, chunk_overlap=chunk_overlap
+        ).split_documents(PyMuPDFLoader(f.name).load())
+    return FAISS.from_documents(docs, embeddings), docs
 
-# 사용자 질문 입력
-query = st.text_input("질문을 입력하세요")
-if query:
-    with st.spinner("문서 기반 응답 생성 중..."):
-        qa_chain = RetrievalQA.from_chain_type(
-            llm=llm,
-            chain_type="stuff",
-            retriever=process_retriever,
-            chain_type_kwargs={"prompt": prompt},
-            return_source_documents=True
-        )
-        result = qa_chain.invoke({"query": query})
-        st.session_state["history"].append(
-            (query, result.get("result", ""), result.get("source_documents", []))
-        )
+@st.cache_resource
+def init_faiss_from_json(path, chunk_size=300, chunk_overlap=50):
+    items = json.load(open(path, encoding="utf-8"))
+    from langchain.schema import Document
+    docs = [Document(page_content=i['answer'], metadata={'question':i['question'],'source':'qna'}) for i in items]
+    chunks = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size, chunk_overlap=chunk_overlap
+    ).split_documents(docs)
+    return FAISS.from_documents(chunks, embeddings), chunks
 
-# 대화 및 근거 출력
-for q, a, sources in st.session_state["history"]:
-    st.chat_message("user").write(q)
-    st.chat_message("assistant").markdown(f"### 💡 핵심 요약\n{a.strip()}")
-    if sources:
-        with st.expander("📎 문서 근거 보기"):
-            for i, doc in enumerate(sources):
-                name = doc.metadata.get("source_name", "unknown")
-                content = doc.page_content or ""
-                st.markdown(f"**[{i+1}]** `{name}`")
-                st.code(content[:400] + ("..." if len(content) > 400 else ""))
+# URL 및 파일경로 설정
+process_url = "https://drive.google.com/uc?export=download&id=1lSEWk7KDgHR71yHcjEKniWzhqwL7T2fC"
+qna_json_path = "./vdc_a_대표질문.json"
 
-# 추가 Q&A 로직은 필요 시 이 아래에 구현하세요.
+faiss_proc, proc_chunks = init_faiss_from_pdf(process_url)
+faiss_qna, qna_chunks = init_faiss_from_json(qna_json_path)
+
+# 5. 역할 기반 UI
+is_admin = st.session_state.get("is_admin", False)
+
+# 관리자 전용 파라미터
+if is_admin:
+    k = st.number_input("Top-k Retrieval 수", min_value=1, max_value=10, value=4)
+    temperature = st.slider("LLM 온도", 0.0, 1.0, 0.0)
+else:
+    k = 4
+    temperature = 0.0
+
+# 탭 구성
+tab1, tab2 = st.tabs(["프로세스 문서","대표질문 Q&A"])
+
+for tab, (store, chunks) in zip(
+    [tab1, tab2],
+    [(faiss_proc, proc_chunks),(faiss_qna, qna_chunks)]
+):
+    with tab:
+        query = st.text_input("질문을 입력하세요", key=tab.title)
+        if query:
+            # 벡터 검색 및 스코어
+            docs_and_scores = store.search(query, k=k)
+            docs, scores = zip(*docs_and_scores)
+
+            # 관리자: 스코어 및 내용 확인
+            if is_admin:
+                st.write("#### 검색 결과 (Score)")
+                for idx, (d, s) in enumerate(docs_and_scores, 1):
+                    st.write(f"{idx}. Score: {s:.4f}")
+                    st.write(d.page_content[:200] + '...')
+
+            # QA 수행
+            llm = ChatOpenAI(temperature=temperature)
+            chain = LLMChain(llm=llm, prompt=prompt)
+            context = "\n\n".join([d.page_content for d in docs])
+            answer = chain.run(context=context, question=query)
+
+            # 출력
+            st.markdown(f"### 💡 핵심 요약\n{answer.strip()}")
+            with st.expander("📎 문서 근거 보기"):
+                for idx, d in enumerate(docs, 1):
+                    source = d.metadata.get('source','unknown')
+                    st.markdown(f"**[{idx}]** `{source}`")
+                    st.code(d.page_content[:400] + ('...' if len(d.page_content)>400 else ''))
