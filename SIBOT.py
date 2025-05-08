@@ -2,27 +2,20 @@ import streamlit as st
 import os
 from dotenv import load_dotenv
 
-# 0. .env 파일 로드
 load_dotenv()
 
-# 1. 스트림릿 시크릿 또는 환경변수에서 키 읽기
 OPENAI_API_KEY  = st.secrets.get("OPENAI_API_KEY")  or os.getenv("OPENAI_API_KEY")
 UPSTAGE_API_KEY = st.secrets.get("UPSTAGE_API_KEY") or os.getenv("UPSTAGE_API_KEY")
 
-# 2. 키 없으면 바로 중단 (이후 코드는 실행되지 않음)
 if not OPENAI_API_KEY:
     st.error("🔑 OPENAI_API_KEY가 설정되지 않았습니다. Streamlit Secrets 또는 .env 를 확인하세요.")
     st.stop()
-if not UPSTAGE_API_KEY:
-    st.error("🔑 UPSTAGE_API_KEY가 설정되지 않았습니다. Streamlit Secrets 또는 .env 를 확인하세요.")
-    st.stop()
 
-# 3. 이제 비로소 os.environ 에 할당 (None 이 절대 아님이 보장됨)
-os.environ["OPENAI_API_KEY"]  = OPENAI_API_KEY
-os.environ["UPSTAGE_API_KEY"] = UPSTAGE_API_KEY
+if OPENAI_API_KEY is not None:
+    os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
+if UPSTAGE_API_KEY is not None:
+    os.environ["UPSTAGE_API_KEY"] = UPSTAGE_API_KEY
 
-
-# 4. now it’s safe to import and instantiate LangChain models
 from langchain.chat_models import ChatOpenAI
 from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
@@ -33,7 +26,6 @@ from langchain.vectorstores import FAISS
 from langchain_upstage import UpstageGroundednessCheck
 from rank_bm25 import BM25Okapi
 
-# LangChain imports (after API key resolved)
 from langchain.document_loaders import PyMuPDFLoader
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.embeddings import OpenAIEmbeddings
