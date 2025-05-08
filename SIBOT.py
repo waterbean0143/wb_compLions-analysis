@@ -37,42 +37,23 @@ def download_pdfs(ids: list[str]) -> list[str]:
 
 # ── 3. CSV 로드 및 칼럼명 통일 ────────────────────────────────────
 @st.cache_data
-def load_process_table(path: str) -> pd.DataFrame:
+@st.cache_data
+def load_process_table(path):
+    import csv
     base = os.path.dirname(__file__)
     abs_path = os.path.join(base, path)
-    try:
-        # sep, engine 명시
-        df = pd.read_csv(
-            abs_path,
-            sep=",",
-            engine="C",
-            dtype=str,
-            encoding="utf-8-sig",
-            quoting=csv.QUOTE_NONE,      # ← 이 줄을 추가
-        )
-    except UnicodeDecodeError:
-        df = pd.read_csv(
-            abs_path,
-            sep=",",
-            engine="C",
-            dtype=str,
-            encoding="cp949",
-            quoting=csv.QUOTE_NONE,      # ← 이 줄도 추가
-        )
-
-    # 한글→영문 컬럼명 통일 (rename만 사용)
+    # 1) 헤더만 읽어서 문자열 분할
+    with open(abs_path, encoding="utf-8-sig") as f:
+        header = f.readline().strip().strip('"')  # 양쪽 " 제거
+    cols = [c.strip() for c in header.split(",")]
+    # 2) 실제 데이터는 헤더 없이 불러온 뒤, 컬럼명 지정
+    df = pd.read_csv(abs_path, skiprows=1, header=None, names=cols, dtype=str, encoding="utf-8-sig")
+    # 3) 한글→영문 rename
     df = df.rename(columns={
-        '주요 단계':'step_name',
-        '주요 활동':'major',
-        '시기':'timing',
-        '책임자':'owner',
-        '실무자':'worker',
-        '협조 및 지원 부서':'support',
-        '적용 시스템':'system'
+        '주요 단계':'step_name', '주요 활동':'major', '시기':'timing',
+        '책임자':'owner', '실무자':'worker', '협조 및 지원 부서':'support', '적용 시스템':'system'
     })
-
     return df
-
 # 호출부
 df = load_process_table("SI_FULL_PROCESS_HIERARCHY.csv")
 
