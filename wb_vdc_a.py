@@ -79,32 +79,31 @@ def init_faiss_from_pdf(url, chunk_size=300, chunk_overlap=50):
     response = requests.get(url)
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as f:
         f.write(response.content)
-        docs = RecursiveCharacterTextSplitter(
-            chunk_size=chunk_size, chunk_overlap=chunk_overlap
-        ).split_documents(PyMuPDFLoader(f.name).load())
-    return FAISS.from_documents(docs, embeddings), docs
+        docs = PyMuPDFLoader(f.name).load()
+    chunks = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size, chunk_overlap=chunk_overlap
+    ).split_documents(docs)
+    return FAISS.from_documents(chunks, embeddings), docs
 
 @st.cache_resource
 def init_faiss_from_json(path, chunk_size=300, chunk_overlap=50):
     items = json.load(open(path, encoding="utf-8"))
-    from langchain.schema import Document
     docs = [Document(page_content=i['answer'], metadata={'question':i['question'],'source':'qna'}) for i in items]
     chunks = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size, chunk_overlap=chunk_overlap
     ).split_documents(docs)
-    return FAISS.from_documents(chunks, embeddings), chunks
+    return FAISS.from_documents(chunks, embeddings), docs
 
 # URL 및 파일경로 설정
 process_url = "https://drive.google.com/uc?export=download&id=1lSEWk7KDgHR71yHcjEKniWzhqwL7T2fC"
 qna_json_path = "./vdc_a_대표질문.json"
 
-faiss_proc, proc_chunks = init_faiss_from_pdf(process_url)
-faiss_qna, qna_chunks = init_faiss_from_json(qna_json_path)
+faiss_proc, proc_docs = init_faiss_from_pdf(process_url)
+faiss_qna, qna_docs = init_faiss_from_json(qna_json_path)
 
 # 5. 역할 기반 UI
 is_admin = st.session_state.get("is_admin", False)
 
-# 관리자 전용 파라미터
 if is_admin:
     k = st.number_input("Top-k Retrieval 수", min_value=1, max_value=10, value=4)
     temperature = st.slider("LLM 온도", 0.0, 1.0, 0.0)
@@ -112,37 +111,36 @@ else:
     k = 4
     temperature = 0.0
 
-# 탭 구성
+# 6. 탭 구성
 tab1, tab2 = st.tabs(["프로세스 문서","대표질문 Q&A"])
 
-for tab, (store, chunks) in zip(
+for tab, (index, docs) in zip(
     [tab1, tab2],
-    [(faiss_proc, proc_chunks),(faiss_qna, qna_chunks)]
+    [(faiss_proc, proc_docs),(faiss_qna, qna_docs)]
 ):
     with tab:
         query = st.text_input("질문을 입력하세요", key=tab.title)
         if query:
-            # 벡터 검색 및 스코어
-            docs_and_scores = store.search(query, k=k)
-            docs, scores = zip(*docs_and_scores)
+            # 벡터 검색
+            results = index.search(query, k=k)
+            docs_res, scores = zip(*results)
 
-            # 관리자: 스코어 및 내용 확인
             if is_admin:
                 st.write("#### 검색 결과 (Score)")
-                for idx, (d, s) in enumerate(docs_and_scores, 1):
+                for idx, (d, s) in enumerate(results, 1):
                     st.write(f"{idx}. Score: {s:.4f}")
                     st.write(d.page_content[:200] + '...')
 
             # QA 수행
             llm = ChatOpenAI(temperature=temperature)
             chain = LLMChain(llm=llm, prompt=prompt)
-            context = "\n\n".join([d.page_content for d in docs])
+            context = "\n\n".join([d.page_content for d in docs_res])
             answer = chain.run(context=context, question=query)
 
             # 출력
             st.markdown(f"### 💡 핵심 요약\n{answer.strip()}")
             with st.expander("📎 문서 근거 보기"):
-                for idx, d in enumerate(docs, 1):
+                for idx, d in enumerate(docs_res, 1):
                     source = d.metadata.get('source','unknown')
                     st.markdown(f"**[{idx}]** `{source}`")
                     st.code(d.page_content[:400] + ('...' if len(d.page_content)>400 else ''))
