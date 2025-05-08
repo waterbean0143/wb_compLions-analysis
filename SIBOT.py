@@ -36,22 +36,23 @@ def load_and_split(ids: list[str]):
     splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     return splitter.split_documents(docs)
 
-# 4) 벡터 DB 생성
-@st.cache_resource
-def build_faiss(docs):
-    emb = OpenAIEmbeddings(openai_api_key=os.getenv("OPENAI_API_KEY"))
-    return FAISS.from_documents(docs, emb)
-
 # 애플리케이션 시작
 st.set_page_config(page_title="SIBOT Q&A", layout="wide")
 st.title("💬 SI 방법론 문서 기반 Q&A")
 
-# 5) 앱 기동 시 자동으로 문서 로드·벡터화
+# 4) 앱 기동 시 자동으로 문서 로드·벡터화
 process_docs = load_and_split([PROCESS_DOC_ID])
 qna_docs     = load_and_split([QNA_DOC_ID])
 
-process_vs = build_faiss(process_docs)
-qna_vs     = build_faiss(qna_docs)
+# 5) 벡터 DB 생성 (인자 없는 함수로 캐싱)
+@st.cache_resource
+def build_vectorstores():
+    emb = OpenAIEmbeddings(openai_api_key=os.getenv("OPENAI_API_KEY"))
+    process_vs = FAISS.from_documents(process_docs, emb)
+    qna_vs     = FAISS.from_documents(qna_docs, emb)
+    return process_vs, qna_vs
+
+process_vs, qna_vs = build_vectorstores()
 
 process_retriever = process_vs.as_retriever(search_kwargs={"k":5})
 qna_retriever     = qna_vs.as_retriever(search_kwargs={"k":5})
