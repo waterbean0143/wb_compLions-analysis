@@ -8,17 +8,22 @@ from dotenv import load_dotenv
 # 환경 변수 및 Streamlit secrets에서 키 읽기  
 load_dotenv()
 
+# 1) load from Secrets or env
 OPENAI_API_KEY  = st.secrets.get("OPENAI_API_KEY")  or os.getenv("OPENAI_API_KEY")
-os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
-
 UPSTAGE_API_KEY = st.secrets.get("UPSTAGE_API_KEY") or os.getenv("UPSTAGE_API_KEY")
-os.environ["UPSTAGE_API_KEY"] = UPSTAGE_API_KEY
-
 DEFAULT_MODEL   = st.secrets.get("DEFAULT_MODEL")   or "gpt-4o-mini"
 
+# 2) error out if missing
 if not OPENAI_API_KEY:
-    st.error("🔑 OPENAI_API_KEY가 설정되지 않았습니다. Streamlit Secrets 또는 환경변수를 확인하세요.")
+    st.error("🔑 OPENAI_API_KEY가 설정되지 않았습니다. Streamlit Secrets 또는 .env 를 확인하세요.")
     st.stop()
+if not UPSTAGE_API_KEY:
+    st.error("🔑 UPSTAGE_API_KEY가 설정되지 않았습니다. Streamlit Secrets 또는 .env 를 확인하세요.")
+    st.stop()
+
+# 3) now safely write into os.environ
+os.environ["OPENAI_API_KEY"]  = OPENAI_API_KEY
+os.environ["UPSTAGE_API_KEY"] = UPSTAGE_API_KEY
 
 # LangChain imports (after API key resolved)
 from langchain.document_loaders import PyMuPDFLoader
