@@ -1,28 +1,26 @@
 import streamlit as st
-import pandas as pd
 import os
-import requests
-import tempfile
-import re
-import json
-import difflib
 from dotenv import load_dotenv
 
-# 0. load .env
+# 0. .env 파일 로드
 load_dotenv()
 
-# 1. load secrets/env
+# 1. 스트림릿 시크릿 또는 환경변수에서 키 읽기
 OPENAI_API_KEY  = st.secrets.get("OPENAI_API_KEY")  or os.getenv("OPENAI_API_KEY")
 UPSTAGE_API_KEY = st.secrets.get("UPSTAGE_API_KEY") or os.getenv("UPSTAGE_API_KEY")
 
-# 2. fail fast if missing
+# 2. 키 없으면 바로 중단 (이후 코드는 실행되지 않음)
 if not OPENAI_API_KEY:
     st.error("🔑 OPENAI_API_KEY가 설정되지 않았습니다. Streamlit Secrets 또는 .env 를 확인하세요.")
     st.stop()
+if not UPSTAGE_API_KEY:
+    st.error("🔑 UPSTAGE_API_KEY가 설정되지 않았습니다. Streamlit Secrets 또는 .env 를 확인하세요.")
+    st.stop()
 
-# 3. now inject into environment
+# 3. 이제 비로소 os.environ 에 할당 (None 이 절대 아님이 보장됨)
 os.environ["OPENAI_API_KEY"]  = OPENAI_API_KEY
 os.environ["UPSTAGE_API_KEY"] = UPSTAGE_API_KEY
+
 
 # 4. now it’s safe to import and instantiate LangChain models
 from langchain.chat_models import ChatOpenAI
