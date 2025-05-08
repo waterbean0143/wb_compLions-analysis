@@ -1,26 +1,4 @@
-import streamlit as st
-import pandas as pd
-import os
-import requests
-import tempfile
-import re
-import json
-import difflib
-from dotenv import load_dotenv
-from langchain.chat_models import ChatOpenAI
-from langchain.chains import RetrievalQA
-from langchain.prompts import PromptTemplate
-from langchain.document_loaders import PyMuPDFLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.vectorstores import FAISS
-from langchain_upstage import UpstageGroundednessCheck
-from rank_bm25 import BM25Okapi
 
-# 환경변수 로드
-load_dotenv()
-
-# 사용자 인증 정보
 users = {
     "admin": {"password": "admin", "name": "관리자"},
     "test": {"password": "test", "name": "테스트 사용자"},
@@ -130,14 +108,20 @@ def main():
         st.markdown("## SI 전체 프로세스 챗봇")
         st.write("사이드바에서 설정 후 탭을 사용하세요.")
 
-    with overview_tab:
+        with overview_tab:
         st.header("절차 개요")
+        # 로마 숫자 기호 목록 (18개 이상 지원)
+        roman_numerals = [
+            "I","II","III","IV","V","VI","VII","VIII","IX","X",
+            "XI","XII","XIII","XIV","XV","XVI","XVII","XVIII"
+        ]
         for idx, major in enumerate(topics, start=1):
-            roman = ["I","II","III","IV","V","VI","VII","VIII","IX","X"][idx-1]
+            # 인덱스를 기반으로 로마 숫자 선택, 부족 시 숫자 문자열 사용
+            roman = roman_numerals[idx-1] if idx-1 < len(roman_numerals) else str(idx)
             st.subheader(f"{roman}. {major}")
             display_table(df[df['major'] == major])
 
-    with qa_tab:
+    with qa_tab::
         st.header("Q&A")
         query = st.text_input("질문 입력", key="qna_input")
         if st.button("질문하기", key="qna_button") and query:
