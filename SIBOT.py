@@ -166,16 +166,55 @@ def main():
                 temp_path = download_to_temp(doc_url)
                 loader = PyMuPDFLoader(temp_path)
                 docs = loader.load()
-                # BM25 인덱싱
+                                # BM25 인덱싱
                 texts = [d.page_content for d in docs]
                 tokenized = [t.split() for t in texts]
                 bm25 = BM25Okapi(tokenized)
                 q_tokens = query.split()
                 top_n = bm25.get_top_n(q_tokens, texts, n=5)
+                # 상위 5개 결과를 두 줄 개행으로 연결
                 context = "
 
 ".join(top_n)
+
                 # LLM에 질의
+                llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0.0)
+                prompt = PromptTemplate(
+                    input_variables=["context","question"],
+                    template="""
+                    당신은 SI 프로세스 문서 기반 질문에 답하는 어시스턴트입니다.
+
+                    [문서]
+                    {context}
+
+                    [질문]
+                    {question}
+
+                    [답변 형식]
+                    💡 핵심 요약
+                    📋 절차 또는 판단 주체
+                    """
+                )
+                chain = RetrievalQA.from_chain_type(
+                    llm=llm,
+                    retriever=None,
+                    chain_type="stuff",
+                    chain_type_kwargs={"prompt": prompt}
+                )
+                # chain.llm.predict가 아닌 chain.run을 사용해 context를 인라인 전달
+                answer = chain.run({"context": context, "question": query})
+
+                # 근거 검사
+                relevance = UpstageGroundednessCheck().invoke(answer)
+                if not relevance.get("grounded", False):
+                    st.warning("📌 문서 근거가 부족할 수 있습니다.")
+                st.markdown(f"**답변:**
+> {answer}")
+
+            # Q&A 블록 끝
+
+if __name__ == "__main__":
+    main()
                 llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0.0)
                 prompt = PromptTemplate(
                     input_variables=["context","question"],
