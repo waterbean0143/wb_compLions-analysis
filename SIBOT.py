@@ -12,14 +12,16 @@ from langchain_community.document_loaders import PyMuPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
+from langchain_community.retrievers import EnsembleRetriever
 
-# ── 1. 구글 드라이브 ID 리스트 정의 ─────────────────────────────
-# “SI 방법론 프로세스” PDF (Drive 공유 id)
+# ── 환경 변수에서 API 키 읽기 ─────────────────────────────────
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+# ── 1. 구글 드라이브 ID 리스트 정의 ─────────────────────────
 PROCESS_DOC_IDS = ["1TNOhmUds7hMpwz3NO4QD-mO-J1sUJoEa"]
-# “SI 방법론 대표질문” PDF
 QNA_DOC_IDS     = ["17M1mnMZVl29EahbSVqzcyZEX8LYsx5ER"]
 
-# ── 2. PDF 다운로드 헬퍼 ────────────────────────────────────────
+# ── 2. PDF 다운로드 헬퍼 ─────────────────────────────────
 @st.cache_resource(ttl=3600*24)
 def download_pdfs(ids: list[str]) -> list[str]:
     os.makedirs("pdfs", exist_ok=True)
@@ -28,34 +30,32 @@ def download_pdfs(ids: list[str]) -> list[str]:
         out = f"pdfs/{fid}.pdf"
         if not os.path.exists(out):
             gdown.download(
-                f"https://drive.google.com/uc?export=download&id={fid}",
-                out, quiet=True
+                f"https://drive.google.com/uc?export=download&id={fid}", out, quiet=True
             )
         paths.append(out)
     return paths
 
-# ── 3. 문서 로드→청크→FAISS 리트리버 빌더 ─────────────────────────
+# ── 3. FAISS 리트리버 빌더 ─────────────────────────────────
 @st.cache_resource
 def build_faiss_retriever(pdf_paths: list[str], k: int=4):
+    from langchain.schema import Document
+    # PDF 없으면 빈 리트리버
     if not pdf_paths:
         st.error("문서 로드 실패: PDF 경로가 없습니다.")
-        # 빈 FAISS 리트리버 리턴
-        from langchain.schema import Document
-        empty = Document(page_content="문서가 없습니다.", metadata={})
-        emb_empty = OpenAIEmbeddings()
+        empty = Document(page_content="문서가 없습니다.", metadata={'page':0,'source':'none'})
+        emb_empty = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
         return FAISS.from_documents([empty], emb_empty).as_retriever(search_kwargs={"k":1})
-
-    # 첫 번째 PDF 만 사용 (두 문서 각각 별도 빌드할 예정)
+    # 로드 및 청크
     loader = PyMuPDFLoader(pdf_paths[0])
     docs = loader.load()
     splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
     chunks = splitter.split_documents(docs)
-
-    emb = OpenAIEmbeddings(model="text-embedding-ada-002")
+    # 임베딩
+    emb = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
     vectordb = FAISS.from_documents(chunks, emb)
     return vectordb.as_retriever(search_kwargs={"k":k})
 
-# ── 4. CSV 로드 및 컬럼명 통일 ─────────────────────────────────
+# ── 4. CSV 로드 및 컬럼명 통일 ───────────────────────────────
 @st.cache_data
 def load_process_table(path: str) -> pd.DataFrame:
     base = os.path.dirname(__file__)
@@ -64,33 +64,32 @@ def load_process_table(path: str) -> pd.DataFrame:
         df = pd.read_csv(abs_path, dtype=str, encoding="utf-8-sig")
     except UnicodeDecodeError:
         df = pd.read_csv(abs_path, dtype=str, encoding="cp949")
-    # 한글→영문 컬럼명 통일
     df = df.rename(columns={
         '주요 단계':'step_name','주요 활동':'major','시기':'timing',
         '책임자':'owner','실무자':'worker','협조 및 지원 부서':'support','적용 시스템':'system'
     })
     return df
 
-# ── 5. Streamlit UI ────────────────────────────────────────────
+# ── 5. Streamlit UI ─────────────────────────────────────────
 st.set_page_config(page_title="SI 방법론 챗봇", layout="wide")
 st.title("📝 SI 방법론 Q&A")
 
-# 로드 테이블
 df = load_process_table("SI_FULL_PROCESS_HIERARCHY.csv")
-
-# 다운로드 & 리트리버 준비
 proc_paths = download_pdfs(PROCESS_DOC_IDS)
 qna_paths  = download_pdfs(QNA_DOC_IDS)
+proc_retriever = build_faiss_retriever(proc_paths, k=3)
+qna_retriever  = build_faiss_retriever(qna_paths, k=3)
 
-proc_retriever = build_faiss_retriever(proc_paths, k=4)
-qna_retriever  = build_faiss_retriever(qna_paths, k=4)
+# Ensemble of both
+ensemble = EnsembleRetriever(
+    retrievers=[proc_retriever, qna_retriever],
+    weights=[0.6, 0.4]
+)
 
-# 질문 입력
 question = st.text_input("SI 방법론 관련 질문을 입력하세요")
-
 if question:
-    # 1) 단계 이름 매칭
-    match = difflib.get_close_matches(question, df['step_name'].unique(), n=1, cutoff=0.5)
+    # 1) 단계 매칭
+    match = difflib.get_close_matches(question, df['step_name'].fillna(""), n=1, cutoff=0.5)
     if match:
         step = match[0]
         sub = df[df['step_name']==step][['major','timing','owner','worker','support','system']]
@@ -98,24 +97,24 @@ if question:
             'major':'주요 활동','timing':'시기','owner':'책임자',
             'worker':'실무자','support':'협조 및 지원 부서','system':'적용 시스템'
         })
-        table_html = sub.to_html(index=False, escape=False)
+        # 최대 5행 제한
+        table_html = sub.head(5).to_html(index=False, escape=False)
     else:
         step = None
+        st.warning("죄송합니다. 해당 질문에 매칭되는 주요 단계가 없습니다.")
         table_html = ""
 
-    # 2) 문서 컨텍스트 취합 (프로세스 + 대표Q&A 둘 다)
-    docs_proc = proc_retriever.get_relevant_documents(question)
-    docs_qna  = qna_retriever.get_relevant_documents(question)
-    docs_all  = docs_proc + docs_qna
-    context = "\n\n".join([d.page_content for d in docs_all])
+    # 2) 문서 컨텍스트
+    docs = ensemble.get_relevant_documents(question)
+    context = "\n\n".join([d.page_content for d in docs])
 
-    # 3) PromptTemplate
+    # 3) Prompt
     PROMPT = PromptTemplate(
         input_variables=["table","doc_context","question"],
         template="""
 당신은 SI 방법론 전문가입니다.
 
-아래 표는 질문 “{question}” 과 매칭된 단계의 개요입니다:
+아래 표는 질문 “{question}” 과 매칭된 단계 개요입니다:
 {table}
 
 추가로, 관련 문서 내용:
@@ -131,31 +130,32 @@ if question:
 
     # 4) RetrievalQA
     qa = RetrievalQA.from_chain_type(
-        llm=ChatOpenAI(model_name="gpt-4o-mini", temperature=0),
-        retriever=proc_retriever,           # 프로세스 중심
+        llm=ChatOpenAI(model_name="gpt-4o-mini", temperature=0, openai_api_key=OPENAI_API_KEY),
+        retriever=ensemble,
         chain_type="stuff",
         chain_type_kwargs={"prompt": PROMPT}
     )
 
-    # 5) 실행
-    out = qa.invoke({
+    result = qa.invoke({
         "table": table_html,
         "doc_context": context,
         "question": question
     })["result"]
 
-    # 6) 화면 출력
-    lines = out.splitlines()
-    summary = lines[0] if len(lines)>0 else ""
-    procedure = lines[1] if len(lines)>1 else ""
-    numbers = lines[2] if len(lines)>2 else ""
+    # 6) 결과 파싱
+    lines = result.splitlines()
+    # 패딩
+    if len(lines) < 3:
+        lines += [""] * (3 - len(lines))
+    summary, procedure, numbers = lines[:3]
 
     st.markdown(f"### 💡 핵심 요약\n{summary}")
     st.markdown(f"### 📋 절차 또는 판단 주체\n{procedure}")
     st.markdown(f"### 🔢 관련 수치\n{numbers}")
 
+    # 4) 소스 보기 (페이지 포함)
     with st.expander("📎 문서 소스 보기"):
-        for d in docs_all:
-            name = d.metadata.get("source_name", os.path.basename(d.metadata.get("source", "")))
-            st.write(f"- {name}")
-
+        for d in docs:
+            src = d.metadata.get("source_name") or d.metadata.get("source", "")
+            page = d.metadata.get("page", "?")
+            st.write(f"- {src} (page {page})")
