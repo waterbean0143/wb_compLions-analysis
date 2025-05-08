@@ -19,8 +19,26 @@ if not OPENAI_API_KEY:
 # --- 1. CSV 로드 (절차 개요용) ---
 @st.cache_data
 def load_process_table(path: str) -> pd.DataFrame:
-    df = pd.read_csv(path, dtype=str)
+    df = pd.read_csv(
+        path,
+        dtype=str,
+        encoding="utf-8-sig",
+        engine="python",
+        sep=","
+    )
+    # rename columns if necessary
+    df = df.rename(columns={
+        '주요 단계': 'step_name',
+        '주요 활동': 'major',
+        '시기': 'timing',
+        '책임자': 'owner',
+        '실무자': 'worker',
+        '협조 및 지원 부서': 'support',
+        '적용 시스템': 'system'
+    })
     return df
+
+df = load_process_table("SI_FULL_PROCESS_HIERARCHY.csv")
 
 df = load_process_table("SI_FULL_PROCESS_HIERARCHY.csv")
 
