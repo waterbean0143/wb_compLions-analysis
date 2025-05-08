@@ -57,20 +57,37 @@ def build_faiss_retriever(pdf_paths: list[str], k: int = 4):
 def load_process_table(path: str) -> pd.DataFrame:
     base = os.path.dirname(__file__)
     abs_path = os.path.join(base, path)
-    # 0번째 줄이 영문 헤더이므로 header=0(기본) 사용
     try:
-        df = pd.read_csv(abs_path, dtype=str, encoding="utf-8-sig")
+        df = pd.read_csv(
+            abs_path,
+            dtype=str,
+            encoding="utf-8-sig",
+            engine="python",
+            quoting=csv.QUOTE_NONE,
+            skipinitialspace=True
+        )
     except UnicodeDecodeError:
-        df = pd.read_csv(abs_path, dtype=str, encoding="cp949")
-    # 영문 헤더 → 내부영문명 매핑
+        df = pd.read_csv(
+            abs_path,
+            dtype=str,
+            encoding="cp949",
+            engine="python",
+            quoting=csv.QUOTE_NONE,
+            skipinitialspace=True
+        )
+
+    # strip any stray quotes on the column names
+    df.columns = [col.strip().strip('"') for col in df.columns]
+
+    # now rename your English header into the internal names
     df = df.rename(columns={
-        'Phase':     'step_name',
-        'Step_name': 'major',
-        'timing':    'timing',
-        'Lead':      'owner',
-        'Assist':    'worker',
-        'Support':   'support',
-        'System':    'system',
+        'Phase':      'step_name',
+        'Step_name':  'major',
+        'timing':     'timing',
+        'Lead':       'owner',
+        'Assist':     'worker',
+        'Support':    'support',
+        'System':     'system',
     })
     return df
 
