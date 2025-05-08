@@ -58,13 +58,13 @@ def load_process_table(path: str) -> pd.DataFrame:
     base = os.path.dirname(__file__)
     abs_path = os.path.join(base, path)
     try:
-        # quoting=None 으로 하면 " 를 무시하고 순수 콤마만 분리
         df = pd.read_csv(
             abs_path,
             dtype=str,
             encoding="utf-8-sig",
-            engine="python",
-            quoting=csv.QUOTE_NONE
+            engine="python",            # ← C 엔진 대신 Python 엔진 사용
+            sep=",",                    # ← 명시적으로 쉼표 구분자
+            on_bad_lines="skip"         # ← 문제가 있는 라인은 건너뜁니다
         )
     except UnicodeDecodeError:
         df = pd.read_csv(
@@ -72,18 +72,13 @@ def load_process_table(path: str) -> pd.DataFrame:
             dtype=str,
             encoding="cp949",
             engine="python",
-            quoting=csv.QUOTE_NONE
+            sep=",",
+            on_bad_lines="skip"
         )
-
-    # 한글→영문 컬럼명 통일
+    # 이제 정상적으로 분리된 칼럼명을 영문으로 바꿉니다
     df = df.rename(columns={
-        '주요 단계':'step_name',
-        '주요 활동':'major',
-        '시기':'timing',
-        '책임자':'owner',
-        '실무자':'worker',
-        '협조 및 지원 부서':'support',
-        '적용 시스템':'system'
+        '주요 단계':'step_name','주요 활동':'major','시기':'timing',
+        '책임자':'owner','실무자':'worker','협조 및 지원 부서':'support','적용 시스템':'system'
     })
     return df
 
