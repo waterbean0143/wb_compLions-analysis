@@ -66,6 +66,9 @@ def load_process_table(path: str) -> pd.DataFrame:
         '책임자':'owner','실무자':'worker','협조 및 지원 부서':'support','적용 시스템':'system'
     })
     return df
+#출력 검증
+df = load_process_table("SI_FULL_PROCESS_HIERARCHY.csv")
+st.write("▶︎ CSV 컬럼명:", df.columns.tolist())
 
 # ── 5. Streamlit UI ────────────────────────────────────────────
 st.set_page_config(page_title="SI 방법론 챗봇", layout="wide")
