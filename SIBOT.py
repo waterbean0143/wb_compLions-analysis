@@ -4,6 +4,20 @@ import requests
 import tempfile
 from dotenv import load_dotenv
 
+# SI 방법론 Q&A 앱
+# 환경 변수 및 Streamlit secrets에서 키 읽기
+load_dotenv()
+
+# 먼저 Streamlit secrets 확인, 없으면 환경변수 확인
+OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+UPSTAGE_API_KEY = st.secrets.get("UPSTAGE_API_KEY") or os.getenv("UPSTAGE_API_KEY")
+DEFAULT_MODEL    = st.secrets.get("DEFAULT_MODEL") or os.getenv("DEFAULT_MODEL") or "gpt-4o-mini"
+
+if not OPENAI_API_KEY:
+    st.error("🔑 OPENAI_API_KEY가 설정되지 않았습니다. Streamlit Secrets 또는 환경변수를 확인하세요.")
+    st.stop()
+
+# LangChain imports (after API key resolved)
 from langchain.document_loaders import PyMuPDFLoader
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.embeddings import OpenAIEmbeddings
@@ -11,18 +25,11 @@ from langchain.vectorstores import FAISS
 from langchain.chains import RetrievalQA
 from langchain.chat_models import ChatOpenAI
 
-# .env에서 API 키 불러오기
-load_dotenv()
-api_key = os.getenv("OPENAI_API_KEY")
-if not api_key:
-    st.error("🔑 OPENAI_API_KEY 환경변수가 설정되지 않았습니다. .env 파일을 확인하세요.")
-    st.stop()
-
-# 1) 하드코딩된 Google Drive 파일 ID
+# Google Drive 파일 ID 하드코딩
 PROCESS_DOC_ID = "1TNOhmUds7hMpwz3NO4QD-mO-J1sUJoEa"
 QNA_DOC_ID     = "17M1mnMZVl29EahbSVqzcyZEX8LYsx5ER"
 
-# 2) PDF를 GDrive에서 내려받아 임시파일에 저장
+# PDF 다운로드 함수
 def download_gdrive_pdf(file_id: str, dst_path: str):
     url = f"https://drive.google.com/uc?export=download&id={file_id}"
     r = requests.get(url)
@@ -30,7 +37,7 @@ def download_gdrive_pdf(file_id: str, dst_path: str):
     with open(dst_path, "wb") as f:
         f.write(r.content)
 
-# 3) 문서 로딩 + 청크 분할
+# 문서 로딩 및 분할
 @st.cache_resource
 def load_and_split(ids: list[str]):
     paths = []
@@ -44,43 +51,44 @@ def load_and_split(ids: list[str]):
     splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     return splitter.split_documents(docs)
 
-# 4) 앱 기동 시 자동으로 문서 로드·벡터화
+# 앱 초기화
+st.set_page_config(page_title="SI 방법론 Q&A", layout="wide")
+st.title("💬 SI 방법론 문서 기반 Q&A")
+
+# 문서 로드·분할
 process_docs = load_and_split([PROCESS_DOC_ID])
 qna_docs     = load_and_split([QNA_DOC_ID])
 
-# 5) 벡터 DB 생성 (인자 없는 함수로 캐싱)
+# 벡터 DB 구축
 @st.cache_resource
 def build_vectorstores():
-    emb = OpenAIEmbeddings(openai_api_key=api_key)
-    process_vs = FAISS.from_documents(process_docs, emb)
-    qna_vs     = FAISS.from_documents(qna_docs, emb)
+    embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
+    process_vs = FAISS.from_documents(process_docs, embeddings)
+    qna_vs     = FAISS.from_documents(qna_docs, embeddings)
     return process_vs, qna_vs
 
 process_vs, qna_vs = build_vectorstores()
-
 process_retriever = process_vs.as_retriever(search_kwargs={"k":5})
 qna_retriever     = qna_vs.as_retriever(search_kwargs={"k":5})
 
-# 항상 gpt-4o-mini 사용하도록 model_name 고정
-llm = ChatOpenAI(model_name="gpt-4o-mini", openai_api_key=api_key, temperature=0)
+# LLM 초기화 (모델명 고정)
+llm = ChatOpenAI(model_name=DEFAULT_MODEL, openai_api_key=OPENAI_API_KEY, temperature=0)
 
-# 채팅 이력 저장
+# 대화 이력
 if "history" not in st.session_state:
     st.session_state.history = []
 
-# 사용자 입력
+# 사용자 질문 입력
 query = st.chat_input("질문을 입력하세요:")
 if query:
-    # 프로세스 문서 기반 QA
     proc_chain = RetrievalQA.from_chain_type(llm=llm, retriever=process_retriever, chain_type="stuff")
-    ans_proc = proc_chain.run(query)
-    # 대표질문 문서 기반 QA
+    ans1 = proc_chain.run(query)
     qna_chain = RetrievalQA.from_chain_type(llm=llm, retriever=qna_retriever, chain_type="stuff")
-    ans_qna = qna_chain.run(query)
-    st.session_state.history.append((query, ans_proc, ans_qna))
+    ans2 = qna_chain.run(query)
+    st.session_state.history.append((query, ans1, ans2))
 
-# 대화 이력 렌더링
+# 이력 렌더링
 for q, a1, a2 in st.session_state.history:
     st.chat_message("user").write(q)
-    st.chat_message("assistant").markdown(f"**[프로세스 문서 답변]**\n{a1}")
-    st.chat_message("assistant").markdown(f"**[대표질문 문서 답변]**\n{a2}")
+    st.chat_message("assistant").markdown(f"**[프로세스 문서]**\n{a1}")
+    st.chat_message("assistant").markdown(f"**[대표질문 문서]**\n{a2}")
