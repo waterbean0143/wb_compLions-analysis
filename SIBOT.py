@@ -12,7 +12,7 @@ from langchain.document_loaders import PyMuPDFLoader, UnstructuredWordDocumentLo
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
-from langchain_upstage import UpstageGroundnessCheck
+from langchain_upstage import UpstageGroundednessCheck
 
 # 환경변수 로드 (OpenAI API Key 등)
 load_dotenv()
@@ -148,8 +148,8 @@ def main():
 {{context}}
 """
             )
-            # Upstage Groundness Check 초기화
-            ground_checker = UpstageGroundnessCheck()
+                        # Upstage Groundedness Check 초기화
+            upstage_checker = UpstageGroundednessCheck()
             qa_chain = RetrievalQA.from_chain_type(
                 llm=ChatOpenAI(model_name="gpt-4o-mini", temperature=0),
                 retriever=retriever,
@@ -158,10 +158,10 @@ def main():
             )
             with st.spinner("답변 생성 중..."):
                 ans = qa_chain.run(query)
-                # Groundness 판별
-                is_grounded = ground_checker.is_grounded(ans)
+                # Groundedness 판별
+                relevance = upstage_checker.invoke(ans)
 
-            if not is_grounded:
+            if not relevance.get("grounded", False):
                 st.warning("📌 경고: 문서 근거가 부족한 응답일 수 있습니다.")
             st.markdown(f"**답변:**\n> {ans}")
 
