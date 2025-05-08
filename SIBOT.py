@@ -19,14 +19,19 @@ if not OPENAI_API_KEY:
 # --- 1. CSV 로드 (절차 개요용) ---
 @st.cache_data
 def load_process_table(path: str) -> pd.DataFrame:
+    # raw 바이트 DECODE ERROR 발생 방지용 latin-1
+    raw = open(path, "r", encoding="latin-1").read()
+    # 2) 다시 utf-8로 인코딩
+    clean = raw.encode("utf-8", errors="replace").decode("utf-8")
+    # 3) now parse with pandas (utf‑8-sig will strip BOM if present)
     df = pd.read_csv(
-        path,
+        pd.io.common.StringIO(clean),
         dtype=str,
         encoding="utf-8-sig",
         engine="python",
-        sep=","
+        on_bad_lines="skip"
     )
-    # rename columns if necessary
+    # rename your columns
     df = df.rename(columns={
         '주요 단계': 'step_name',
         '주요 활동': 'major',
@@ -40,7 +45,6 @@ def load_process_table(path: str) -> pd.DataFrame:
 
 df = load_process_table("SI_FULL_PROCESS_HIERARCHY.csv")
 
-df = load_process_table("SI_FULL_PROCESS_HIERARCHY.csv")
 
 # --- 2. PDF → chunks → FAISS retriever (demo.py 방식) ---
 VDC_PROCESS_DOC_URLS = [
