@@ -54,12 +54,17 @@ def display_table(df: pd.DataFrame):
     }).reset_index(drop=True)
     st.table(table_df)
 
+# 텍스트 정규화
+
+def normalize(text: str) -> str:
+    return re.sub(r'[^a-z0-9]', '', (text or '').lower())
+
 # 메인 함수
 
 def main():
     st.set_page_config(page_title="SI 프로세스 챗봇", layout="wide")
 
-    # 로그인
+    # 로그인 처리
     if not st.session_state.get('logged_in', False):
         st.header("📋 SI 프로세스 챗봇 로그인")
         username = st.text_input("아이디", key="login_user")
@@ -91,34 +96,31 @@ def main():
     if 'document_url' not in df.columns:
         df['document_url'] = ''
 
-    # 단계 목록
-    step_names = df['step_name'].dropna().unique().tolist()
-    steps = [
-        { 'step_name': s,
-          'document_url': df.loc[df['step_name']==s, 'document_url'].dropna().unique()[0] if s in df['step_name'].values else '' }
-        for s in step_names
-    ]
+    # 대표 Q&A JSON 로드
+    try:
+        with open(os.path.join(BASE_DIR, "vdc_a_대표질문.json"), encoding='utf-8') as f:
+            rep_qna = json.load(f)
+    except FileNotFoundError:
+        rep_qna = []
+
+    # 단계 목록 및 URL 매핑
+    topics = df['major'].dropna().unique().tolist()
+    norm_topics = {normalize(t): t for t in topics}
 
     # 사이드바
     st.sidebar.header(f"[접속자] {display_name}님, 환영합니다!")
     if st.sidebar.button("새로운 대화 주제", key="clear_button"):
-        st.session_state.clear()
-        st.experimental_rerun()
-    st.sidebar.selectbox("언어 모델 선택", ["gpt-4o-mini"], key="model_select",
-                        help="사용할 LLM 모델을 선택합니다.")
-    st.sidebar.selectbox("답변 모드 선택", ["빠른 답변","정확한 답변"], index=0, key="answer_mode_select",
-                        help="• 빠른: 핵심 요약 • 정확: 상세 설명")
-    st.sidebar.selectbox("추론 수준 선택", ["low","medium","high"], index=1, key="reasoning_effort_select",
-                        help="추론 깊이를 설정합니다.")
+        st.session_state.clear(); st.experimental_rerun()
+    st.sidebar.selectbox("언어 모델 선택", ["gpt-4o-mini"], key="model_select")
+    st.sidebar.selectbox("답변 모드 선택", ["빠른 답변","정확한 답변"], index=0, key="answer_mode_select")
+    st.sidebar.selectbox("추론 수준 선택", ["low","medium","high"], index=1, key="reasoning_effort_select")
     st.sidebar.header("피드백")
     st.sidebar.text_area("사용 후기:", key="feedback_text")
-    c1,c2 = st.sidebar.columns([2,1])
+    c1, c2 = st.sidebar.columns([2,1])
     with c1:
         if st.sidebar.button("제출", key="feedback_submit"): st.sidebar.success("감사합니다!")
     with c2:
-        if st.sidebar.button("로그아웃", key="logout_button"):
-            st.session_state.clear()
-            st.experimental_rerun()
+        if st.sidebar.button("로그아웃", key="logout_button"): st.session_state.clear(); st.experimental_rerun()
     st.sidebar.write("🐧 저작자: @AI이행봇")
 
     # 탭
@@ -130,47 +132,51 @@ def main():
 
     with overview_tab:
         st.header("절차 개요")
-        for idx, step in enumerate(steps, start=1):
-            num = ["I","II","III","IV","V","VI","VII","VIII","IX","X"][idx-1]
-            st.subheader(f"{num}. {step['step_name']}")
-            display_table(df[df['step_name']==step['step_name']])
+        for idx, major in enumerate(topics, start=1):
+            roman = ["I","II","III","IV","V","VI","VII","VIII","IX","X"][idx-1]
+            st.subheader(f"{roman}. {major}")
+            display_table(df[df['major'] == major])
 
     with qa_tab:
         st.header("Q&A")
         query = st.text_input("질문 입력", key="qna_input")
         if st.button("질문하기", key="qna_button") and query:
-            # 1) 단계 매칭
-            topics = [
-                "영업기회 등록","VDC-A 심의 준비","VDC-A 심의 실시 및 공조 요청",
-                "제안환경 구성","사전공고 분석 및 Risk 검토","RFP 분석","제안서 작성",
-                "하도급사 검증","견적 확보 및 원가 산정","Risk 검토 및 대응방안 수립",
-                "VDC-B 실시","입찰 및 제안서 제출","제안 발표",
-                "기술협상 준비 및 실시","이행원가 재산정 및 계약서 검토",
-                "VDC-C 실시","계약 체결","프로젝트 발주 처리"
-            ]
-            norm = lambda t: re.sub(r'[^a-z0-9]', '', t.lower())
-            match = difflib.get_close_matches(query, topics, n=1, cutoff=0.4)
-            if not match:
-                st.error("해당 질문에 맞는 주제를 찾지 못했습니다.")
+            # 1) 대표 Q&A 우선 매칭
+            if rep_qna:
+                rep_norms = {normalize(e.get('question','')): e for e in rep_qna}
+                norm_q = normalize(query)
+                m = difflib.get_close_matches(norm_q, rep_norms.keys(), n=1, cutoff=0.7)
+                if m:
+                    entry = rep_norms[m[0]]
+                    st.subheader("🔎 대표 질문 매칭 답변")
+                    st.write(entry.get('answer',''))
+                    if entry.get('출처'):
+                        st.caption(f"출처: {entry.get('출처')}")
+                    return
+            # 2) topic 매칭
+            norm_q = normalize(query)
+            key = None
+            m2 = difflib.get_close_matches(norm_q, norm_topics.keys(), n=1, cutoff=0.3)
+            if m2:
+                key = m2[0]
+                topic = norm_topics[key]
+                st.subheader(f"🔎 주제: {topic}")
+            else:
+                st.error("죄송합니다. 질문에 맞는 주제를 찾지 못했습니다. 다시 시도해 주세요.")
                 return
-            topic = match[0]
-            st.subheader(f"🔎 주제: {topic}")
-            # 2) 문서 URL
-            row = df[df['major'].str.contains(re.escape(topic), na=False)]
-            if row.empty:
-                st.warning("주제에 해당하는 문서 URL이 없습니다.")
+            # 3) 문서 로드 및 BM25
+            row = df[df['major'] == topic]
+            url = row['document_url'].iloc[0] if not row.empty else ''
+            if not url:
+                st.warning("문서 URL이 없습니다.")
                 return
-            url = row['document_url'].iloc[0]
             st.markdown(f"**원본 문서 URL:** {url}")
-            # 3) BM25 + LLM
-            temp = download_to_temp(url)
-            docs = PyMuPDFLoader(temp).load()
+            docs = PyMuPDFLoader(download_to_temp(url)).load()
             texts = [d.page_content for d in docs]
-            tokenized = [t.split() for t in texts]
-            bm25 = BM25Okapi(tokenized)
-            q_toks = query.split()
-            top5 = bm25.get_top_n(q_toks, texts, n=5)
+            bm25 = BM25Okapi([t.split() for t in texts])
+            top5 = bm25.get_top_n(query.split(), texts, n=5)
             context = "\n\n".join(top5)
+            # 4) LLM 답변
             llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0.0)
             prompt = PromptTemplate(
                 input_variables=["context","question"],
@@ -189,9 +195,8 @@ def main():
                 """
             )
             answer = llm.predict(prompt.format(context=context, question=query))
-            # 4) 근거 검사
             rel = UpstageGroundednessCheck().invoke(answer)
-            if not rel.get("grounded", False):
+            if not rel.get('grounded', False):
                 st.warning("📌 문서 근거가 부족할 수 있습니다.")
             st.markdown(f"**답변:**\n> {answer}")
 
