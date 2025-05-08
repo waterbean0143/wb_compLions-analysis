@@ -45,11 +45,6 @@ def normalize(text: str) -> str:
     return re.sub(r'[^a-z0-9]', '', (text or '').lower())
 
 
-def find_matching_majors(query: str, majors: list[str]) -> list[str]:
-    ni = normalize(query)
-    return [m for m in majors if normalize(m).startswith(ni) or ni in normalize(m)]
-
-
 def display_major_detail(df: pd.DataFrame, major_label: str):
     """
     주어진 major_label에 대해 타이밍, 책임자, 실무자, 지원부서, 시스템 정보를 표시합니다.
@@ -104,7 +99,8 @@ def main():
         '구분': 'phase'
     }
     df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
-    if 'document_url' not in df.columns: df['document_url'] = ''
+    if 'document_url' not in df.columns:
+        df['document_url'] = ''
 
     # configs 생성
     configs = []
@@ -112,7 +108,7 @@ def main():
         urls = df.loc[df['step_name'] == step, 'document_url'].dropna().unique()
         configs.append({'step_name': step, 'document_url': urls[0] if len(urls) else ''})
 
-    # 대표 Q&A JSON
+    # 대표 Q&A JSON 로드
     try:
         with open("vdc_a_대표질문.json", encoding='utf-8') as f:
             rep_qna = json.load(f)
@@ -155,7 +151,7 @@ def main():
     )
 
     st.sidebar.header("피드백")
-    feedback = st.sidebar.text_area("전반적인 사용후기를 입력해주세요:", key="feedback_text")
+    st.sidebar.text_area("전반적인 사용후기를 입력해주세요:", key="feedback_text")
     col1, col2 = st.sidebar.columns([2, 1])
     with col1:
         if st.sidebar.button("피드백 제출", key="feedback_submit"):
@@ -164,18 +160,18 @@ def main():
         if st.sidebar.button("로그아웃", key="logout_button"):
             st.session_state.clear()
             st.experimental_rerun()
+
     st.sidebar.write("🐧 저작자: @AI이행봇")
 
-    # --- 메인 탭 ---
+    # --- 메인 탭 구성 ---
     intro_tab, overview_tab, qa_tab = st.tabs(["소개", "절차 개요", "Q&A"])
 
     with intro_tab:
         st.markdown("## SI 전체 프로세스 챗봇에 오신 것을 환영합니다.")
         st.write("좌측에서 단계 선택 후 개요·Q&A 이용")
 
-        with overview_tab:
+    with overview_tab:
         st.header("절차 개요")
-        # 1) 절차 범위 선택
         phase = st.selectbox(
             "절차 범위 선택해주세요",
             [
@@ -188,28 +184,24 @@ def main():
             ],
             key="phase_scope"
         )
-        # 2) 선택된 절차에 따라 표 표시
         if phase != "절차 범위 선택해주세요":
             if phase == "전체":
                 df_phase = df.copy()
             else:
                 df_phase = df[df['phase'] == phase]
-            # 주요 컬럼만 선택
-            cols = ['major', 'timing', 'owner', 'worker', 'support', 'system']
-            # DataFrame 준비
+            cols = ['major','timing','owner','worker','support','system']
             table_df = df_phase[cols].rename(columns={
-                'major': '주요 활동',
-                'timing': '시기',
-                'owner': '책임자',
-                'worker': '실무자',
-                'support': '협조 및 지원 부서',
-                'system': '적용 시스템'
+                'major':'주요 활동',
+                'timing':'시기',
+                'owner':'책임자',
+                'worker':'실무자',
+                'support':'협조 및 지원 부서',
+                'system':'적용 시스템'
             })
-            # 인덱스 리셋 (번호 매기기)
             table_df = table_df.reset_index(drop=True)
             st.table(table_df)
 
-    with qa_tab::
+    with qa_tab:
         st.header("Q&A")
         query = st.text_input("질문 입력")
         if query:
