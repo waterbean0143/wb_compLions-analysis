@@ -40,27 +40,42 @@ def download_pdfs(ids: list[str]) -> list[str]:
 def load_process_table(path: str) -> pd.DataFrame:
     base = os.path.dirname(__file__)
     abs_path = os.path.join(base, path)
-    # UTF-8 시도 → CP949 시도, sep 과 engine 명시
     try:
-        df = pd.read_csv(abs_path,
-                         dtype=str,
-                         encoding="utf-8-sig",
-                         sep=",",
-                         engine="python")
+        # sep, engine 명시
+        df = pd.read_csv(
+            abs_path,
+            sep=",",
+            engine="python",
+            dtype=str,
+            encoding="utf-8-sig",
+        )
     except UnicodeDecodeError:
-        df = pd.read_csv(abs_path,
-                         dtype=str,
-                         encoding="cp949",
-                         sep=",",
-                         engine="python")
-    # 만약 여전히 하나의 컬럼으로 읽혔다면 강제로 split
-    if len(df.columns)==1 and "," in df.columns[0]:
-        df = df[df.columns[0]].str.split(",", expand=True)
-    # 한글→영문 컬럼명 통일
-    df.columns = ['step_name','major','timing','owner','worker','support','system']
+        df = pd.read_csv(
+            abs_path,
+            sep=",",
+            engine="python",
+            dtype=str,
+            encoding="cp949",
+        )
+
+    # 한글→영문 컬럼명 통일 (rename만 사용)
+    df = df.rename(columns={
+        '주요 단계':'step_name',
+        '주요 활동':'major',
+        '시기':'timing',
+        '책임자':'owner',
+        '실무자':'worker',
+        '협조 및 지원 부서':'support',
+        '적용 시스템':'system'
+    })
+
     return df
 
+# 호출부
 df = load_process_table("SI_FULL_PROCESS_HIERARCHY.csv")
+
+# 확인용 (디버그)
+st.write("▶︎ CSV 컬럼명:", df.columns.tolist())
 
 # ── 4. FAISS 리트리버 빌더 ────────────────────────────────────────
 @st.cache_resource
