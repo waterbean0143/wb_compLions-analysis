@@ -173,9 +173,7 @@ def main():
                 q_tokens = query.split()
                 top_n = bm25.get_top_n(q_tokens, texts, n=5)
                 # 상위 5개 결과를 두 줄 개행으로 연결
-                context = "
-
-".join(top_n)
+                context = "".join(top_n)
 
                 # LLM에 질의
                 llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0.0)
