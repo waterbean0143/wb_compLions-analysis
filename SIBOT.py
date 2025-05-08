@@ -28,17 +28,12 @@ BASE_DIR = os.path.dirname(__file__)
 # --- 1. 프로세스 테이블 로드 함수 ---
 @st.cache_data
 def load_process_table(path: str) -> pd.DataFrame:
-    # 스크립트 위치를 기준으로 CSV 파일의 절대 경로를 구합니다.
     base_dir = os.path.dirname(__file__)
     abs_path = os.path.join(base_dir, path)
-
-    # 우선 UTF-8로 시도하고, 실패하면 CP949(또는 euc-kr)로 재시도
     try:
         df = pd.read_csv(abs_path, dtype=str, encoding="utf-8-sig")
     except UnicodeDecodeError:
         df = pd.read_csv(abs_path, dtype=str, encoding="cp949")
-
-    # 컬럼명 통일
     df = df.rename(columns={
         '주요 단계': 'step_name',
         '주요 활동': 'major',
@@ -48,65 +43,46 @@ def load_process_table(path: str) -> pd.DataFrame:
         '협조 및 지원 부서': 'support',
         '적용 시스템': 'system'
     })
-
     return df
 
-# 호출 예
 df = load_process_table("SI_FULL_PROCESS_HIERARCHY.csv")
 
-# --- 2. PDF 다운로드 & Retriever 준비 함수 ---
-# (여기에 download_pdfs 함수, VDC_PROCESS_DOC_URLS 정의가 있다고 가정)
-VDC_PROCESS_DOC_URLS = [
-    # 예: "https://drive.google.com/uc?export=download&id=..."
-]
-
-@st.cache_resource
-def download_pdfs(urls):
-    from pathlib import Path
-    import requests
-    paths = []
-    for url in urls:
-        fname = url.split("id=")[-1] + ".pdf"
-        out_path = os.path.join(BASE_DIR, fname)
-        if not os.path.exists(out_path):
-            resp = requests.get(url)
-            resp.raise_for_status()
-            with open(out_path, "wb") as f:
-                f.write(resp.content)
-        paths.append(out_path)
+# --- 2. PDF 다운로드 함수 (예시) ---
+def download_pdfs(urls: list[str]) -> list[str]:
+    # URL→파일 경로 리스트 반환 (미구현 부분)
+    paths = [...]
     return paths
 
+pdf_paths = download_pdfs(VDC_PROCESS_DOC_URLS)
+
+# --- 3. Retriever 빌드 함수 수정 버전 ---
 @st.cache_resource
 def build_retriever(pdf_paths: list[str]):
-    # PDF 리스트가 비어 있으면 더미 FAISS retriever 반환
     if not pdf_paths:
         st.error("❌ 프로세스 문서 로드에 실패했습니다. PDF 경로가 없습니다.")
         from langchain.schema import Document
-        empty_doc = Document(page_content="문서가 없습니다.", metadata={"source_name":"none"})
+        empty_doc = Document(page_content="문서가 없습니다.", metadata={})
         emb = OpenAIEmbeddings(openai_api_key=openai_api_key)
         return FAISS.from_documents([empty_doc], emb).as_retriever(search_kwargs={"k": 1})
 
-    # 정상 경로가 있을 때만 실제 로딩
     loader = PyMuPDFLoader(pdf_paths[0])
     docs = loader.load()
     splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
     chunks = splitter.split_documents(docs)
-
     emb = OpenAIEmbeddings(openai_api_key=openai_api_key)
     vectordb = FAISS.from_documents(chunks, emb)
     return vectordb.as_retriever(search_kwargs={"k": 4})
 
-pdf_paths = download_pdfs(VDC_PROCESS_DOC_URLS)
 retriever = build_retriever(pdf_paths)
 
-# --- 3. PromptTemplate 정의 (vdc‑a 스타일) ---
+# --- 4. PromptTemplate 정의 ---
 PROMPT = PromptTemplate(
-    input_variables=["table", "doc_context", "question"],
+    input_variables=["table","doc_context","question"],
     template="""
 당신은 SI 프로세스 전문가입니다.
 
 아래 표에는 ‘{question}’ 에 해당하는 단계의 
-주요 활동/시기/책임자/실무자/협조 및 지원 부서/적용 시스템 정보가 정리되어 있습니다:
+주요 활동/시기/책임자 정보가 정리되어 있습니다:
 
 {table}
 
@@ -117,57 +93,49 @@ PROMPT = PromptTemplate(
 💡 핵심 요약
 📋 절차 또는 판단 주체
 🔢 정확한 수치
-형식으로 답변해주세요.
-""".strip()
+형식으로 답변해주세요."""
 )
 
-# --- 4. RetrievalQA 체인 생성 ---
+# --- 5. RetrievalQA 생성 ---
 qa = RetrievalQA.from_chain_type(
-    llm=ChatOpenAI(model_name="gpt-4o-mini", temperature=0),
+    llm=ChatOpenAI(model_name="gpt-4o-mini", temperature=0, openai_api_key=openai_api_key),
     retriever=retriever,
     chain_type="stuff",
     chain_type_kwargs={"prompt": PROMPT}
 )
 
-# --- 5. Streamlit UI ---
-st.set_page_config(page_title="SI 프로세스 챗봇", layout="wide")
-st.title("📋 SI 프로세스 기반 Q&A")
-
-question = st.text_input("VDC‑A 관련 질문을 입력하세요:")
+# --- 6. 사용자 입력 및 답변 표시 ---
+question = st.text_input("VDC‑A 관련 질문을 입력하세요")
 if question:
-    # 5.1 질문에서 단계(step_name)와 매칭되는 행을 추출하여
-    # 원하는 6개 컬럼만 선택하도록 수정
-    if match:
-        sub = df[df['step_name'].str.match(match, na=False)][
-            ['major', 'timing', 'owner', 'worker', 'support', 'system']
-        ]
-        table_html = sub.to_html(index=False, escape=False)
-    else:
-        table_html = "해당 단계 정보를 찾을 수 없습니다."
+    # 단계명 매칭
+    import difflib
+    matches = difflib.get_close_matches(question, df['step_name'].unique(), n=1, cutoff=0.5)
+    step = matches[0] if matches else None
 
-    # 5.2 문서 컨텍스트 검색
+    if step:
+        sub = df[df['step_name']==step][['major','timing','owner','worker','support','system']]
+        sub = sub.rename(columns={
+            'major':'주요 활동','timing':'시기','owner':'책임자',
+            'worker':'실무자','support':'협조 및 지원 부서','system':'적용 시스템'
+        })
+        table_html = sub.to_html(index=False)
+    else:
+        table_html = ""
+
     docs_for_q = retriever.get_relevant_documents(question)
     doc_context = "\n\n".join([d.page_content for d in docs_for_q])
 
-    # 5.3 QA 실행
     answer = qa.invoke({
         "table": table_html,
         "doc_context": doc_context,
         "question": question
     })["result"]
 
-    # 6. 결과 파싱 & 출력
+    # 출력
     lines = answer.splitlines()
-    summary = lines[0] if len(lines)>0 else ""
-    procedure = lines[1] if len(lines)>1 else ""
-    numbers = lines[2] if len(lines)>2 else ""
-
-    st.markdown(f"### 💡 핵심 요약\n{summary}")
-    st.markdown(f"### 📋 절차 또는 판단 주체\n{procedure}")
-    if numbers:
-        st.markdown(f"### 🔢 관련 수치\n{numbers}")
-
+    st.markdown(f"### 💡 핵심 요약\n{lines[0] if len(lines)>0 else ''}")
+    st.markdown(f"### 📋 절차 또는 판단 주체\n{lines[1] if len(lines)>1 else ''}")
+    st.markdown(f"### 🔢 관련 수치\n{lines[2] if len(lines)>2 else ''}")
     with st.expander("📎 문서 소스 보기"):
         for d in docs_for_q:
-            src = d.metadata.get("source_name", d.metadata.get("source", "unknown"))
-            st.write(f"- `{src}`, …")
+            st.write(f"- {d.metadata.get('source_name','unknown')}")
