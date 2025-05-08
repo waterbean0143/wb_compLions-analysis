@@ -5,6 +5,7 @@ import pandas as pd
 import difflib
 import gdown
 import csv
+from io import StringIO
 
 from langchain.chat_models import ChatOpenAI
 from langchain.embeddings import OpenAIEmbeddings
@@ -55,34 +56,28 @@ def build_faiss_retriever(pdf_paths: list[str], k: int = 4):
 
 @st.cache_data
 def load_process_table(path: str) -> pd.DataFrame:
-    """Load and normalize the process CSV table."""
     base = os.path.dirname(__file__)
     abs_path = os.path.join(base, path)
-    # Read header line manually to ensure correct columns
-    with open(abs_path, encoding="utf-8-sig") as f:
-        header_line = f.readline().strip()
-    columns = [col.strip() for col in header_line.split(',')]
-    df = pd.read_csv(
-        abs_path,
-        sep=',',
-        header=0,
-        names=columns,
-        dtype=str,
-        encoding="utf-8-sig",
-        skiprows=1,
-        engine='python'
-    )
-    # Rename columns
+    # 0번째 줄이 영문 헤더이므로 header=0(기본) 사용
+    try:
+        df = pd.read_csv(abs_path, dtype=str, encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        df = pd.read_csv(abs_path, dtype=str, encoding="cp949")
+    # 영문 헤더 → 내부영문명 매핑
     df = df.rename(columns={
-        '주요 단계':'step_name',
-        '주요 활동':'major',
-        '시기':'timing',
-        '책임자':'owner',
-        '실무자':'worker',
-        '협조 및 지원 부서':'support',
-        '적용 시스템':'system'
+        'Phase':     'step_name',
+        'Step_name': 'major',
+        'timing':    'timing',
+        'Lead':      'owner',
+        'Assist':    'worker',
+        'Support':   'support',
+        'System':    'system',
     })
     return df
+
+# 호출 예:
+df = load_process_table("SI_FULL_PROCESS_HIERARCHY.csv")
+st.write("▶︎ 내부 컬럼명:", df.columns.tolist())
 
 # 4. Streamlit page setup
 st.set_page_config(page_title="SI 방법론 챗봇", layout="wide")
