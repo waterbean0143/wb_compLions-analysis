@@ -1,3 +1,4 @@
+import streamlit as st
 import os
 import json
 import tempfile
@@ -54,7 +55,9 @@ def check_password():
 
 check_password()
 
-# 3. SI 프로세스 정의 로드
+# 3. 환경 변수 및 모델 설정
+MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-4o-mini")  # 환경변수로 모델 선택 가능
+# 4. SI 프로세스 정의 로드
 BASE_DIR = os.path.dirname(__file__)
 si = json.load(open(os.path.join(BASE_DIR, "SI_PROCESS_FULL.json"), encoding="utf-8"))
 steps = sorted({item["step"] for item in si.get("4_Main_Process", [])})
