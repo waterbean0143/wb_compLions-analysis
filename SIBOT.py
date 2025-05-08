@@ -1,75 +1,83 @@
-mport streamlit as st
+import streamlit as st
 import os
 import requests
 import tempfile
+import re
+import json
+import difflib
 from dotenv import load_dotenv
-
-# SI 방법론 Q&A 앱
-# 환경 변수 및 Streamlit secrets에서 키 읽기
-load_dotenv()
-
-# 먼저 Streamlit secrets 확인, 없으면 환경변수 확인
-OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
-UPSTAGE_API_KEY = st.secrets.get("UPSTAGE_API_KEY") or os.getenv("UPSTAGE_API_KEY")
-DEFAULT_MODEL    = st.secrets.get("DEFAULT_MODEL") or os.getenv("DEFAULT_MODEL") or "gpt-4o-mini"
-
-if not OPENAI_API_KEY:
-    st.error("🔑 OPENAI_API_KEY가 설정되지 않았습니다. Streamlit Secrets 또는 환경변수를 확인하세요.")
-    st.stop()
-
-# LangChain imports (after API key resolved)
+from langchain.chat_models import ChatOpenAI
+from langchain.chains import RetrievalQA
+from langchain.prompts import PromptTemplate
 from langchain.document_loaders import PyMuPDFLoader
-from langchain.text_splitter import CharacterTextSplitter
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
-from langchain.chains import RetrievalQA
-from langchain.chat_models import ChatOpenAI
+from langchain_upstage import UpstageGroundednessCheck
+from rank_bm25 import BM25Okapi
 
-# Google Drive 파일 ID 하드코딩
-PROCESS_DOC_ID = "1TNOhmUds7hMpwz3NO4QD-mO-J1sUJoEa"
-QNA_DOC_ID     = "17M1mnMZVl29EahbSVqzcyZEX8LYsx5ER"
+# 환경변수 로드
+load_dotenv()
 
-# PDF 다운로드 함수
-def download_gdrive_pdf(file_id: str, dst_path: str):
-    url = f"https://drive.google.com/uc?export=download&id={file_id}"
-    r = requests.get(url)
-    r.raise_for_status()
-    with open(dst_path, "wb") as f:
-        f.write(r.content)
+# 1) 읽기
+OPENAI_API_KEY  = st.secrets.get("OPENAI_API_KEY")  or os.getenv("OPENAI_API_KEY")
+UPSTAGE_API_KEY = st.secrets.get("UPSTAGE_API_KEY") or os.getenv("UPSTAGE_API_KEY")
 
-# 문서 로딩 및 분할
+# 2) 없는 경우 중단
+if not OPENAI_API_KEY:
+    st.error("🔑 OPENAI_API_KEY가 설정되지 않았습니다. Streamlit Secrets 또는 .env 를 확인하세요.")
+    st.stop()
+if not UPSTAGE_API_KEY:
+    st.error("🔑 UPSTAGE_API_KEY가 설정되지 않았습니다. Streamlit Secrets 또는 .env 를 확인하세요.")
+    st.stop()
+
+# 3) 환경변수에 할당
+os.environ["OPENAI_API_KEY"]  = OPENAI_API_KEY
+os.environ["UPSTAGE_API_KEY"] = UPSTAGE_API_KEY
+
+# Hard‑coded Google Drive IDs
+_PROCESS_DOC_ID = "1TNOhmUds7hMpwz3NO4QD-mO-J1sUJoEa"
+_QNA_DOC_ID     = "17M1mnMZVl29EahbSVqzcyZEX8LYsx5ER"
+
+# 문서 로딩 및 분할: 프로세스
 @st.cache_resource
-def load_and_split(ids: list[str]):
-    paths = []
-    for fid in ids:
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-        download_gdrive_pdf(fid, tmp.name)
-        paths.append(tmp.name)
-    docs = []
-    for p in paths:
-        docs += PyMuPDFLoader(p).load()
-    splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+def load_and_split_process_docs():
+    url = f"https://drive.google.com/uc?export=download&id={_PROCESS_DOC_ID}"
+    resp = requests.get(url)
+    resp.raise_for_status()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        tmp.write(resp.content)
+        tmp.flush()
+        docs = PyMuPDFLoader(tmp.name).load()
+    splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
     return splitter.split_documents(docs)
 
-# 앱 초기화
-st.set_page_config(page_title="SI 방법론 Q&A", layout="wide")
-st.title("💬 SI 방법론 문서 기반 Q&A")
+# 문서 로딩 및 분할: 대표 Q&A
+@st.cache_resource
+def load_and_split_qna_docs():
+    url = f"https://drive.google.com/uc?export=download&id={_QNA_DOC_ID}"
+    resp = requests.get(url)
+    resp.raise_for_status()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        tmp.write(resp.content)
+        tmp.flush()
+        docs = PyMuPDFLoader(tmp.name).load()
+    splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
+    return splitter.split_documents(docs)
 
-# 문서 로드·분할
-process_docs = load_and_split([PROCESS_DOC_ID])
-qna_docs     = load_and_split([QNA_DOC_ID])
-
-# 벡터 DB 구축
+# 벡터스토어 구축
 @st.cache_resource
 def build_vectorstores():
-    embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
-    process_vs = FAISS.from_documents(process_docs, embeddings)
-    qna_vs     = FAISS.from_documents(qna_docs, embeddings)
+    emb = OpenAIEmbeddings()
+    process_docs = load_and_split_process_docs()
+    qna_docs     = load_and_split_qna_docs()
+    process_vs = FAISS.from_documents(process_docs, emb)
+    qna_vs     = FAISS.from_documents(qna_docs,     emb)
     return process_vs, qna_vs
 
 process_vs, qna_vs = build_vectorstores()
-process_retriever = process_vs.as_retriever(search_kwargs={"k":5})
-qna_retriever     = qna_vs.as_retriever(search_kwargs={"k":5})
+process_retriever = process_vs.as_retriever(search_kwargs={"k":4})
+qna_retriever     = qna_vs.as_retriever(search_kwargs={"k":4})
 
 # LLM 초기화 (모델명 고정)
 llm = ChatOpenAI(model_name=DEFAULT_MODEL, openai_api_key=OPENAI_API_KEY, temperature=0)
