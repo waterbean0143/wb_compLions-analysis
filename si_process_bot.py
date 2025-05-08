@@ -25,7 +25,7 @@ if not openai_api_key:
     st.stop()
 
 # QNA 불러오기
-with open("si_process_대표질문.json", "r", encoding="utf-8") as f:
+with open("si_process_topQ.json", "r", encoding="utf-8") as f:
     qna = json.load(f)
 qna_questions = [q["question"] for q in qna]
 
@@ -108,7 +108,7 @@ else:
     chat_history_text = "\n".join([f"Q: {q}\nA: {a}" for q, a, _ in st.session_state["history"][-3:]])
     contextual_query = chat_history_text + f"\nQ: {query}"
 
-    llm = ChatOpenAI(temperature=0, model_name="gpt-4", openai_api_key=openai_api_key)
+    llm = ChatOpenAI(temperature=0, model_name="gpt-4-mini", openai_api_key=openai_api_key)
     qa_chain = RetrievalQA.from_chain_type(
         llm=llm,
         retriever=retriever,
