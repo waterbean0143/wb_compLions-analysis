@@ -3,203 +3,128 @@ import os
 import json
 import tempfile
 import requests
+import numpy as np
 from dotenv import load_dotenv
-from langchain.document_loaders import PyMuPDFLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.schema import Document
 from langchain.chat_models import ChatOpenAI
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
-from langchain.chains import LLMChain
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.document_loaders import PyMuPDFLoader
+from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
 
-# 1. 환경 설정 및 페이지 설정
+from sklearn.metrics.pairwise import cosine_similarity
+
 load_dotenv()
-st.set_page_config(
-    page_title="SI 프로세스 Q&A",
-    page_icon="🤖",
-    layout="wide"
-)
+st.set_page_config(page_title="VDC-A 임베딩 유사 질문 연결", page_icon="🧠")
+st.title("🤖 VDC-A 문서 기반 + 벡터 유사 Q&A 시스템")
 
-# 2. 로그인 로직
-users = {
-    "admin": {"password": "admin", "name": "관리자"},
-    "test": {"password": "test", "name": "테스트 사용자"},
-    # 기타 사용자 추가
-}
+openai_api_key = os.getenv("OPENAI_API_KEY")
+if not openai_api_key:
+    st.error("OPENAI_API_KEY가 설정되지 않았습니다.")
+    st.stop()
 
-def check_password():
-    def login():
-        u = st.session_state["username"]
-        p = st.session_state["password"]
-        if u in users and users[u]["password"] == p:
-            st.session_state["password_correct"] = True
-            st.session_state["logged_in_user"] = users[u]["name"]
-            # admin/test 계정만 관리자 권한
-            st.session_state["is_admin"] = (u in ["admin", "test"])
-            del st.session_state["password"]
-        else:
-            st.session_state["password_correct"] = False
+# QNA 불러오기
+with open("vdc_a_대표질문.json", "r", encoding="utf-8") as f:
+    qna = json.load(f)
+qna_questions = [q["question"] for q in qna]
 
-    if "password_correct" not in st.session_state:
-        st.text_input("Username", key="username")
-        st.text_input("Password", type="password", key="password")
-        st.button("Login", on_click=login)
-        st.stop()
-    elif not st.session_state.get("password_correct", False):
-        st.error("❌ 잘못된 아이디 또는 비밀번호입니다.")
-        del st.session_state["password_correct"]
-        st.stop()
-    else:
-        st.sidebar.success(f"안녕하세요, {st.session_state['logged_in_user']}님!")
+# QNA 임베딩 벡터 생성
+embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
+qna_vectors = embeddings.embed_documents(qna_questions)
 
-check_password()
+# 벡터 기반 유사 질문 연결 함수
+def find_most_similar_qna_vector(user_question, qna_data, qna_vectors, threshold=0.82):
+    user_vec = embeddings.embed_query(user_question)
+    sims = cosine_similarity([user_vec], qna_vectors)[0]
+    best_idx = int(np.argmax(sims))
+    if sims[best_idx] >= threshold:
+        return qna_data[best_idx]
+    return None
 
-# 3. 환경 변수 및 모델 설정
-MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-4o-mini")  # 환경변수로 모델 선택 가능
-# 4. SI 프로세스 정의 로드
-BASE_DIR = os.path.dirname(__file__)
-si = json.load(open(os.path.join(BASE_DIR, "SI_PROCESS_FULL.json"), encoding="utf-8"))
-steps = sorted({item["step"] for item in si.get("4_Main_Process", [])})
-
-# 4. Embeddings & Prompt 설정
-embeddings = OpenAIEmbeddings()
-prompt = PromptTemplate(
-    input_variables=["context", "question"],
-    template=("당신은 SI 프로세스 문서를 바탕으로 질문에 답하는 AI 어시스턴트입니다."
-              "\n\n질문: {question}\n\n문서 내용: {context}\n")
-)
-
-# 5. FAISS 인덱스 초기화 함수
-@st.cache_resource
-def build_index_from_pdf(source):
-    # source가 URL이면 다운로드, 아니면 로컬 파일
-    if source.startswith("http"):
-        resp = requests.get(source)
+# 문서 기반 리트리버
+def load_pdf_from_url(url):
+    response = requests.get(url)
+    if response.status_code == 200:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as f:
-            f.write(resp.content)
-            path = f.name
-    else:
-        path = os.path.join(BASE_DIR, source)
-    docs = PyMuPDFLoader(path).load()
-    chunks = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50).split_documents(docs)
-    return FAISS.from_documents(chunks, embeddings)
+            f.write(response.content)
+            f.flush()
+            loader = PyMuPDFLoader(f.name)
+            return loader.load()
+    return []
 
-@st.cache_resource
-def build_index_from_json(path):
-    full = os.path.join(BASE_DIR, path)
-    items = json.load(open(full, encoding="utf-8"))
-    docs = [Document(page_content=i['answer'], metadata={'question':i['question'],'source':'QnA'}) for i in items]
-    chunks = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50).split_documents(docs)
-    return FAISS.from_documents(chunks, embeddings)
+def create_pdf_vector_retriever():
+    urls = {
+        "vdc_a_프로세스": "https://drive.google.com/uc?export=download&id=1lSEWk7KDgHR71yHcjEKniWzhqwL7T2fC",
+        "vdc_a_qna": "https://drive.google.com/uc?export=download&id=1KGJv9ttGD7ErcSWymE-0jiMjOzbnq6iI"
+    }
+    all_docs = []
+    for name, url in urls.items():
+        docs = load_pdf_from_url(url)
+        for doc in docs:
+            doc.metadata["source_name"] = name
+        all_docs.extend(docs)
+    splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
+    split_docs = splitter.split_documents(all_docs)
+    vectordb = FAISS.from_documents(split_docs, embeddings)
+    return vectordb.as_retriever()
 
-# 6. 문서 소스 인덱스 생성
-# VDC-A 예시: 프로세스 PDF와 QnA JSON은 git에 이미 있음
-proc_source = "https://drive.google.com/uc?export=download&id=1lSEWk7KDgHR71yHcjEKniWzhqwL7T2fC"
-qna_source  = "vdc_a_대표질문.json"
-faiss_proc = build_index_from_pdf(proc_source)
-faiss_qna  = build_index_from_json(qna_source)
+retriever = create_pdf_vector_retriever()
 
-# 7. 대화 이력 초기화 (단계별 최대 5개)
-for step in steps:
-    key = f"history_{step}"
-    if key not in st.session_state:
-        st.session_state[key] = []
+# 프롬프트 정의
+hybrid_prompt = PromptTemplate(
+    input_variables=["context", "question"],
+    template="""당신은 VDC-A 문서 기반 전문가입니다.
 
-# 8. 관리자 파라미터 기본값
-default_k = 4
-default_temp = 0.0
-default_thr = 0.0
+이전 대화 문맥과 질문:
+{question}
 
-# 9. 탭 구성 (소개, 개요, Q&A, [설정])
-tabs = ["소개", "절차 개요", "Q&A"]
-if st.session_state.get("is_admin", False):
-    tabs.append("설정")
-intro_tab, overview_tab, qa_tab, *rest = st.tabs(tabs)
+관련 문서 내용:
+{context}
 
-# 소개 탭
-with intro_tab:
-    st.header("SI 프로세스 전체개요")
-    st.info("Flowchart는 나중에 draw.io 파일 기반으로 렌더링 예정입니다.")
+답변 형식:
+1. 💡 핵심 요약
+2. 📋 관련 절차 위치 또는 판단 주체
+"""
+)
 
-# 절차 개요 탭
-with overview_tab:
-    st.header("절차별 개요")
-    step_tabs = st.tabs(steps)
-    for step, tab in zip(steps, step_tabs):
-        with tab:
-            st.subheader(step)
-            for act in [i for i in si.get("4_Main_Process", []) if i["step"]==step]:
-                st.markdown(f"**활동**: {act['activity']}")
-                st.markdown(f"- 시기: {act.get('timing','-')}")
-                st.markdown(f"- 책임자: {', '.join(act.get('owner',[]))}")
-                st.markdown(f"- 수행자: {', '.join(act.get('worker',[]))}")
-                st.markdown(f"- 지원: {act.get('support','-')}")
-                st.markdown(f"- 시스템: {act.get('system','-')}")
+# 챗봇 이력
+if "history" not in st.session_state:
+    st.session_state["history"] = []
 
-# 설정 탭 (관리자 전용)
-if st.session_state.get("is_admin", False):
-    set_tab = rest[0]
-    with set_tab:
-        st.header("⚙️ 관리자 설정")
-        st.write(f"- 기본 Top-k: **{default_k}**")
-        st.write(f"- 기본 온도: **{default_temp}**")
-        st.write(f"- Score 임계: **{default_thr}**")
-        k = st.number_input("Top-k Retrieval", 1, 20, default_k)
-        temp = st.slider("LLM 온도", 0.0, 1.0, default_temp)
-        thr = st.slider("Score Threshold", 0.0, 1.0, default_thr)
+query = st.chat_input("VDC-A 관련 질문을 입력하세요:")
+if not query:
+    st.stop()
+
+# QNA 유사도 매칭 (임베딩 기반)
+matched_qna = find_most_similar_qna_vector(query, qna, qna_vectors)
+
+if matched_qna:
+    # QNA 직접 응답
+    st.session_state["history"].append((query, matched_qna["answer"], []))
 else:
-    k, temp, thr = default_k, default_temp, default_thr
+    # 문서 기반 GPT 사용
+    chat_history_text = "\n".join([f"Q: {q}\nA: {a}" for q, a, _ in st.session_state["history"][-3:]])
+    contextual_query = chat_history_text + f"\nQ: {query}"
 
-# 10. Q&A 탭
-with qa_tab:
-    st.header("Q&A")
-    sel = st.selectbox("단계 선택", steps)
-    hkey = f"history_{sel}"
+    llm = ChatOpenAI(temperature=0, model_name="gpt-4", openai_api_key=openai_api_key)
+    qa_chain = RetrievalQA.from_chain_type(
+        llm=llm,
+        retriever=retriever,
+        chain_type="stuff",
+        chain_type_kwargs={"prompt": hybrid_prompt},
+        return_source_documents=True
+    )
+    with st.spinner("문서 기반 답변 생성 중..."):
+        result = qa_chain.invoke({"query": contextual_query})
+        st.session_state["history"].append((query, result["result"], result["source_documents"]))
 
-    # 과거 대화
-    for q,a in st.session_state[hkey]:
-        st.chat_message("user").write(q)
-        st.chat_message("assistant").write(a)
-
-    # 질문 폼
-    with st.form("form_qna"):
-        q = st.text_input("질문을 입력하세요", key="input_qna")
-        submitted = st.form_submit_button("전송")
-    if submitted and q:
-        # 소스 결정: VDC-A 단계만 QnA도 확인
-        sources = [("프로세스문서", faiss_proc)]
-        if sel == "제안/계약":
-            sources.append(("대표질문QnA", faiss_qna))
-
-        # 벡터 검색 후 필터링
-        all_res = []
-        for label, store in sources:
-            for d,s in store.search(q, k=k):
-                d.metadata['source'] = label
-                if s >= thr:
-                    all_res.append((d,s))
-        if not all_res:
-            all_res = [(d,s) for label, store in sources for d,s in store.search(q, k=k)]
-        all_res = sorted(all_res, key=lambda x: x[1], reverse=True)[:k]
-
-        docs_res, scores = zip(*all_res)
-
-        # LLMChain 답변 (GPT-4o-mini 사용)
-        llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=temp)
-        chain = LLMChain(llm=llm, prompt=prompt)
-        ctx = "\n\n".join(d.page_content for d in docs_res)
-        ans = chain.run(context=ctx, question=q)
-
-        # 히스토리 업데이트
-        st.session_state[hkey].append((q,ans))
-        st.session_state[hkey] = st.session_state[hkey][-5:]
-        st.session_state["input_qna"] = ""
-
-        # 출력
-        st.chat_message("user").write(q)
-        st.chat_message("assistant").write(ans)
+# 채팅 출력
+for q, a, sources in st.session_state["history"]:
+    st.chat_message("user").write(q)
+    st.chat_message("assistant").markdown(f"### 💡 핵심 요약\n{a.strip()}")
+    if sources:
         with st.expander("📎 문서 근거 보기"):
-            for idx,d in enumerate(docs_res,1):
-                st.markdown(f"**[{idx}]** `{d.metadata['source']}`")
-                st.code(d.page_content[:300] + ('...' if len(d.page_content)>300 else ''))
+            for i, doc in enumerate(sources):
+                st.markdown(f"**[{i+1}]** `{doc.metadata.get('source_name', 'unknown')}`")
+                st.code(doc.page_content[:400] + ("..." if len(doc.page_content) > 400 else ""))
