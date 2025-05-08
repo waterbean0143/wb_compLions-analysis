@@ -1,31 +1,23 @@
-import streamlit as st
+mport streamlit as st
 import os
+import requests
+import tempfile
 from dotenv import load_dotenv
 
+# SI 방법론 Q&A 앱
+# 환경 변수 및 Streamlit secrets에서 키 읽기
 load_dotenv()
 
-OPENAI_API_KEY  = st.secrets.get("OPENAI_API_KEY")  or os.getenv("OPENAI_API_KEY")
+# 먼저 Streamlit secrets 확인, 없으면 환경변수 확인
+OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
 UPSTAGE_API_KEY = st.secrets.get("UPSTAGE_API_KEY") or os.getenv("UPSTAGE_API_KEY")
+DEFAULT_MODEL    = st.secrets.get("DEFAULT_MODEL") or os.getenv("DEFAULT_MODEL") or "gpt-4o-mini"
 
 if not OPENAI_API_KEY:
-    st.error("🔑 OPENAI_API_KEY가 설정되지 않았습니다. Streamlit Secrets 또는 .env 를 확인하세요.")
+    st.error("🔑 OPENAI_API_KEY가 설정되지 않았습니다. Streamlit Secrets 또는 환경변수를 확인하세요.")
     st.stop()
 
-if OPENAI_API_KEY is not None:
-    os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
-if UPSTAGE_API_KEY is not None:
-    os.environ["UPSTAGE_API_KEY"] = UPSTAGE_API_KEY
-
-from langchain.chat_models import ChatOpenAI
-from langchain.chains import RetrievalQA
-from langchain.prompts import PromptTemplate
-from langchain.document_loaders import PyMuPDFLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.vectorstores import FAISS
-from langchain_upstage import UpstageGroundednessCheck
-from rank_bm25 import BM25Okapi
-
+# LangChain imports (after API key resolved)
 from langchain.document_loaders import PyMuPDFLoader
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.embeddings import OpenAIEmbeddings
@@ -89,10 +81,8 @@ if "history" not in st.session_state:
 # 사용자 질문 입력
 query = st.chat_input("질문을 입력하세요:")
 if query:
-    # 프로세스 문서 기반 답변
     proc_chain = RetrievalQA.from_chain_type(llm=llm, retriever=process_retriever, chain_type="stuff")
     ans1 = proc_chain.run(query)
-    # 대표질문 문서 기반 답변
     qna_chain = RetrievalQA.from_chain_type(llm=llm, retriever=qna_retriever, chain_type="stuff")
     ans2 = qna_chain.run(query)
     st.session_state.history.append((query, ans1, ans2))
