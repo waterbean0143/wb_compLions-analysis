@@ -45,7 +45,7 @@ def load_process_table(path: str) -> pd.DataFrame:
         df = pd.read_csv(
             abs_path,
             sep=",",
-            engine="python",
+            engine="C",
             dtype=str,
             encoding="utf-8-sig",
             quoting=csv.QUOTE_NONE,      # ← 이 줄을 추가
@@ -54,7 +54,7 @@ def load_process_table(path: str) -> pd.DataFrame:
         df = pd.read_csv(
             abs_path,
             sep=",",
-            engine="python",
+            engine="C",
             dtype=str,
             encoding="cp949",
             quoting=csv.QUOTE_NONE,      # ← 이 줄도 추가
