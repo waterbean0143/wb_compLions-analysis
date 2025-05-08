@@ -20,49 +20,11 @@ from langchain_upstage import UpstageGroundednessCheck
 load_dotenv()
 
 @st.cache_data
-def load_steps_config(path: str) -> list[dict]:
+def load_csv(path: str) -> pd.DataFrame:
     """
-    CSV 포맷으로 변환된 SI 프로세스 인덱스를 읽어옵니다.
+    CSV 포맷의 인덱스 및 단계 데이터를 읽어옵니다 (cp949 인코딩).
     """
-    df = pd.read_csv(path, dtype=str, encoding='cp949')
-    return df.to_dict(orient='records')
-
-@st.cache_data
-def load_hierarchy(path: str) -> pd.DataFrame:
-    """
-    CSV로 변환된 SI 프로세스 단계별 상세 정보를 읽어옵니다.
-    """
-    df = pd.read_csv(path, dtype=str, encoding='cp949')
-    df = df.rename(columns={
-        '주요 단계': 'step_name',
-        '주요 활동': 'major',
-        '시기': 'timing',
-        '책임자': 'owner',
-        '실무자': 'worker',
-        '협조 및 지원 부서': 'support',
-        '적용 시스템': 'system'
-    })
-    return df.fillna('')
-
-@st.cache_data
-def load_rep_qna(path: str) -> list[dict]:
-    """
-    JSON 포맷의 대표 질문 리스트를 로드합니다.
-    """
-    with open(path, 'r', encoding='utf-8') as f:
-        return json.load(f)
-
-def normalize(text: str) -> str:
-    return re.sub(r'[^a-z0-9]', '', text.lower())
-
-def find_matching_majors(query: str, majors: list[str]) -> list[str]:
-    ni = normalize(query)
-    matches = []
-    for m in majors:
-        nm = normalize(m)
-        if nm.startswith(ni) or ni in nm:
-            matches.append(m)
-    return matches
+    return pd.read_csv(path, dtype=str, encoding='cp949')
 
 @st.cache_resource
 def download_to_temp(url: str) -> str:
@@ -74,19 +36,32 @@ def download_to_temp(url: str) -> str:
         f.write(r.content)
     return tmp_path
 
+def normalize(text: str) -> str:
+    return re.sub(r'[^a-z0-9]', '', (text or '').lower())
+
+def find_matching_majors(query: str, majors: list[str]) -> list[str]:
+    ni = normalize(query)
+    return [m for m in majors if normalize(m).startswith(ni) or ni in normalize(m)]
+
 # 주요 로직
 
 def main():
     st.set_page_config(page_title="SI 프로세스 챗봇", layout="wide")
-    # CSV 인덱스 불러오기
-    configs = load_steps_config("4. full process index.CSV")
-    # 단계별 상세정보 CSV 불러오기 (hierarchy.csv)
-    hier = load_hierarchy("SI_FULL_PROCESS_HIERARCHY.CSV")
-    # 대표 Q&A JSON
-    rep_qna = load_rep_qna("vdc_a_대표질문.json")
+
+    # 1) 전체 프로세스 인덱스 (CSV)
+    configs_df = load_csv("4. full process index.CSV")
+    configs = configs_df.to_dict(orient='records')
+
+    # 2) 단계별 상세 정보 (CSV)
+    hier_df = load_csv("SI_FULL_PROCESS_HIERARCHY.CSV")
+
+    # 3) 대표 Q&A (JSON)
+    with open("vdc_a_대표질문.json", encoding='utf-8') as f:
+        rep_qna = json.load(f)
 
     st.sidebar.title("SI 챗봇")
-    step = st.sidebar.selectbox("프로세스 단계 선택", [c['step_name'] for c in configs])
+    step_names = configs_df['step_name'].tolist()
+    step = st.sidebar.selectbox("프로세스 단계 선택", step_names)
     cfg = next(c for c in configs if c['step_name'] == step)
 
     intro_tab, overview_tab, qa_tab = st.tabs(["소개", "절차 개요", "Q&A"])
@@ -97,10 +72,10 @@ def main():
 
     with overview_tab:
         st.header(f"{step} 단계 상세")
-        df_step = hier[hier['step_name'] == step]
-        # 각 major별 상세 내용 표시
+        df_step = hier_df[hier_df['step_name'] == step]
         for major_label in df_step['major'].dropna().unique():
             with st.expander(major_label):
+                # display_major_detail 함수는 df_step와 major_label을 사용하여 세부 항목 표시
                 display_major_detail(df_step, major_label)
 
     with qa_tab:
@@ -117,10 +92,9 @@ def main():
                 st.caption(f"출처: {entry.get('출처','unknown')}")
             else:
                 # 2) 문서 기반 Q&A
-                df_step = hier[hier['step_name'] == step]
+                df_step = hier_df[hier_df['step_name'] == step]
                 majors = df_step['major'].dropna().unique().tolist()
-                matched = find_matching_majors(query, majors)
-                sel_major = matched[0] if matched else majors[0]
+                sel_major = find_matching_majors(query, majors)[0] if find_matching_majors(query, majors) else majors[0]
 
                 loader = PyMuPDFLoader(download_to_temp(cfg['document_url']))
                 docs = loader.load()
