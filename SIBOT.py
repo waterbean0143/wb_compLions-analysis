@@ -17,7 +17,10 @@ from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
 from rank_bm25 import BM25Okapi
 
-# ── Load environment & secrets ─────────────────────────────────────────────────
+# ── 0) Streamlit page configuration MUST come before any other st.* call ───────
+st.set_page_config(page_title="SI 프로세스 챗봇", layout="wide")
+
+# ── 1) Load environment & secrets ─────────────────────────────────────────────
 load_dotenv()
 OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
@@ -29,7 +32,7 @@ os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
 _PROCESS_DOC_ID = "1TNOhmUds7hMpwz3NO4QD-mO-J1sUJoEa"
 _QNA_DOC_ID     = "17M1mnMZVl29EahbSVqzcyZEX8LYsx5ER"
 
-# ── 1) Load & split Process document ────────────────────────────────────────────
+# ── 2) Load & split Process document ────────────────────────────────────────────
 @st.cache_resource
 def load_and_split_process_docs():
     url = f"https://drive.google.com/uc?export=download&id={_PROCESS_DOC_ID}"
@@ -40,7 +43,7 @@ def load_and_split_process_docs():
     splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
     return splitter.split_documents(docs)
 
-# ── 2) Load & split Q&A document ───────────────────────────────────────────────
+# ── 3) Load & split Q&A document ───────────────────────────────────────────────
 @st.cache_resource
 def load_and_split_qna_docs():
     url = f"https://drive.google.com/uc?export=download&id={_QNA_DOC_ID}"
@@ -51,21 +54,17 @@ def load_and_split_qna_docs():
     splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
     return splitter.split_documents(docs)
 
-# ── Load docs once ──────────────────────────────────────────────────────────────
+# ── 4) Materialize docs & vectorstores ─────────────────────────────────────────
 process_docs = load_and_split_process_docs()
 qna_docs     = load_and_split_qna_docs()
 
-# ── Build vectorstores ─────────────────────────────────────────────────────────
-embeddings         = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
-process_vs         = FAISS.from_documents(process_docs, embeddings)
-qna_vs             = FAISS.from_documents(qna_docs, embeddings)
-process_retriever  = process_vs.as_retriever(search_kwargs={"k": 4})
-qna_retriever      = qna_vs.as_retriever(search_kwargs={"k": 4})
+embeddings        = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
+process_vs        = FAISS.from_documents(process_docs, embeddings)
+qna_vs            = FAISS.from_documents(qna_docs, embeddings)
+process_retriever = process_vs.as_retriever(search_kwargs={"k": 4})
+qna_retriever     = qna_vs.as_retriever(search_kwargs={"k": 4})
 
-# ── Streamlit page config ──────────────────────────────────────────────────────
-st.set_page_config(page_title="SI 프로세스 챗봇", layout="wide")
-
-# ── Load CSV hierarchy for overview ────────────────────────────────────────────
+# ── 5) Load CSV hierarchy for overview ─────────────────────────────────────────
 @st.cache_data
 def load_hierarchy(csv_path):
     df = pd.read_csv(csv_path, dtype=str, encoding='utf-8-sig')
@@ -82,7 +81,7 @@ def load_hierarchy(csv_path):
 BASE_DIR = os.path.dirname(__file__)
 hierarchy_df = load_hierarchy(os.path.join(BASE_DIR, "SI_FULL_PROCESS_HIERARCHY.csv"))
 
-# ── Tabs ───────────────────────────────────────────────────────────────────────
+# ── 6) Build the two tabs ──────────────────────────────────────────────────────
 overview_tab, qa_tab = st.tabs(["절차 개요","Q&A"])
 
 with overview_tab:
@@ -92,16 +91,19 @@ with overview_tab:
     for idx, major in enumerate(topics, start=1):
         rn = roman[idx-1] if idx-1 < len(roman) else str(idx)
         st.subheader(f"{rn}. {major}")
-        sub = hierarchy_df[hierarchy_df['major']==major][['major','timing','owner','worker','support','system']].rename(
-            columns={'major':'주요 활동','timing':'시기','owner':'책임자','worker':'실무자','support':'협조 및 지원 부서','system':'적용 시스템'}
-        )
+        sub = (hierarchy_df[hierarchy_df['major']==major]
+               [['major','timing','owner','worker','support','system']]
+               .rename(columns={
+                   'major':'주요 활동','timing':'시기','owner':'책임자',
+                   'worker':'실무자','support':'협조 및 지원 부서','system':'적용 시스템'
+               }))
         st.table(sub.reset_index(drop=True))
 
 with qa_tab:
     st.header("Q&A")
     query = st.text_input("질문 입력")
     if st.button("질문하기") and query:
-        # 1) 대표질문 JSON match (if exists)
+        # 6.1) 대표질문 JSON match
         try:
             rep = json.load(open(os.path.join(BASE_DIR,"vdc_a_대표질문.json"),encoding='utf-8'))
         except FileNotFoundError:
@@ -114,11 +116,11 @@ with qa_tab:
                 entry = norms[m[0]]
                 st.subheader("🔎 대표 질문 매칭 답변")
                 st.write(entry.get('answer',''))
-                if entry.get('출처'): st.caption("출처: "+entry['출처'])
+                if entry.get('출처'):
+                    st.caption("출처: "+entry['출처'])
                 st.stop()
 
-        # 2) RetrievalQA on process docs
-        retriever = process_retriever
+        # 6.2) RetrievalQA on process docs
         prompt = PromptTemplate(
             input_variables=["context","question"],
             template="""
@@ -136,16 +138,17 @@ with qa_tab:
             """
         )
         llm = ChatOpenAI(openai_api_key=OPENAI_API_KEY, model_name="gpt-4o-mini", temperature=0)
-        qa = RetrievalQA.from_chain_type(
+        qa  = RetrievalQA.from_chain_type(
             llm=llm,
-            retriever=retriever,
+            retriever=process_retriever,
             chain_type="stuff",
             chain_type_kwargs={"prompt":prompt},
             return_source_documents=True
         )
         res = qa.invoke({"query":query})
+
         st.markdown(f"**💡 핵심 요약**\n{res['result']}")
         with st.expander("📎 문서 근거"):
             for i,doc in enumerate(res["source_documents"], start=1):
                 st.write(f"[{i}] {doc.metadata.get('source_name','unknown')}")
-                st.code(doc.page_content[:200] + "…")
+                st.code(doc.page_content[:200]+"…")
