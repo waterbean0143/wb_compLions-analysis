@@ -25,8 +25,9 @@ DEFAULT_PROFILE = {
 
 # --- 환경 설정 ---
 load_dotenv()
-st.set_page_config(page_title="VDC-A 사용자 프로필 기반 Q&A", page_icon="👤")
-st.title("👤 사용자 프로필 기반 VDC-A Q&A")
+st.set_page_config(
+    page_title="VDC-A 사용자 프로필 기반 Q&A",
+    page_icon="👤"
 
 openai_api_key = os.getenv("OPENAI_API_KEY")
 if not openai_api_key:
