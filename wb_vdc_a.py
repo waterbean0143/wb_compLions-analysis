@@ -4,13 +4,17 @@ import json
 import tempfile
 import requests
 import numpy as np
+import pandas as pd
 from dotenv import load_dotenv
+
+from langchain.document_loaders import PyMuPDFLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+
 from langchain.chat_models import ChatOpenAI
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
+from langchain.chains import RetrievalQA
 
 # 1. 환경 설정 및 페이지 설정
 load_dotenv()
