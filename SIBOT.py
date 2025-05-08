@@ -12,11 +12,10 @@ from langchain_community.document_loaders import PyMuPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
-from langchain.retrievers import EnsembleRetriever  
 
 # ── 1. 구글 드라이브 ID 리스트 정의 ─────────────────────────────
-PROCESS_DOC_IDS = ["1TNOhmUds7hMpwz3NO4QD-mO-J1sUJoEa"]
-QNA_DOC_IDS     = ["17M1mnMZVl29EahbSVqzcyZEX8LYsx5ER"]
+PROCESS_DOC_IDS = ["1TNOhmUds7hMpwz3NO4QD-mO-J1sUJoEa"]        # SI 방법론 프로세스
+QNA_DOC_IDS     = ["17M1mnMZVl29EahbSVqzcyZEX8LYsx5ER"]        # SI 방법론 대표질문
 
 # ── 2. PDF 다운로드 헬퍼 ────────────────────────────────────────
 @st.cache_resource(ttl=3600*24)
@@ -61,6 +60,7 @@ def load_process_table(path: str) -> pd.DataFrame:
         df = pd.read_csv(abs_path, dtype=str, encoding="utf-8-sig")
     except UnicodeDecodeError:
         df = pd.read_csv(abs_path, dtype=str, encoding="cp949")
+    # 한글→영문 컬럼명 통일
     df = df.rename(columns={
         '주요 단계':'step_name','주요 활동':'major','시기':'timing',
         '책임자':'owner','실무자':'worker','협조 및 지원 부서':'support','적용 시스템':'system'
@@ -71,12 +71,17 @@ def load_process_table(path: str) -> pd.DataFrame:
 st.set_page_config(page_title="SI 방법론 챗봇", layout="wide")
 st.title("📝 SI 방법론 Q&A")
 
+# 4) 테이블 로드
 df = load_process_table("SI_FULL_PROCESS_HIERARCHY.csv")
+
+# 2) PDF 다운로드 & 3) retriever 준비
 proc_paths = download_pdfs(PROCESS_DOC_IDS)
 qna_paths  = download_pdfs(QNA_DOC_IDS)
+
 proc_retriever = build_faiss_retriever(proc_paths, k=4)
 qna_retriever  = build_faiss_retriever(qna_paths, k=4)
 
+# 5) 질문 입력
 question = st.text_input("SI 방법론 관련 질문을 입력하세요")
 
 if question:
@@ -91,14 +96,16 @@ if question:
         })
         table_html = sub.to_html(index=False, escape=False)
     else:
+        step = None
         table_html = ""
 
-    # 2) 문서 컨텍스트 취합
+    # 2) 문서 컨텍스트 취합 (프로세스 + 대표Q&A)
     docs_proc = proc_retriever.get_relevant_documents(question)
     docs_qna  = qna_retriever.get_relevant_documents(question)
-    context = "\n\n".join([d.page_content for d in docs_proc + docs_qna])
+    docs_all  = docs_proc + docs_qna
+    context = "\n\n".join([d.page_content for d in docs_all])
 
-    # 3) PromptTemplate
+    # 3) PromptTemplate 정의
     PROMPT = PromptTemplate(
         input_variables=["table","doc_context","question"],
         template="""
@@ -118,7 +125,7 @@ if question:
 """
     )
 
-    # 4) RetrievalQA
+    # 4) RetrievalQA 체인 생성 (프로세스 리트리버 사용)
     qa = RetrievalQA.from_chain_type(
         llm=ChatOpenAI(model_name="gpt-4o-mini", temperature=0),
         retriever=proc_retriever,
@@ -126,20 +133,24 @@ if question:
         chain_type_kwargs={"prompt": PROMPT}
     )
 
-    # 5) 실행
+    # 5) 질의 실행
     out = qa.invoke({
         "table": table_html,
         "doc_context": context,
         "question": question
     })["result"]
 
-    # 6) 화면 출력
+    # 6) 결과 파싱·출력
     lines = out.splitlines()
-    st.markdown(f"### 💡 핵심 요약\n{lines[0] if lines else ''}")
-    st.markdown(f"### 📋 절차 또는 판단 주체\n{lines[1] if len(lines)>1 else ''}")
-    st.markdown(f"### 🔢 관련 수치\n{lines[2] if len(lines)>2 else ''}")
+    summary   = lines[0] if len(lines)>0 else ""
+    procedure = lines[1] if len(lines)>1 else ""
+    numbers   = lines[2] if len(lines)>2 else ""
+
+    st.markdown(f"### 💡 핵심 요약\n{summary}")
+    st.markdown(f"### 📋 절차 또는 판단 주체\n{procedure}")
+    st.markdown(f"### 🔢 관련 수치\n{numbers}")
 
     with st.expander("📎 문서 소스 보기"):
-        for d in docs_proc + docs_qna:
+        for d in docs_all:
             name = d.metadata.get("source_name", os.path.basename(d.metadata.get("source","")))
             st.write(f"- {name}")
