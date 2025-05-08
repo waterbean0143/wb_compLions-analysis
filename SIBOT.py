@@ -8,10 +8,9 @@ from dotenv import load_dotenv
 # 환경 변수 및 Streamlit secrets에서 키 읽기
 load_dotenv()
 
-# 먼저 Streamlit secrets 확인, 없으면 환경변수 확인
 OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
 UPSTAGE_API_KEY = st.secrets.get("UPSTAGE_API_KEY") or os.getenv("UPSTAGE_API_KEY")
-DEFAULT_MODEL    = st.secrets.get("DEFAULT_MODEL") or os.getenv("DEFAULT_MODEL") or "gpt-4o-mini"
+DEFAULT_MODEL    = st.secrets.get("DEFAULT_MODEL")    or "gpt-4o-mini"
 
 if not OPENAI_API_KEY:
     st.error("🔑 OPENAI_API_KEY가 설정되지 않았습니다. Streamlit Secrets 또는 환경변수를 확인하세요.")
