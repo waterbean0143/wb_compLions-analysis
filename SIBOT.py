@@ -60,7 +60,7 @@ def load_csv(path: str) -> pd.DataFrame:
     return pd.read_csv(path, dtype=str, encoding='utf-8-sig')
 
 # 프로젝트 프로세스 CSV 경로
-CSV_PATH = os.path.join(os.path.dirname(__file__), "SI_FULL_PROCESS_HIERACHY.csv")
+CSV_PATH = os.path.join(os.path.dirname(__file__), "SI_FULL_PROCESS_HIERARCHY.csv")
 
 # 메인 앱
 
