@@ -1,29 +1,39 @@
 import streamlit as st
+import pandas as pd
 import os
 import requests
 import tempfile
+import re
+import json
+import difflib
 from dotenv import load_dotenv
 
-# SI 방법론 Q&A 앱  
-# 환경 변수 및 Streamlit secrets에서 키 읽기  
+# 0. load .env
 load_dotenv()
 
-# 1) load from Secrets or env
+# 1. load secrets/env
 OPENAI_API_KEY  = st.secrets.get("OPENAI_API_KEY")  or os.getenv("OPENAI_API_KEY")
 UPSTAGE_API_KEY = st.secrets.get("UPSTAGE_API_KEY") or os.getenv("UPSTAGE_API_KEY")
-DEFAULT_MODEL   = st.secrets.get("DEFAULT_MODEL")   or "gpt-4o-mini"
 
-# 2) error out if missing
+# 2. fail fast if missing
 if not OPENAI_API_KEY:
     st.error("🔑 OPENAI_API_KEY가 설정되지 않았습니다. Streamlit Secrets 또는 .env 를 확인하세요.")
     st.stop()
-if not UPSTAGE_API_KEY:
-    st.error("🔑 UPSTAGE_API_KEY가 설정되지 않았습니다. Streamlit Secrets 또는 .env 를 확인하세요.")
-    st.stop()
 
-# 3) now safely write into os.environ
+# 3. now inject into environment
 os.environ["OPENAI_API_KEY"]  = OPENAI_API_KEY
 os.environ["UPSTAGE_API_KEY"] = UPSTAGE_API_KEY
+
+# 4. now it’s safe to import and instantiate LangChain models
+from langchain.chat_models import ChatOpenAI
+from langchain.chains import RetrievalQA
+from langchain.prompts import PromptTemplate
+from langchain.document_loaders import PyMuPDFLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.vectorstores import FAISS
+from langchain_upstage import UpstageGroundednessCheck
+from rank_bm25 import BM25Okapi
 
 # LangChain imports (after API key resolved)
 from langchain.document_loaders import PyMuPDFLoader
