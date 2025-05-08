@@ -23,9 +23,17 @@ BASE_DIR = os.path.dirname(__file__)
 
 # --- 1. 프로세스 테이블 로드 함수 ---
 @st.cache_data
-def load_process_table(rel_path: str) -> pd.DataFrame:
-    abs_path = os.path.join(BASE_DIR, rel_path)
-    df = pd.read_csv(abs_path, dtype=str, encoding="utf-8-sig")
+def load_process_table(path: str) -> pd.DataFrame:
+    # 스크립트 위치를 기준으로 CSV 파일의 절대 경로를 구합니다.
+    base_dir = os.path.dirname(__file__)
+    abs_path = os.path.join(base_dir, path)
+
+    # 우선 UTF-8로 시도하고, 실패하면 CP949(또는 euc-kr)로 재시도
+    try:
+        df = pd.read_csv(abs_path, dtype=str, encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        df = pd.read_csv(abs_path, dtype=str, encoding="cp949")
+
     # 컬럼명 통일
     df = df.rename(columns={
         '주요 단계': 'step_name',
@@ -36,8 +44,10 @@ def load_process_table(rel_path: str) -> pd.DataFrame:
         '협조 및 지원 부서': 'support',
         '적용 시스템': 'system'
     })
+
     return df
 
+# 호출 예
 df = load_process_table("SI_FULL_PROCESS_HIERARCHY.csv")
 
 # --- 2. PDF 다운로드 & Retriever 준비 함수 ---
