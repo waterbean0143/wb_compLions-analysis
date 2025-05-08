@@ -4,7 +4,9 @@ import streamlit as st
 import pandas as pd
 import difflib
 import gdown
-rom langchain.chat_models import ChatOpenAI
+import csv
+
+from langchain.chat_models import ChatOpenAI
 from langchain.embeddings import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_community.document_loaders import PyMuPDFLoader
