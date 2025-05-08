@@ -24,13 +24,15 @@ def load_steps_config(path: str) -> list[dict]:
     """
     CSV 포맷으로 변환된 SI 프로세스 인덱스를 읽어옵니다.
     """
-    # CSV 인코딩 문제 방지를 위해 cp949 인코딩 명시
     df = pd.read_csv(path, dtype=str, encoding='cp949')
     return df.to_dict(orient='records')
 
 @st.cache_data
-def load_hierarchy(path: str, sheet_index: int = 3):
-    df = pd.read_excel(path, sheet_name=sheet_index, dtype=str)
+def load_hierarchy(path: str) -> pd.DataFrame:
+    """
+    CSV로 변환된 SI 프로세스 단계별 상세 정보를 읽어옵니다.
+    """
+    df = pd.read_csv(path, dtype=str, encoding='cp949')
     df = df.rename(columns={
         '주요 단계': 'step_name',
         '주요 활동': 'major',
@@ -76,10 +78,10 @@ def download_to_temp(url: str) -> str:
 
 def main():
     st.set_page_config(page_title="SI 프로세스 챗봇", layout="wide")
-    # CSV 인덱스
+    # CSV 인덱스 불러오기
     configs = load_steps_config("4. full process index.CSV")
-    # 계층 정보
-    hier = load_hierarchy("SI_FULL_PROCESS_EXCEL.xlsx")
+    # 단계별 상세정보 CSV 불러오기 (hierarchy.csv)
+    hier = load_hierarchy("SI_FULL_PROCESS_HIERARCHY.CSV")
     # 대표 Q&A JSON
     rep_qna = load_rep_qna("vdc_a_대표질문.json")
 
@@ -96,7 +98,7 @@ def main():
     with overview_tab:
         st.header(f"{step} 단계 상세")
         df_step = hier[hier['step_name'] == step]
-        # display_major_detail 함수 필요
+        # 각 major별 상세 내용 표시
         for major_label in df_step['major'].dropna().unique():
             with st.expander(major_label):
                 display_major_detail(df_step, major_label)
@@ -105,7 +107,7 @@ def main():
         st.header("Q&A")
         query = st.text_input("질문 입력")
         if query:
-            # 1) 대표 Q&A 매칭 (유사도 기반)
+            # 1) 대표 Q&A 매칭
             questions = [e['question'] for e in rep_qna]
             match = difflib.get_close_matches(query, questions, n=1, cutoff=0.6)
             if match:
@@ -118,7 +120,7 @@ def main():
                 df_step = hier[hier['step_name'] == step]
                 majors = df_step['major'].dropna().unique().tolist()
                 matched = find_matching_majors(query, majors)
-                sel_major = matched[0] if len(matched)==1 else (matched[0] if matched else majors[0])
+                sel_major = matched[0] if matched else majors[0]
 
                 loader = PyMuPDFLoader(download_to_temp(cfg['document_url']))
                 docs = loader.load()
