@@ -1,10 +1,13 @@
+# ── 0. 반드시 최상단에 페이지 설정 ───────────────────────────────────
+import streamlit as st
+st.set_page_config(page_title="SI 방법론 챗봇", layout="wide")
+
+# ── 1. 필요한 패키지 임포트 ────────────────────────────────────────
 import os
 import tempfile
-import streamlit as st
 import pandas as pd
 import difflib
 import gdown
-import csv
 
 from langchain.chat_models import ChatOpenAI
 from langchain.embeddings import OpenAIEmbeddings
@@ -14,11 +17,10 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
 
-# ── 1. 구글 드라이브 ID 리스트 정의 ─────────────────────────────
-PROCESS_DOC_IDS = ["1TNOhmUds7hMpwz3NO4QD-mO-J1sUJoEa"]        # SI 방법론 프로세스
-QNA_DOC_IDS     = ["17M1mnMZVl29EahbSVqzcyZEX8LYsx5ER"]        # SI 방법론 대표질문
+# ── 2. 구글 드라이브 PDF 다운로드 헬퍼 ───────────────────────────────
+PROCESS_DOC_IDS = ["1TNOhmUds7hMpwz3NO4QD-mO-J1sUJoEa"]
+QNA_DOC_IDS     = ["17M1mnMZVl29EahbSVqzcyZEX8LYsx5ER"]
 
-# ── 2. PDF 다운로드 헬퍼 ────────────────────────────────────────
 @st.cache_resource(ttl=3600*24)
 def download_pdfs(ids: list[str]) -> list[str]:
     os.makedirs("pdfs", exist_ok=True)
@@ -33,7 +35,34 @@ def download_pdfs(ids: list[str]) -> list[str]:
         paths.append(out)
     return paths
 
-# ── 3. 문서 로드→청크→FAISS 리트리버 빌더 ─────────────────────────
+# ── 3. CSV 로드 및 칼럼명 통일 ────────────────────────────────────
+@st.cache_data
+def load_process_table(path: str) -> pd.DataFrame:
+    base = os.path.dirname(__file__)
+    abs_path = os.path.join(base, path)
+    # UTF-8 시도 → CP949 시도, sep 과 engine 명시
+    try:
+        df = pd.read_csv(abs_path,
+                         dtype=str,
+                         encoding="utf-8-sig",
+                         sep=",",
+                         engine="python")
+    except UnicodeDecodeError:
+        df = pd.read_csv(abs_path,
+                         dtype=str,
+                         encoding="cp949",
+                         sep=",",
+                         engine="python")
+    # 만약 여전히 하나의 컬럼으로 읽혔다면 강제로 split
+    if len(df.columns)==1 and "," in df.columns[0]:
+        df = df[df.columns[0]].str.split(",", expand=True)
+    # 한글→영문 컬럼명 통일
+    df.columns = ['step_name','major','timing','owner','worker','support','system']
+    return df
+
+df = load_process_table("SI_FULL_PROCESS_HIERARCHY.csv")
+
+# ── 4. FAISS 리트리버 빌더 ────────────────────────────────────────
 @st.cache_resource
 def build_faiss_retriever(pdf_paths: list[str], k: int=4):
     if not pdf_paths:
@@ -52,59 +81,18 @@ def build_faiss_retriever(pdf_paths: list[str], k: int=4):
     vectordb = FAISS.from_documents(chunks, emb)
     return vectordb.as_retriever(search_kwargs={"k":k})
 
-# ── 4. CSV 로드 및 컬럼명 통일 ─────────────────────────────────
-@st.cache_data
-def load_process_table(path: str) -> pd.DataFrame:
-    base = os.path.dirname(__file__)
-    abs_path = os.path.join(base, path)
-    try:
-        df = pd.read_csv(
-            abs_path,
-            dtype=str,
-            encoding="utf-8-sig",
-            engine="python",            # ← C 엔진 대신 Python 엔진 사용
-            sep=",",                    # ← 명시적으로 쉼표 구분자
-            on_bad_lines="skip"         # ← 문제가 있는 라인은 건너뜁니다
-        )
-    except UnicodeDecodeError:
-        df = pd.read_csv(
-            abs_path,
-            dtype=str,
-            encoding="cp949",
-            engine="python",
-            sep=",",
-            on_bad_lines="skip"
-        )
-    # 이제 정상적으로 분리된 칼럼명을 영문으로 바꿉니다
-    df = df.rename(columns={
-        '주요 단계':'step_name','주요 활동':'major','시기':'timing',
-        '책임자':'owner','실무자':'worker','협조 및 지원 부서':'support','적용 시스템':'system'
-    })
-    return df
-
-# 사용 예시
-df = load_process_table("SI_FULL_PROCESS_HIERARCHY.csv")
-st.write("▶︎ CSV 컬럼명:", df.columns.tolist())
-
-# ── 5. Streamlit UI ────────────────────────────────────────────
-st.set_page_config(page_title="SI 방법론 챗봇", layout="wide")
-st.title("📝 SI 방법론 Q&A")
-
-# 4) 테이블 로드
-df = load_process_table("SI_FULL_PROCESS_HIERARCHY.csv")
-
-# 2) PDF 다운로드 & 3) retriever 준비
 proc_paths = download_pdfs(PROCESS_DOC_IDS)
 qna_paths  = download_pdfs(QNA_DOC_IDS)
 
 proc_retriever = build_faiss_retriever(proc_paths, k=4)
 qna_retriever  = build_faiss_retriever(qna_paths, k=4)
 
-# 5) 질문 입력
+# ── 5. Streamlit UI ──────────────────────────────────────────────
+st.title("📝 SI 방법론 Q&A")
 question = st.text_input("SI 방법론 관련 질문을 입력하세요")
 
 if question:
-    # 1) 단계 이름 매칭
+    # 5‑1) 단계 이름 매칭
     match = difflib.get_close_matches(question, df['step_name'].unique(), n=1, cutoff=0.5)
     if match:
         step = match[0]
@@ -115,16 +103,14 @@ if question:
         })
         table_html = sub.to_html(index=False, escape=False)
     else:
-        step = None
-        table_html = ""
+        table_html = "해당 단계 정보가 없습니다."
 
-    # 2) 문서 컨텍스트 취합 (프로세스 + 대표Q&A)
+    # 5‑2) 문서 컨텍스트 취합
     docs_proc = proc_retriever.get_relevant_documents(question)
     docs_qna  = qna_retriever.get_relevant_documents(question)
-    docs_all  = docs_proc + docs_qna
-    context = "\n\n".join([d.page_content for d in docs_all])
+    context = "\n\n".join([d.page_content for d in docs_proc+docs_qna])
 
-    # 3) PromptTemplate 정의
+    # 5‑3) LLM 프롬프트
     PROMPT = PromptTemplate(
         input_variables=["table","doc_context","question"],
         template="""
@@ -144,7 +130,7 @@ if question:
 """
     )
 
-    # 4) RetrievalQA 체인 생성 (프로세스 리트리버 사용)
+    # 5‑4) RetrievalQA 체인
     qa = RetrievalQA.from_chain_type(
         llm=ChatOpenAI(model_name="gpt-4o-mini", temperature=0),
         retriever=proc_retriever,
@@ -152,24 +138,20 @@ if question:
         chain_type_kwargs={"prompt": PROMPT}
     )
 
-    # 5) 질의 실행
+    # 5‑5) 실행
     out = qa.invoke({
         "table": table_html,
         "doc_context": context,
         "question": question
     })["result"]
 
-    # 6) 결과 파싱·출력
+    # 5‑6) 결과 렌더링
     lines = out.splitlines()
-    summary   = lines[0] if len(lines)>0 else ""
-    procedure = lines[1] if len(lines)>1 else ""
-    numbers   = lines[2] if len(lines)>2 else ""
-
-    st.markdown(f"### 💡 핵심 요약\n{summary}")
-    st.markdown(f"### 📋 절차 또는 판단 주체\n{procedure}")
-    st.markdown(f"### 🔢 관련 수치\n{numbers}")
+    st.markdown(f"### 💡 핵심 요약\n{lines[0] if len(lines)>0 else ''}")
+    st.markdown(f"### 📋 절차 또는 판단 주체\n{lines[1] if len(lines)>1 else ''}")
+    st.markdown(f"### 🔢 관련 수치\n{lines[2] if len(lines)>2 else ''}")
 
     with st.expander("📎 문서 소스 보기"):
-        for d in docs_all:
+        for d in docs_proc+docs_qna:
             name = d.metadata.get("source_name", os.path.basename(d.metadata.get("source","")))
             st.write(f"- {name}")
