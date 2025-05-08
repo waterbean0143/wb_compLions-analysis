@@ -3,13 +3,17 @@ import difflib
 import streamlit as st
 import pandas as pd
 
+from streamlit import error
 from langchain_community.document_loaders import PyMuPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.embeddings import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
+
 from langchain.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
 from langchain.chat_models import ChatOpenAI
+
+
 
 # --- 환경 및 경로 설정 ---
 # OpenAI API key는 환경변수로 설정되어 있다고 가정
@@ -73,14 +77,22 @@ def download_pdfs(urls):
     return paths
 
 @st.cache_resource
-def build_retriever(pdf_paths):
-    # (A) 로드 & 청크
+def build_retriever(pdf_paths: list[str]):
+    # PDF 리스트가 비어 있으면 더미 FAISS retriever 반환
+    if not pdf_paths:
+        st.error("❌ 프로세스 문서 로드에 실패했습니다. PDF 경로가 없습니다.")
+        from langchain.schema import Document
+        empty_doc = Document(page_content="문서가 없습니다.", metadata={"source_name":"none"})
+        emb = OpenAIEmbeddings(openai_api_key=openai_api_key)
+        return FAISS.from_documents([empty_doc], emb).as_retriever(search_kwargs={"k": 1})
+
+    # 정상 경로가 있을 때만 실제 로딩
     loader = PyMuPDFLoader(pdf_paths[0])
     docs = loader.load()
     splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
     chunks = splitter.split_documents(docs)
-    # (B) 임베딩 & FAISS
-    emb = OpenAIEmbeddings(model="text-embedding-ada-002")
+
+    emb = OpenAIEmbeddings(openai_api_key=openai_api_key)
     vectordb = FAISS.from_documents(chunks, emb)
     return vectordb.as_retriever(search_kwargs={"k": 4})
 
