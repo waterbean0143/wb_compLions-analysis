@@ -1,4 +1,26 @@
+import streamlit as st
+import pandas as pd
+import os
+import requests
+import tempfile
+import re
+import json
+import difflib
+from dotenv import load_dotenv
+from langchain.chat_models import ChatOpenAI
+from langchain.chains import RetrievalQA
+from langchain.prompts import PromptTemplate
+from langchain.document_loaders import PyMuPDFLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.vectorstores import FAISS
+from langchain_upstage import UpstageGroundednessCheck
+from rank_bm25 import BM25Okapi
 
+# 환경변수 로드
+load_dotenv()
+
+# 사용자 인증 정보
 users = {
     "admin": {"password": "admin", "name": "관리자"},
     "test": {"password": "test", "name": "테스트 사용자"},
@@ -104,11 +126,11 @@ def main():
     # 탭
     intro_tab, overview_tab, qa_tab = st.tabs(["소개","절차 개요","Q&A"])
 
-    with intro_tab:
+        with intro_tab:
         st.markdown("## SI 전체 프로세스 챗봇")
         st.write("사이드바에서 설정 후 탭을 사용하세요.")
 
-        with overview_tab:
+    with overview_tab:
         st.header("절차 개요")
         # 로마 숫자 기호 목록 (18개 이상 지원)
         roman_numerals = [
@@ -121,7 +143,74 @@ def main():
             st.subheader(f"{roman}. {major}")
             display_table(df[df['major'] == major])
 
-    with qa_tab::
+    with qa_tab:
+        st.header("Q&A")
+        query = st.text_input("질문 입력", key="qna_input")
+        if st.button("질문하기", key="qna_button") and query:
+            # 1) 대표 Q&A 우선 매칭
+            if rep_qna:
+                rep_norms = {normalize(e.get('question','')): e for e in rep_qna}
+                norm_q = normalize(query)
+                m = difflib.get_close_matches(norm_q, rep_norms.keys(), n=1, cutoff=0.7)
+                if m:
+                    entry = rep_norms[m[0]]
+                    st.subheader("🔎 대표 질문 매칭 답변")
+                    st.write(entry.get('answer',''))
+                    if entry.get('출처'):
+                        st.caption(f"출처: {entry.get('출처')}")
+                    return
+            # 2) topic 매칭
+            norm_q = normalize(query)
+            key = None
+            m2 = difflib.get_close_matches(norm_q, norm_topics.keys(), n=1, cutoff=0.3)
+            if m2:
+                key = m2[0]
+                topic = norm_topics[key]
+                st.subheader(f"🔎 주제: {topic}")
+            else:
+                st.error("죄송합니다. 질문에 맞는 주제를 찾지 못했습니다. 다시 시도해 주세요.")
+                return
+            # 3) 문서 로드 및 BM25
+            row = df[df['major'] == topic]
+            url = row['document_url'].iloc[0] if not row.empty else ''
+            if not url:
+                st.warning("문서 URL이 없습니다.")
+                return
+            st.markdown(f"**원본 문서 URL:** {url}")
+            docs = PyMuPDFLoader(download_to_temp(url)).load()
+            texts = [d.page_content for d in docs]
+            bm25 = BM25Okapi([t.split() for t in texts])
+            top5 = bm25.get_top_n(query.split(), texts, n=5)
+            context = "
+
+".join(top5)
+            # 4) LLM 답변
+            llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0.0)
+            prompt = PromptTemplate(
+                input_variables=["context","question"],
+                template="""
+                당신은 SI 프로세스 문서 기반 질문에 답하는 어시스턴트입니다.
+
+                [문서]
+                {context}
+
+                [질문]
+                {question}
+
+                [답변 형식]
+                💡 핵심 요약
+                📋 절차 또는 판단 주체
+                """
+            )
+            answer = llm.predict(prompt.format(context=context, question=query))
+            rel = UpstageGroundednessCheck().invoke(answer)
+            if not rel.get('grounded', False):
+                st.warning("📌 문서 근거가 부족할 수 있습니다.")
+            st.markdown(f"**답변:**
+> {answer}")
+
+if __name__ == "__main__":
+    main()::
         st.header("Q&A")
         query = st.text_input("질문 입력", key="qna_input")
         if st.button("질문하기", key="qna_button") and query:
