@@ -87,4 +87,3 @@ prompt = PromptTemplate(input_variables=["context","question"], template=prompt_
 
 # 4. 데이터 로드 및 FAISS 초기화
 @st.cache_resource
-
