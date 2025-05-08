@@ -48,6 +48,7 @@ def load_process_table(path: str) -> pd.DataFrame:
             engine="python",
             dtype=str,
             encoding="utf-8-sig",
+            quoting=csv.QUOTE_NONE,      # ← 이 줄을 추가
         )
     except UnicodeDecodeError:
         df = pd.read_csv(
@@ -56,6 +57,7 @@ def load_process_table(path: str) -> pd.DataFrame:
             engine="python",
             dtype=str,
             encoding="cp949",
+            quoting=csv.QUOTE_NONE,      # ← 이 줄도 추가
         )
 
     # 한글→영문 컬럼명 통일 (rename만 사용)
