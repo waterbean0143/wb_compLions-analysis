@@ -2,6 +2,7 @@ import streamlit as st
 import os
 import requests
 import tempfile
+from dotenv import load_dotenv
 
 from langchain.document_loaders import PyMuPDFLoader
 from langchain.text_splitter import CharacterTextSplitter
@@ -9,6 +10,13 @@ from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
 from langchain.chains import RetrievalQA
 from langchain.chat_models import ChatOpenAI
+
+# .env에서 API 키 불러오기
+load_dotenv()
+api_key = os.getenv("OPENAI_API_KEY")
+if not api_key:
+    st.error("🔑 OPENAI_API_KEY 환경변수가 설정되지 않았습니다. .env 파일을 확인하세요.")
+    st.stop()
 
 # 1) 하드코딩된 Google Drive 파일 ID
 PROCESS_DOC_ID = "1TNOhmUds7hMpwz3NO4QD-mO-J1sUJoEa"
@@ -36,27 +44,14 @@ def load_and_split(ids: list[str]):
     splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     return splitter.split_documents(docs)
 
-# 사용자에게 OpenAI API 키 입력받기
-api_key = st.sidebar.text_input("OpenAI API Key", type="password", key="openai_api_key_input")
-if not api_key:
-    st.sidebar.warning("🔑 OpenAI API 키를 입력해 주세요.")
-    st.stop()
-# 환경변수로 설정
-os.environ["OPENAI_API_KEY"] = api_key
-
-# 애플리케이션 시작
-st.set_page_config(page_title="SIBOT Q&A", layout="wide")
-st.title("💬 SI 방법론 문서 기반 Q&A")
-
 # 4) 앱 기동 시 자동으로 문서 로드·벡터화
 process_docs = load_and_split([PROCESS_DOC_ID])
-qna_docs     = load_and_split([QNA_DOC_ID])([PROCESS_DOC_ID])
 qna_docs     = load_and_split([QNA_DOC_ID])
 
 # 5) 벡터 DB 생성 (인자 없는 함수로 캐싱)
 @st.cache_resource
 def build_vectorstores():
-    emb = OpenAIEmbeddings(openai_api_key=os.getenv("OPENAI_API_KEY"))
+    emb = OpenAIEmbeddings(openai_api_key=api_key)
     process_vs = FAISS.from_documents(process_docs, emb)
     qna_vs     = FAISS.from_documents(qna_docs, emb)
     return process_vs, qna_vs
@@ -67,7 +62,7 @@ process_retriever = process_vs.as_retriever(search_kwargs={"k":5})
 qna_retriever     = qna_vs.as_retriever(search_kwargs={"k":5})
 
 # 항상 gpt-4o-mini 사용하도록 model_name 고정
-llm = ChatOpenAI(model_name="gpt-4o-mini", openai_api_key=os.getenv("OPENAI_API_KEY"), temperature=0)
+llm = ChatOpenAI(model_name="gpt-4o-mini", openai_api_key=api_key, temperature=0)
 
 # 채팅 이력 저장
 if "history" not in st.session_state:
