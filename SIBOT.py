@@ -173,28 +173,43 @@ def main():
         st.markdown("## SI 전체 프로세스 챗봇에 오신 것을 환영합니다.")
         st.write("좌측에서 단계 선택 후 개요·Q&A 이용")
 
-    with overview_tab:
-        st.header(f"{step} 단계 상세 ({display_name}님)")
-        step = st.sidebar.selectbox(
-            "프로세스 단계 선택",
-            [c['step_name'] for c in configs],
-            key="step_select_overview"
-        )
+        with overview_tab:
+        st.header("절차 개요")
+        # 1) 절차 범위 선택
         phase = st.selectbox(
-            "절차 구분 선택",
-            ["제안/제약", "착수/계획", "실행/통제", "종료/사후"],
-            key="phase_select"
+            "절차 범위 선택해주세요",
+            [
+                "절차 범위 선택해주세요",
+                "제안/계약",
+                "착수/계획",
+                "실행/통제",
+                "종료/사후",
+                "전체",
+            ],
+            key="phase_scope"
         )
-        if 'phase' in df.columns:
-            df_phase = df[(df['step_name'] == step) & (df['phase'] == phase)]
-        else:
-            df_phase = df[df['step_name'] == step]
-        majors = df_phase['major'].dropna().unique().tolist()
-        for idx, major_label in enumerate(majors, start=1):
-            with st.expander(f"{idx}. {major_label}"):
-                display_major_detail(df_phase, major_label)
+        # 2) 선택된 절차에 따라 표 표시
+        if phase != "절차 범위 선택해주세요":
+            if phase == "전체":
+                df_phase = df.copy()
+            else:
+                df_phase = df[df['phase'] == phase]
+            # 주요 컬럼만 선택
+            cols = ['major', 'timing', 'owner', 'worker', 'support', 'system']
+            # DataFrame 준비
+            table_df = df_phase[cols].rename(columns={
+                'major': '주요 활동',
+                'timing': '시기',
+                'owner': '책임자',
+                'worker': '실무자',
+                'support': '협조 및 지원 부서',
+                'system': '적용 시스템'
+            })
+            # 인덱스 리셋 (번호 매기기)
+            table_df = table_df.reset_index(drop=True)
+            st.table(table_df)
 
-    with qa_tab:
+    with qa_tab::
         st.header("Q&A")
         query = st.text_input("질문 입력")
         if query:
