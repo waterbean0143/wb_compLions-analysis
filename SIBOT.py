@@ -4,6 +4,7 @@ import streamlit as st
 import pandas as pd
 import difflib
 import gdown
+import scv
 
 from langchain.chat_models import ChatOpenAI
 from langchain.embeddings import OpenAIEmbeddings
@@ -57,16 +58,36 @@ def load_process_table(path: str) -> pd.DataFrame:
     base = os.path.dirname(__file__)
     abs_path = os.path.join(base, path)
     try:
-        df = pd.read_csv(abs_path, dtype=str, encoding="utf-8-sig")
+        # quoting=None 으로 하면 " 를 무시하고 순수 콤마만 분리
+        df = pd.read_csv(
+            abs_path,
+            dtype=str,
+            encoding="utf-8-sig",
+            engine="python",
+            quoting=csv.QUOTE_NONE
+        )
     except UnicodeDecodeError:
-        df = pd.read_csv(abs_path, dtype=str, encoding="cp949")
+        df = pd.read_csv(
+            abs_path,
+            dtype=str,
+            encoding="cp949",
+            engine="python",
+            quoting=csv.QUOTE_NONE
+        )
+
     # 한글→영문 컬럼명 통일
     df = df.rename(columns={
-        '주요 단계':'step_name','주요 활동':'major','시기':'timing',
-        '책임자':'owner','실무자':'worker','협조 및 지원 부서':'support','적용 시스템':'system'
+        '주요 단계':'step_name',
+        '주요 활동':'major',
+        '시기':'timing',
+        '책임자':'owner',
+        '실무자':'worker',
+        '협조 및 지원 부서':'support',
+        '적용 시스템':'system'
     })
     return df
-#출력 검증
+
+# 사용 예시
 df = load_process_table("SI_FULL_PROCESS_HIERARCHY.csv")
 st.write("▶︎ CSV 컬럼명:", df.columns.tolist())
 
