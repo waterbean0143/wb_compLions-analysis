@@ -113,9 +113,12 @@ st.title("📋 SI 프로세스 기반 Q&A")
 
 question = st.text_input("VDC‑A 관련 질문을 입력하세요:")
 if question:
-    # 5.1 질문에서 단계(step:contentReference[oaicite:2]{index=2}f['step:contentReference[oaicite:3]{index=3}match:contentReference[oaicite:4]{index=4}(ques:contentReference[oaicite:5]{index=5})
-   :contentReference[oaicite:6]{index=6}= df[:contentReference[oaicite:7]{index=7}ste:contentReference[oaicite:8]{index=8}':'책임:contentReference[oaicite:9]{index=9}협조 및 지원 부서','system':'적용 시스템'
-        })
+    # 5.1 질문에서 단계(step_name)와 매칭되는 행을 추출하여
+    # 원하는 6개 컬럼만 선택하도록 수정
+    if match:
+        sub = df[df['step_name'].str.match(match, na=False)][
+            ['major', 'timing', 'owner', 'worker', 'support', 'system']
+        ]
         table_html = sub.to_html(index=False, escape=False)
     else:
         table_html = "해당 단계 정보를 찾을 수 없습니다."
