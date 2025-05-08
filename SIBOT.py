@@ -1,4 +1,5 @@
 import streamlit as st
+st.set_page_config(page_title="SI 프로세스 챗봇", layout="wide")
 import os
 import requests
 import tempfile
