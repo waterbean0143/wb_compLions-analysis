@@ -44,6 +44,7 @@ def download_to_temp(url: str) -> str:
 def normalize(text: str) -> str:
     return re.sub(r'[^a-z0-9]', '', (text or '').lower())
 
+
 def find_matching_majors(query: str, majors: list[str]) -> list[str]:
     ni = normalize(query)
     return [m for m in majors if normalize(m).startswith(ni) or ni in normalize(m)]
@@ -85,11 +86,11 @@ def main():
                 st.error("로그인 정보가 올바르지 않습니다.")
         st.stop()
 
-    # 로그인 완료 후 환영 이름
+    # 로그인 후 환영 이름
     logged_in_user = st.session_state['logged_in_user']
     display_name = users[logged_in_user]['name']
 
-    # 단계별 상세정보 CSV 로드 및 컬럼명 변환
+    # CSV 로드 및 컬럼명 변환
     df = load_csv("SI_FULL_PROCESS_HIERARCHY.CSV")
     rename_map = {
         '주요 단계': 'step_name',
@@ -99,19 +100,19 @@ def main():
         '실무자': 'worker',
         '협조 및 지원 부서': 'support',
         '적용 시스템': 'system',
-        '문서 URL': 'document_url'
+        '문서 URL': 'document_url',
+        '구분': 'phase'
     }
     df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
-    if 'document_url' not in df.columns:
-        df['document_url'] = ''
+    if 'document_url' not in df.columns: df['document_url'] = ''
 
-    # configs: 단계명과 문서 URL 목록
+    # configs 생성
     configs = []
     for step in df['step_name'].dropna().unique():
         urls = df.loc[df['step_name'] == step, 'document_url'].dropna().unique()
         configs.append({'step_name': step, 'document_url': urls[0] if len(urls) else ''})
 
-    # 대표 Q&A JSON 로드
+    # 대표 Q&A JSON
     try:
         with open("vdc_a_대표질문.json", encoding='utf-8') as f:
             rep_qna = json.load(f)
@@ -124,12 +125,33 @@ def main():
         st.session_state.clear()
         st.experimental_rerun()
 
-    model_name = st.sidebar.selectbox("언어 모델 선택", ["o3-mini"], key="model_select")
+    st.sidebar.selectbox(
+        "언어 모델 선택",
+        ["o4-mini"],
+        key="model_select",
+        help="현재 사용할 LLM 모델을 선택합니다. o4-mini만 지원됩니다."
+    )
     st.session_state['answer_mode'] = st.sidebar.selectbox(
-        "답변 모드 선택", ["빠른 답변", "정확한 답변"], index=0, key="answer_mode_select"
+        "답변 모드 선택",
+        ["빠른 답변", "정확한 답변"],
+        index=0,
+        key="answer_mode_select",
+        help=(
+            "• 빠른 답변: 가능한 빨리 핵심만 요약해서 드립니다.\n"
+            "• 정확한 답변: 질문을 재해석하고 더 자세하게 답변합니다."
+        )
     )
     st.session_state['reasoning_effort'] = st.sidebar.selectbox(
-        "추론 수준 선택", ["low", "medium", "high"], index=1, key="reasoning_effort_select"
+        "추론 수준 선택",
+        ["low", "medium", "high"],
+        index=1,
+        key="reasoning_effort_select",
+        help=(
+            "추론의 깊이를 설정합니다:\n"
+            "• low: 가장 빠르지만 간단한 답변\n"
+            "• medium: 균형 잡힌 일반적인 추론\n"
+            "• high: 시간이 걸리지만 훨씬 심층적인 분석"
+        )
     )
 
     st.sidebar.header("피드백")
@@ -137,16 +159,14 @@ def main():
     col1, col2 = st.sidebar.columns([2, 1])
     with col1:
         if st.sidebar.button("피드백 제출", key="feedback_submit"):
-            # 피드백 저장 로직 추가 필요
             st.sidebar.success("피드백이 제출되었습니다.")
     with col2:
         if st.sidebar.button("로그아웃", key="logout_button"):
             st.session_state.clear()
             st.experimental_rerun()
-
     st.sidebar.write("🐧 저작자: @AI이행봇")
 
-    # --- 메인 탭 구성 ---
+    # --- 메인 탭 ---
     intro_tab, overview_tab, qa_tab = st.tabs(["소개", "절차 개요", "Q&A"])
 
     with intro_tab:
@@ -154,12 +174,25 @@ def main():
         st.write("좌측에서 단계 선택 후 개요·Q&A 이용")
 
     with overview_tab:
-        step = st.sidebar.selectbox("프로세스 단계 선택", [c['step_name'] for c in configs], key="step_select")
         st.header(f"{step} 단계 상세 ({display_name}님)")
-        df_step = df[df['step_name'] == step]
-        for major_label in df_step['major'].dropna().unique():
-            with st.expander(major_label):
-                display_major_detail(df_step, major_label)
+        step = st.sidebar.selectbox(
+            "프로세스 단계 선택",
+            [c['step_name'] for c in configs],
+            key="step_select_overview"
+        )
+        phase = st.selectbox(
+            "절차 구분 선택",
+            ["제안/제약", "착수/계획", "실행/통제", "종료/사후"],
+            key="phase_select"
+        )
+        if 'phase' in df.columns:
+            df_phase = df[(df['step_name'] == step) & (df['phase'] == phase)]
+        else:
+            df_phase = df[df['step_name'] == step]
+        majors = df_phase['major'].dropna().unique().tolist()
+        for idx, major_label in enumerate(majors, start=1):
+            with st.expander(f"{idx}. {major_label}"):
+                display_major_detail(df_phase, major_label)
 
     with qa_tab:
         st.header("Q&A")
