@@ -1,174 +1,183 @@
-# 1. Import modules
-import os
 import streamlit as st
+import requests
+import tempfile
+import os
 import pandas as pd
-import difflib
-import gdown
-import csv
-st.set_page_config(page_title="SI 방법론 챗봇", layout="wide")
-st.title("📝 SI 방법론 Q&A")
-
-from langchain.chat_models import ChatOpenAI
-from langchain.embeddings import OpenAIEmbeddings
-from langchain_community.vectorstores import FAISS
+import re
+from datetime import datetime, timezone, timedelta
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_community.chat_message_histories import ChatMessageHistory
+from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_community.document_loaders import PyMuPDFLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.prompts import PromptTemplate
-from langchain.chains import RetrievalQA
+from langchain.text_splitter import CharacterTextSplitter
+from langchain_community.vectorstores import FAISS
+from langchain.retrievers import EnsembleRetriever
+from langchain_community.retrievers import BM25Retriever
+from io import BytesIO
+from kiwipiepy import Kiwi
+from langgraph.graph import END, StateGraph
+from langchain_upstage import UpstageGroundednessCheck
+from langchain.memory import ConversationBufferMemory
+from langchain.schema import Document
+from langchain_community.document_transformers import LongContextReorder
+from sklearn.metrics.pairwise import cosine_similarity
+from typing import TypedDict, Dict, List, Tuple
+import uuid
+import time
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import plotly.express as px
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import multiprocessing
+from functools import partial
+import threading
+import openai
 
-# 2. Define Google Drive IDs
-PROCESS_DOC_IDS = ["1TNOhmUds7hMpwz3NO4QD-mO-J1sUJoEa"]  # SI 방법론 프로세스 PDF ID
-QNA_DOC_IDS     = ["17M1mnMZVl29EahbSVqzcyZEX8LYsx5ER"]  # SI 대표질문 PDF ID
+# 글로벌 변수 선언
+global memory
+global si_qna_vectordbs
+global si_qna_docs
+global for_show_si_process_vectordbs
+global si_process_docs
+global si_process_vectordbs
+global similar_cases_db
+global fcpa_retrievers
 
-# 3. Helper functions
-@st.cache_resource(ttl=3600*24)
-def download_pdfs(ids: list[str]) -> list[str]:
-    """Download PDFs from Google Drive IDs."""
-    os.makedirs("pdfs", exist_ok=True)
-    paths = []
-    for fid in ids:
-        out = f"pdfs/{fid}.pdf"
-        if not os.path.exists(out):
-            gdown.download(
-                f"https://drive.google.com/uc?export=download&id={fid}",
-                out, quiet=True
-            )
-        paths.append(out)
-    return paths
+# 페이지 설정
+st.set_page_config(page_title="AX SI 방법론 이행봇", page_icon="🤖")
 
-@st.cache_resource
-def build_faiss_retriever(pdf_paths: list[str], k: int = 4):
-    """Load PDF, split into chunks, embed, and build a FAISS retriever."""
-    if not pdf_paths:
-        st.error("문서 로드 실패: PDF 경로가 없습니다.")
-        from langchain.schema import Document
-        empty = Document(page_content="문서가 없습니다.", metadata={})
-        emb_empty = OpenAIEmbeddings()
-        return FAISS.from_documents([empty], emb_empty).as_retriever(search_kwargs={"k":1})
+# -----------------------------
+# 1) 사용자 정보 및 로그인
+# -----------------------------
+users = {
+    "10154371": {"password": "10154371", "name": "배수빈"},
+    "10154372": {"password": "10154372", "name": "김도완"},
+    "10156350": {"password": "10156350", "name": "박영준"},
+}
 
-    loader = PyMuPDFLoader(pdf_paths[0])
-    docs = loader.load()
-    splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
-    chunks = splitter.split_documents(docs)
+if 'logged_in' not in st.session_state:
+    st.sidebar.title("🔒 로그인")
+    uid = st.sidebar.text_input("ID", key="login_id")
+    pwd = st.sidebar.text_input("PW", type="password", key="login_pw")
+    if st.sidebar.button("로그인"):
+        if uid in users and users[uid]['password'] == pwd:
+            st.session_state['logged_in'] = True
+            st.session_state['user_id'] = uid
+            st.sidebar.success(f"환영합니다, {users[uid]['name']}님!")
+        else:
+            st.sidebar.error("ID 또는 비밀번호가 올바르지 않습니다.")
+    st.stop()
 
-    emb = OpenAIEmbeddings(model="text-embedding-ada-002")
-    vectordb = FAISS.from_documents(chunks, emb)
-    return vectordb.as_retriever(search_kwargs={"k": k})
+# -----------------------------
+# 2) UI: 답변 모드 및 탭
+# -----------------------------
+st.sidebar.title("⚙️ 설정")
+answer_mode = st.sidebar.radio("답변 모드 선택", ['빠른 답변', '정확한 답변'], index=0)
+
+tabs = st.tabs(["Q&A", "Feedback", "사례관리"])
+qa_tab, fb_tab, case_tab = tabs
+
+# -----------------------------
+# 3) 외부 파일 경로 및 로드 설정
+# -----------------------------
+# CSV: SI 프로세스 목록
+csv_file_id = "1gzu8FnjAR2x99M-xQiaNaQevIbFo9rXl"
+csv_download_url = f"https://drive.google.com/uc?export=download&id={csv_file_id}"
+si_full_process = "SI_FULL_PROCESS_HIERARCHY.csv"
+
+# QnA JSON: 절차별 주요 질의응답
+QNA_JSON_PATH = "si_qna.json"
 
 @st.cache_data
-def load_process_table(path: str) -> pd.DataFrame:
-    base = os.path.dirname(__file__)
-    abs_path = os.path.join(base, path)
+def load_data():
+    # CSV 다운로드
+    gdown.download(csv_download_url, si_full_process, quiet=True)
+    df = pd.read_csv(si_full_process, encoding="utf-8-sig")
+    # QnA JSON 로드
     try:
-        df = pd.read_csv(
-            abs_path,
-            dtype=str,
-            encoding="utf-8-sig",
-            engine="python",
-            quoting=csv.QUOTE_NONE,
-            skipinitialspace=True
-        )
-    except UnicodeDecodeError:
-        df = pd.read_csv(
-            abs_path,
-            dtype=str,
-            encoding="cp949",
-            engine="python",
-            quoting=csv.QUOTE_NONE,
-            skipinitialspace=True
-        )
+        with open(QNA_JSON_PATH, 'r', encoding='utf-8') as f:
+            si_qna = json.load(f)
+    except FileNotFoundError:
+        si_qna = {}
+    return df, si_qna
 
-    # strip any stray quotes on the column names
-    df.columns = [col.strip().strip('"') for col in df.columns]
+df, si_qna = load_data()
 
-    # now rename your English header into the internal names
-    df = df.rename(columns={
-        'Phase':      'step_name',
-        'Step_name':  'major',
-        'timing':     'timing',
-        'Lead':       'owner',
-        'Assist':     'worker',
-        'Support':    'support',
-        'System':     'system',
-    })
-    return df
+# si_process: 회사 내부 SI 절차 종류 리스트\ nsi_process = df['주요 단계'].unique().tolist()
 
-# 호출 예:
-df = load_process_table("SI_FULL_PROCESS_HIERARCHY.csv")
-st.write("▶︎ 내부 컬럼명:", df.columns.tolist())
+# -----------------------------
+# 4) Q&A 탭
+# -----------------------------
+with qa_tab:
+    st.header("AX SI 방법론 이행봇")
+    st.subheader("📋 전체 SI 프로세스 목록")
+    st.dataframe(df)
 
-# 5. Load data and prepare retrievers
-# 5.1 Load process table
-DF = load_process_table("SI_FULL_PROCESS_HIERARCHY.csv")
-# 5.2 Download and build retrievers for process and Q&A docs
-proc_paths = download_pdfs(PROCESS_DOC_IDS)
-qna_paths  = download_pdfs(QNA_DOC_IDS)
-proc_retriever = build_faiss_retriever(proc_paths, k=4)
-qna_retriever  = build_faiss_retriever(qna_paths, k=4)
+    # 절차 선택
+    selected_stage = st.selectbox("📂 절차 단계 선택", si_process)
+    st.markdown(f"**선택된 절차:** {selected_stage}")
 
-# 6. Handle user input and display output
-question = st.text_input("SI 방법론 관련 질문을 입력하세요")
-if question:
-    # 6.1 Step matching using difflib
-    match = difflib.get_close_matches(question, DF['step_name'].dropna().unique(), n=1, cutoff=0.5)
-    if match:
-        step = match[0]
-        sub = DF[DF['step_name'] == step][['major','timing','owner','worker','support','system']]
-        sub = sub.rename(columns={
-            'major':'주요 활동', 'timing':'시기', 'owner':'책임자',
-            'worker':'실무자', 'support':'협조 및 지원 부서', 'system':'적용 시스템'
-        })
-        table_html = sub.to_html(index=False, escape=False)
+    # 관련 PDF 링크 (필요 시 추가)
+    procedure_pdf_urls = {
+        "사전영업": ["https://drive.google.com/uc?export=download&id=PRE_SALES_PDF_ID"],
+        "VDC-A 발의": ["https://drive.google.com/uc?export=download&id=VDC_A_PDF_ID"],
+    }
+    urls = procedure_pdf_urls.get(selected_stage, [])
+    if urls:
+        st.write("관련 문서:")
+        for url in urls:
+            st.markdown(f"- [PDF 문서]({url})")
     else:
-        table_html = ""
+        st.info("해당 절차에 등록된 문서가 없습니다.")
 
-    # 6.2 Retrieve context from both documents
-    docs_proc = proc_retriever.get_relevant_documents(question)
-    docs_qna  = qna_retriever.get_relevant_documents(question)
-    docs_all  = docs_proc + docs_qna
-    context   = "\n\n".join([d.page_content for d in docs_all])
+    # 사전 정의된 Q&A 예시 표시
+    if selected_stage in si_qna:
+        st.write("🔍 사전 정의된 Q&A 예시:")
+        for qa_item in si_qna[selected_stage]:
+            st.markdown(f"- **Q:** {qa_item['question']}  
+                      **A:** {qa_item['answer']}")
 
-    # 6.3 Build prompt
-    PROMPT = PromptTemplate(
-        input_variables=["table","doc_context","question"],
-        template="""
-당신은 SI 방법론 전문가입니다.
+    # CSV를 Document 리스트로 변환
+    docs = []
+    for _, row in df[df['주요 단계'] == selected_stage].iterrows():
+        content = "\n".join(f"{col} : {row[col]}" for col in df.columns)
+        metadata = row.to_dict()
+        docs.append(Document(page_content=content, metadata=metadata))
 
-아래 표는 질문 “{question}” 과 매칭된 단계의 개요입니다:
-{table}
+    # RetrievalQA 초기화 (캐시)
+    @st.cache_resource
+    def init_qa(docs):
+        emb = OpenAIEmbeddings()
+        vs = FAISS.from_documents(docs, emb)
+        return RetrievalQA.from_chain_type(
+            llm=ChatOpenAI(),
+            chain_type="stuff",
+            retriever=vs.as_retriever()
+        )
 
-추가로, 관련 문서 내용:
-{doc_context}
+    qa_chain = init_qa(docs)
 
-위 정보를 종합하여 아래 형식으로 답변하세요。
+    # 사용자 질문
+    query = st.text_input("💬 질문을 입력하세요", key="proc_query")
+    if query:
+        with st.spinner("답변 생성 중…"):
+            answer = qa_chain.run(query)
+        st.markdown("**답변:**")
+        st.write(answer)
 
-💡 핵심 요약  
-📋 절차 또는 판단 주체  
-🔢 관련 수치  
-"""
-    )
+# -----------------------------
+# 5) Feedback 탭
+# -----------------------------
+with fb_tab:
+    st.header("📝 Feedback")
+    st.write("Feedback 기능은 추후 구현 예정입니다.")
 
-    # 6.4 Run RetrievalQA
-    qa = RetrievalQA.from_chain_type(
-        llm=ChatOpenAI(model_name="gpt-4o-mini", temperature=0),
-        retriever=proc_retriever,
-        chain_type="stuff",
-        chain_type_kwargs={"prompt": PROMPT}
-    )
-    result = qa.invoke({
-        "table": table_html,
-        "doc_context": context,
-        "question": question
-    })["result"]
-
-    # 6.5 Parse and display answer
-    lines = result.splitlines()
-    st.markdown(f"### 💡 핵심 요약\n{lines[0] if len(lines)>0 else ''}")
-    st.markdown(f"### 📋 절차 또는 판단 주체\n{lines[1] if len(lines)>1 else ''}")
-    st.markdown(f"### 🔢 관련 수치\n{lines[2] if len(lines)>2 else ''}")
-
-    # 6.6 Show sources
-    with st.expander("📎 문서 소스 보기"):
-        for d in docs_all:
-            name = d.metadata.get("source_name", os.path.basename(d.metadata.get("source", "")))
-            st.write(f"- {name}")
+# -----------------------------
+# 6) 사례관리 탭
+# -----------------------------
+with case_tab:
+    st.header("📂 사례관리 (SI Q&A)")
+    st.write("사례관리 기능은 추후 구현 예정입니다.")
