@@ -1,16 +1,41 @@
 import streamlit as st
-from io import BytesIO
-from concurrent.futures import ThreadPoolExecutor
-import matplotlib.pyplot as plt
-from kiwipiepy import Kiwi
+import requests
+import tempfile
+import os
+import pandas as pd
+import re
+from datetime import datetime, timezone, timedelta
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langchain.text_splitter import CharacterTextSplitter
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_community.chat_message_histories import ChatMessageHistory
+from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_community.document_loaders import PyMuPDFLoader
+from langchain.text_splitter import CharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain.retrievers import EnsembleRetriever
 from langchain_community.retrievers import BM25Retriever
-from langchain.chains import RetrievalQA
+from io import BytesIO
+from kiwipiepy import Kiwi
+from langgraph.graph import END, StateGraph
+from langchain_upstage import UpstageGroundednessCheck
+from langchain.memory import ConversationBufferMemory
 from langchain.schema import Document
+from langchain_community.document_transformers import LongContextReorder
+from sklearn.metrics.pairwise import cosine_similarity
+from typing import TypedDict, Dict, List, Tuple
+import uuid
+import time
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import plotly.express as px
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import multiprocessing
+from functools import partial
+import threading
+import openai
 
 # ─────────────────────────────────────────────────────
 # 1) 페이지 설정 및 Secrets 로드
@@ -27,6 +52,16 @@ os.environ["LANGSMITH_API_KEY"]   = st.secrets.get("langsmith", {}).get("api_key
 # ─────────────────────────────────────────────────────
 # 2) 글로벌 설정
 # ─────────────────────────────────────────────────────
+proc_docs = []
+proc_vectordbs = {}
+qna_vectordbs = {}
+case_docs = []
+for_show_proc_vectordbs = {}
+selected_for_show_proc_vectordbs = {}
+proc_retrievers = {}
+qna_retrievers = {}
+
+
 executor = ThreadPoolExecutor(max_workers=5)
 bm25_weight = 0.3
 faiss_weight = 0.7
