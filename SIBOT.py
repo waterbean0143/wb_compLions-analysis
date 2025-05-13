@@ -5,6 +5,7 @@ import streamlit as st
 # 1) Secrets에서 키 가져와 환경변수에 세팅
 # ─────────────────────────────────────────────────────
 os.environ["OPENAI_API_KEY"]      = st.secrets["openai"]["api_key"]
+st.write("🔑 OPENAI_API_KEY env:", os.getenv("OPENAI_API_KEY"))
 os.environ["UPSTAGE_API_KEY"]     = st.secrets["upstage"]["api_key"]
 os.environ["LANGCHAIN_API_KEY"]   = st.secrets["langchain"]["api_key"]
 os.environ["LANGCHAIN_ENDPOINT"]  = st.secrets["langchain"]["endpoint"]
@@ -120,6 +121,7 @@ with qa_tab:
     # 8.5 하이브리드 리트리버 초기화 (파라미터 없이)
     @st.cache_resource
     def init_retriever():
+        st.write("🔑 OPENAI_API_KEY env:", os.getenv("OPENAI_API_KEY"))
         emb    = OpenAIEmbeddings(
                     model="gpt-4o-mini",
                     openai_api_key=st.secrets["openai"]["api_key"]
