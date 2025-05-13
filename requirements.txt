@@ -1,4 +1,4 @@
-streamlit==1.36.0
+treamlit==1.36.0
 langchain>=0.0.340
 langchain-community==0.2.5
 langchain-core==0.2.9
