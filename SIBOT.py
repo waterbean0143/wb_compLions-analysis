@@ -144,12 +144,20 @@ def build_vectordbs(proc_map, qna_map):
         model="text-embedding-ada-002",
         openai_api_key=st.secrets["openai"]["api_key"]
     )
-    proc_vdb = {step: FAISS.from_documents(docs, emb) for step, docs in proc_map.items()}
-    qna_vdb  = {step: FAISS.from_documents(docs, emb) for step, docs in qna_map.items()}
+    proc_vdb = {
+        step: FAISS.from_documents(docs, emb)
+        for step, docs in proc_docs_map.items()
+    }
+    qna_vdb = {
+        step: FAISS.from_documents(docs, emb)
+        for step, docs in qna_docs_map.items()
+    }
     return proc_vdb, qna_vdb
 
+# 먼저 CSV/PDF 로드 & 전처리
 proc_docs_map, qna_docs_map = load_all_docs()
-proc_vectordbs, qna_vectordbs = build_vectordbs(proc_docs_map, qna_docs_map)
+# 인자 없이 호출
+proc_vectordbs, qna_vectordbs = build_vectordbs()
 
 # ─────────────────────────────────────────────────────
 # 8) Q&A 탭
