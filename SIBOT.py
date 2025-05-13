@@ -1,10 +1,10 @@
 import streamlit as st
-import requests
-import tempfile
-import os
+import gdown
 import pandas as pd
 import re
 from datetime import datetime, timezone, timedelta
+from io import BytesIO
+from kiwipiepy import Kiwi
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_community.chat_message_histories import ChatMessageHistory
@@ -14,56 +14,40 @@ from langchain.text_splitter import CharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain.retrievers import EnsembleRetriever
 from langchain_community.retrievers import BM25Retriever
-from io import BytesIO
-from kiwipiepy import Kiwi
-from langgraph.graph import END, StateGraph
-from langchain_upstage import UpstageGroundednessCheck
 from langchain.memory import ConversationBufferMemory
 from langchain.schema import Document
 from langchain_community.document_transformers import LongContextReorder
 from sklearn.metrics.pairwise import cosine_similarity
-from typing import TypedDict, Dict, List, Tuple
-import uuid
-import time
-import numpy as np
+from langchain_upstage import UpstageGroundednessCheck
 import matplotlib.pyplot as plt
-import seaborn as sns
-import plotly.express as px
-import asyncio
 from concurrent.futures import ThreadPoolExecutor
-import multiprocessing
-from functools import partial
-import threading
-import openai
-import gdown
+import json
 
-# 글로벌 변수 선언
+# -----------------------------
+# 글로벌 선언 및 초기화
+# -----------------------------
 global memory
-global si_qna_vectordbs
-global si_qna_docs
+global si_qna_vectordbs, si_qna_docs
 global for_show_si_process_vectordbs
-global si_process_docs
-global si_process_vectordbs
-global similar_cases_db
-global fcpa_retrievers
+global si_process_docs, si_process_vectordbs
+global similar_cases_db, fcpa_retrievers
+global si_process_retrievers, si_qna_retrievers
 
-# 변수 초기화
 similar_cases_db = {}
 fcpa_retrievers = {}
-
 executor = ThreadPoolExecutor(max_workers=5)
 
-# FCPA 관련
+# FCPA (미사용)
 fcpa_docs = []
 fcpa_vectordbs = {}
 
-# SI 프로세스(법령 대체)
+# SI 프로세스 문서 및 벡터DB
 si_process_docs = []
 si_process_vectordbs = {}
 
-# SI Q&A(사례 대체)
-si_qna_vectordbs = {}
+# SI Q&A 문서 및 벡터DB
 si_qna_docs = []
+si_qna_vectordbs = {}
 
 # 화면 표시용
 for_show_si_process_vectordbs = {}
@@ -73,7 +57,7 @@ selected_for_show_si_process_vectordbs = {}
 si_process_retrievers = {}
 si_qna_retrievers = {}
 
-# 가중치
+# 하이브리드 가중치
 bm25_weight = 0.3
 faiss_weight = 0.7
 
@@ -81,18 +65,19 @@ faiss_weight = 0.7
 plt.rcParams['font.family'] = 'NanumGothic'
 plt.rcParams['axes.unicode_minus'] = False
 
+# -----------------------------
 # 페이지 설정
-st.set_page_config(page_title="AX SI 방법론 이행봇", page_icon="🤖")
+# -----------------------------
+st.set_page_config(page_title="AX SI 방법론 이행봇", page_icon="🤖", layout='wide')
 
 # -----------------------------
-# 1) 사용자 정보 및 로그인
+# 1) 로그인
 # -----------------------------
 users = {
     "10154371": {"password": "10154371", "name": "배수빈"},
     "10154372": {"password": "10154372", "name": "김도완"},
     "10156350": {"password": "10156350", "name": "박영준"},
 }
-
 if 'logged_in' not in st.session_state:
     st.sidebar.title("🔒 로그인")
     uid = st.sidebar.text_input("ID", key="login_id")
@@ -107,7 +92,7 @@ if 'logged_in' not in st.session_state:
     st.stop()
 
 # -----------------------------
-# 2) UI: 답변 모드 및 탭
+# 2) UI 설정
 # -----------------------------
 st.sidebar.title("⚙️ 설정")
 answer_mode = st.sidebar.radio("답변 모드 선택", ['빠른 답변', '정확한 답변'], index=0)
@@ -116,90 +101,132 @@ tabs = st.tabs(["Q&A", "Feedback", "사례관리"])
 qa_tab, fb_tab, case_tab = tabs
 
 # -----------------------------
-# 3) 외부 파일 경로 및 로드 설정
+# 3) 데이터 로드
 # -----------------------------
-# CSV: SI 프로세스 목록
-csv_file_id = "1gzu8FnjAR2x99M-xQiaNaQevIbFo9rXl"
-csv_download_url = f"https://drive.google.com/uc?export=download&id={csv_file_id}"
-si_full_process = "SI_FULL_PROCESS_HIERARCHY.csv"
+# CSV URL
+CSV_FILE_ID = "1gzu8FnjAR2x99M-xQiaNaQevIbFo9rXl"
+CSV_URL = f"https://drive.google.com/uc?export=download&id={CSV_FILE_ID}"
+LOCAL_CSV = "SI_FULL_PROCESS_HIERARCHY.csv"
 
-# QnA JSON: 절차별 주요 질의응답
-QNA_JSON_PATH = "si_qna.json"
+# PDF URL 매핑
+PROCESS_PDF_URLS = {
+    "제안/계약": "https://drive.google.com/uc?export=download&id=1TNOhmUds7hMpwz3NO4QD-mO-J1sUJoEa",
+}
+QNA_PDF_URLS = {
+    "제안/계약": "https://drive.google.com/uc?export=download&id=17M1mnMZVl29EahbSVqzcyZEX8LYsx5ER",
+}
 
 @st.cache_data
-def load_data():
-    # CSV 다운로드
-    gdown.download(csv_download_url, si_full_process, quiet=True)
-    df = pd.read_csv(si_full_process, encoding="utf-8-sig")
-    # QnA JSON 로드
-    try:
-        with open(QNA_JSON_PATH, 'r', encoding='utf-8') as f:
-            si_qna = json.load(f)
-    except FileNotFoundError:
-        si_qna = {}
-    return df, si_qna
+def load_csv():
+    gdown.download(CSV_URL, LOCAL_CSV, quiet=True)
+    df = pd.read_csv(LOCAL_CSV, encoding='utf-8-sig')
+    return df
 
-df, si_qna = load_data()
+df = load_csv()
 
-# si_process: 회사 내부 SI 절차 종류 리스트
-si_process = df['주요 단계'].unique().tolist()
+# 계층 구조 파싱
+def parse_number(s: str) -> str:
+    m = re.match(r"^(\d+(?:\.\d+)*)", s)
+    return m.group(1) if m else ''
+df['번호'] = df['주요 활동'].apply(parse_number)
+
+# 트리 빌드
+tree: dict = {}
+for step, sub in df.groupby('주요 단계'):
+    nodes: dict = {}
+    for _, row in sub.iterrows():
+        num = row['번호']
+        title = row['주요 활동']
+        if num.count('.') == 1 and num != '':
+            parent = num.split('.')[0]
+            parent_key = parent + '.'
+            if parent_key in nodes:
+                nodes[parent_key]['children'].append({'num': num, 'title': title})
+        else:
+            key = num + '.' if num else title
+            nodes[key] = {'num': num, 'title': title, 'children': []}
+    tree[step] = nodes
+
+# 형태소 분석기 초기화
+kiwi = Kiwi()
+def preprocess(text: str) -> str:
+    res = kiwi.analyze(text)
+    tokens = [t.form for t in res[0][0] if t.tag.startswith(('N','V','MA'))]
+    return ' '.join(tokens)
 
 # -----------------------------
-# 4) Q&A 탭
+# 4) Q&A 탭 구현
 # -----------------------------
 with qa_tab:
     st.header("AX SI 방법론 이행봇")
-    st.subheader("📋 전체 SI 프로세스 질의응답 및 안내내")
-    st.dataframe(df)
+    st.subheader("📋 전체 SI 프로세스 목록")
+    st.dataframe(df[['주요 단계','주요 활동','시기','책임자','실무자','협조 및 지원 부서','적용 시스템']])
 
-    # 절차 선택
-    selected_stage = st.selectbox("📂 절차 단계 선택", si_process)
-    st.markdown(f"**선택된 절차:** {selected_stage}")
+    # 단계 선택
+    step = st.selectbox("📂 절차 단계 선택", list(tree.keys()))
 
-    # 관련 PDF 링크 (필요 시 추가)
-    procedure_pdf_urls = {
-        "사전영업": ["https://drive.google.com/uc?export=download&id=PRE_SALES_PDF_ID"],
-        "VDC-A 발의": ["https://drive.google.com/uc?export=download&id=VDC_A_PDF_ID"],
-    }
-    urls = procedure_pdf_urls.get(selected_stage, [])
-    if urls:
-        st.write("관련 문서:")
-        for url in urls:
-            st.markdown(f"- [PDF 문서]({url})")
-    else:
-        st.info("해당 절차에 등록된 문서가 없습니다.")
+    # 최상위 활동 선택
+    tops = list(tree[step].keys())
+    top_choice = st.selectbox("📝 주요 활동 선택", tops, format_func=lambda k: tree[step][k]['title'])
 
-    # 사전 정의된 Q&A 예시 표시
-    if selected_stage in si_qna:
-        st.write("🔍 사전 정의된 Q&A 예시:")
-        for qa_item in si_qna[selected_stage]:
-            st.markdown(
-                f"- **Q:** {qa_item['question']}  \n"
-                f"  **A:** {qa_item['answer']}"
-            )
-
-    # CSV를 Document 리스트로 변환
-    docs = []
-    for _, row in df[df['주요 단계'] == selected_stage].iterrows():
-        content = "\n".join(f"{col} : {row[col]}" for col in df.columns)
-        metadata = row.to_dict()
-        docs.append(Document(page_content=content, metadata=metadata))
-
-    # RetrievalQA 초기화 (캐시)
-    @st.cache_resource
-    def init_qa(docs):
-        emb = OpenAIEmbeddings()
-        vs = FAISS.from_documents(docs, emb)
-        return RetrievalQA.from_chain_type(
-            llm=ChatOpenAI(),
-            chain_type="stuff",
-            retriever=vs.as_retriever()
+    # 하위 활동 선택
+    children = tree[step][top_choice]['children']
+    if children:
+        sub_choice = st.selectbox(
+            "🔹 세부 활동 선택", [c['num'] for c in children],
+            format_func=lambda num: next(c['title'] for c in children if c['num']==num)
         )
+        prefix = sub_choice
+    else:
+        prefix = top_choice.rstrip('.')
 
-    qa_chain = init_qa(docs)
+    # PDF 링크 표시
+    st.markdown("**관련 프로세스 문서(PDF)**")
+    if step in PROCESS_PDF_URLS:
+        st.markdown(f"- [프로세스 PDF]({PROCESS_PDF_URLS[step]})")
+    if step in QNA_PDF_URLS:
+        st.markdown(f"- [Q&A PDF]({QNA_PDF_URLS[step]})")
 
-    # 사용자 질문
-    query = st.text_input("💬 질문을 입력하세요", key="proc_query")
+    # 문서 로딩 및 분할
+    proc_loader = PyMuPDFLoader(PROCESS_PDF_URLS[step])
+    proc_pages = proc_loader.load()
+    splitter = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
+    proc_docs = splitter.split_documents(proc_pages)
+
+    qna_loader = PyMuPDFLoader(QNA_PDF_URLS[step])
+    qna_pages = qna_loader.load()
+    qna_docs = splitter.split_documents(qna_pages)
+
+    # CSV 문서 필터링
+    mask = df['번호'].astype(str).str.startswith(prefix)
+    csv_docs = []
+    for _, row in df[mask].iterrows():
+        content = '\n'.join(f"{col} : {row[col]}" for col in df.columns)
+        csv_docs.append(Document(page_content=content, metadata={'step':step,'num':row['번호']}))
+
+    # 전체 문서 결합 및 전처리
+    all_docs = proc_docs + qna_docs + csv_docs
+    for d in all_docs:
+        d.page_content = preprocess(d.page_content)
+
+    # 리트리버 초기화
+    @st.cache_resource
+    def init_retriever(docs):
+        emb = OpenAIEmbeddings(model='gpt-4o-mini')
+        faiss = FAISS.from_documents(docs, emb)
+        bm25 = BM25Retriever(documents=docs)
+        ens = EnsembleRetriever(retrievers=[bm25, faiss], weights=[bm25_weight, faiss_weight])
+        return ens
+
+    retriever = init_retriever(all_docs)
+    qa_chain = RetrievalQA.from_chain_type(
+        llm=ChatOpenAI(model='gpt-4o-mini', temperature=0),
+        chain_type='stuff',
+        retriever=retriever
+    )
+
+    # 질의 응답
+    query = st.text_input("💬 질문을 입력하세요")
     if query:
         with st.spinner("답변 생성 중…"):
             answer = qa_chain.run(query)
