@@ -37,6 +37,8 @@ from functools import partial
 import threading
 import openai
 
+from langchain.chains import RetrievalQA 
+
 # ─────────────────────────────────────────────────────
 # 1) 페이지 설정 및 Secrets 로드
 # ─────────────────────────────────────────────────────
