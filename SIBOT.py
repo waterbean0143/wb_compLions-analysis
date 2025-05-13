@@ -110,16 +110,22 @@ with qa_tab:
     for d in proc_docs + qna_docs:
         d.page_content = preprocess(d.page_content)
 
-    # 하이브리드 리트리버 초기화
+    # 하이브리드 리트리버 초기화 (docs 매개변수 제거, 클로저로 참조)
     @st.cache_resource
-    def init_retriever(docs):
-        emb = OpenAIEmbeddings(model='gpt-4o-mini')
+    def init_retriever():
+        emb   = OpenAIEmbeddings(model='gpt-4o-mini')
+        # 전역/외부 변수로 선언된 proc_docs, qna_docs 사용
+        docs  = proc_docs + qna_docs
         faiss = FAISS.from_documents(docs, emb)
-        bm25 = BM25Retriever(documents=docs)
-        ens = EnsembleRetriever(retrievers=[bm25, faiss], weights=[bm25_weight, faiss_weight])
-        return ens
+        bm25  = BM25Retriever(documents=docs)
+        return EnsembleRetriever(
+            retrievers=[bm25, faiss],
+            weights=[bm25_weight, faiss_weight]
+        )
 
-    retriever = init_retriever(proc_docs + qna_docs)
+    retriever = init_retriever()
+
+    
     qa_chain = ChatOpenAI(model='gpt-4o-mini', temperature=0)
     # RetrievalQA 체인 설정
     from langchain.chains import RetrievalQA
