@@ -1,14 +1,20 @@
 import os
 import streamlit as st
 
-# 환경 변수 설정 (Streamlit Secrets 활용)
-os.environ["OPENAI_API_KEY"]      = st.secrets["openai"]["api_key"]
+# ─────────────────────────────────────────────────────
+# 1) Secrets에서 키 가져와 환경변수에 세팅 & 디버그 출력
+# ─────────────────────────────────────────────────────
+os.environ["OPENAI_API_KEY"] = st.secrets["openai"]["api_key"]
+st.write("✅ OPENAI_API_KEY 로드 확인:", os.getenv("OPENAI_API_KEY"))
+
+# (Upstage, LangChain, LangSmith 키도 동일하게 세팅)
 os.environ["UPSTAGE_API_KEY"]     = st.secrets["upstage"]["api_key"]
-os.environ["LANGCHAIN_API_KEY"]  = st.secrets["langchain"]["api_key"]
-os.environ["LANGCHAIN_ENDPOINT"] = st.secrets["langchain"]["endpoint"]
-os.environ["LANGCHAIN_PROJECT"]  = st.secrets["langchain"]["project"]
-os.environ["LANGCHAIN_TRACING_V2"] = st.secrets["langchain"]["tracing_v2"]
-os.environ["LANGSMITH_API_KEY"]  = st.secrets["langsmith"]["api_key"]
+os.environ["LANGCHAIN_API_KEY"]   = st.secrets["langchain"]["api_key"]
+os.environ["LANGCHAIN_ENDPOINT"]  = st.secrets["langchain"]["endpoint"]
+os.environ["LANGCHAIN_PROJECT"]   = st.secrets["langchain"]["project"]
+os.environ["LANGCHAIN_TRACING_V2"]= st.secrets["langchain"]["tracing_v2"]
+os.environ["LANGSMITH_API_KEY"]   = st.secrets["langsmith"]["api_key"]
+
 
 import re
 from io import BytesIO
@@ -107,26 +113,34 @@ with qa_tab:
     for d in proc_docs + qna_docs:
         d.page_content = preprocess(d.page_content)
 
-    # 하이브리드 리트리버 초기화 (인자 제거)
-    @st.cache_resource
-    def init_retriever():
-        emb = OpenAIEmbeddings(model='gpt-4o-mini')
-        docs = proc_docs + qna_docs
-        faiss = FAISS.from_documents(docs, emb)
-        bm25 = BM25Retriever(documents=docs)
-        return EnsembleRetriever(
-            retrievers=[bm25, faiss],
-            weights=[bm25_weight, faiss_weight]
-        )
-
-    retriever = init_retriever()
-    qa_chain = ChatOpenAI(model='gpt-4o-mini', temperature=0)
-    from langchain.chains import RetrievalQA
-    qa = RetrievalQA.from_chain_type(
-        llm=qa_chain,
-        chain_type='stuff',
-        retriever=retriever
+@st.cache_resource
+def init_retriever():
+    # 직접 key를 넘겨줌
+    emb = OpenAIEmbeddings(
+        model="gpt-4o-mini",
+        openai_api_key=st.secrets["openai"]["api_key"]
     )
+    docs = proc_docs + qna_docs   # 전역 변수로 미리 준비된 리스트
+    faiss = FAISS.from_documents(docs, emb)
+    bm25  = BM25Retriever(documents=docs)
+    return EnsembleRetriever(
+        retrievers=[bm25, faiss],
+        weights=[bm25_weight, faiss_weight]
+    )
+
+retriever = init_retriever()
+
+    qa_chain = ChatOpenAI(
+    model="gpt-4o-mini",
+    temperature=0,
+    openai_api_key=st.secrets["openai"]["api_key"]
+)
+
+qa = RetrievalQA.from_chain_type(
+    llm=qa_chain,
+    chain_type="stuff",
+    retriever=retriever
+)
 
     # 질문-응답
     query = st.text_input("💬 질문을 입력하세요")
