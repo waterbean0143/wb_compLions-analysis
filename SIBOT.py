@@ -35,6 +35,7 @@ import multiprocessing
 from functools import partial
 import threading
 import openai
+import gdown
 
 # 글로벌 변수 선언
 global memory
@@ -45,6 +46,40 @@ global si_process_docs
 global si_process_vectordbs
 global similar_cases_db
 global fcpa_retrievers
+
+# 변수 초기화
+similar_cases_db = {}
+fcpa_retrievers = {}
+
+executor = ThreadPoolExecutor(max_workers=5)
+
+# FCPA 관련
+fcpa_docs = []
+fcpa_vectordbs = {}
+
+# SI 프로세스(법령 대체)
+si_process_docs = []
+si_process_vectordbs = {}
+
+# SI Q&A(사례 대체)
+si_qna_vectordbs = {}
+si_qna_docs = []
+
+# 화면 표시용
+for_show_si_process_vectordbs = {}
+selected_for_show_si_process_vectordbs = {}
+
+# 리트리버
+si_process_retrievers = {}
+si_qna_retrievers = {}
+
+# 가중치
+bm25_weight = 0.3
+faiss_weight = 0.7
+
+# 한글 폰트 설정
+plt.rcParams['font.family'] = 'NanumGothic'
+plt.rcParams['axes.unicode_minus'] = False
 
 # 페이지 설정
 st.set_page_config(page_title="AX SI 방법론 이행봇", page_icon="🤖")
@@ -106,14 +141,15 @@ def load_data():
 
 df, si_qna = load_data()
 
-# si_process: 회사 내부 SI 절차 종류 리스트\ nsi_process = df['주요 단계'].unique().tolist()
+# si_process: 회사 내부 SI 절차 종류 리스트
+si_process = df['주요 단계'].unique().tolist()
 
 # -----------------------------
 # 4) Q&A 탭
 # -----------------------------
 with qa_tab:
     st.header("AX SI 방법론 이행봇")
-    st.subheader("📋 전체 SI 프로세스 목록")
+    st.subheader("📋 전체 SI 프로세스 질의응답 및 안내내")
     st.dataframe(df)
 
     # 절차 선택
@@ -137,8 +173,10 @@ with qa_tab:
     if selected_stage in si_qna:
         st.write("🔍 사전 정의된 Q&A 예시:")
         for qa_item in si_qna[selected_stage]:
-            st.markdown(f"- **Q:** {qa_item['question']}  
-                      **A:** {qa_item['answer']}")
+            st.markdown(
+                f"- **Q:** {qa_item['question']}  \n"
+                f"  **A:** {qa_item['answer']}"
+            )
 
     # CSV를 Document 리스트로 변환
     docs = []
