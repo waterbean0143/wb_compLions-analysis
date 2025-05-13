@@ -119,10 +119,10 @@ QNA_PDF_URLS = {
 @st.cache_data
 def load_csv():
     gdown.download(CSV_URL, LOCAL_CSV, quiet=True)
-    try:
-        df = pd.read_csv(LOCAL_CSV, encoding="utf-8-sig")
-    except UnicodeDecodeError:
-        df = pd.read_csv(LOCAL_CSV, encoding="cp949")
+    # CP949 인코딩으로 읽기
+    df = pd.read_csv(LOCAL_CSV, encoding='cp949')
+    # BOM/공백 삭제
+    df.columns = df.columns.str.replace('\ufeff', '').str.strip()
     return df
 
 df = load_csv()
