@@ -156,7 +156,6 @@ def build_vectordbs():
 
 # 먼저 CSV/PDF 로드 & 전처리
 proc_docs_map, qna_docs_map = load_all_docs()
-# 인자 없이 호출
 proc_vectordbs, qna_vectordbs = build_vectordbs()
 
 # ─────────────────────────────────────────────────────
