@@ -121,9 +121,8 @@ with qa_tab:
     # 8.5 하이브리드 리트리버 초기화 (파라미터 없이)
     @st.cache_resource
     def init_retriever():
-        st.write("🔑 OPENAI_API_KEY env:", os.getenv("OPENAI_API_KEY"))
         emb    = OpenAIEmbeddings(
-                    model="gpt-4o-mini",
+                    model="text-embedding-ada-002",
                     openai_api_key=st.secrets["openai"]["api_key"]
                 )
         docs   = proc_docs + qna_docs
