@@ -139,7 +139,7 @@ def load_all_docs():
     return proc_map, qna_map
 
 @st.cache_resource
-def build_vectordbs(proc_map, qna_map):
+def build_vectordbs():
     emb = OpenAIEmbeddings(
         model="text-embedding-ada-002",
         openai_api_key=st.secrets["openai"]["api_key"]
