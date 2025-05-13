@@ -103,11 +103,9 @@ qa_tab, fb_tab, case_tab = tabs
 # -----------------------------
 # 3) 데이터 로드
 # -----------------------------
-# CSV URL
-CSV_FILE_ID = "1gzu8FnjAR2x99M-xQiaNaQevIbFo9rXl"
-CSV_URL = f"https://drive.google.com/uc?export=download&id={CSV_FILE_ID}"
-LOCAL_CSV = "SI_FULL_PROCESS_HIERARCHY.csv"
-
+PROCESS_INDEX_CSV_URLS = {
+    "전체 절차 개요": "https://drive.google.com/uc?export=download&id=19Qj33WiDioAlu58fr-UjO9IZmhsoI0Eb"
+}
 # PDF URL 매핑
 PROCESS_PDF_URLS = {
     "제안/계약": "https://drive.google.com/uc?export=download&id=1TNOhmUds7hMpwz3NO4QD-mO-J1sUJoEa",
@@ -118,11 +116,14 @@ QNA_PDF_URLS = {
 
 @st.cache_data
 def load_csv():
-    gdown.download(CSV_URL, LOCAL_CSV, quiet=True)
-    # CP949 인코딩으로 읽기
-    df = pd.read_csv(LOCAL_CSV, encoding='cp949')
-    # BOM/공백 삭제
-    df.columns = df.columns.str.replace('\ufeff', '').str.strip()
+    # PDF 매핑하신 것처럼
+    url = PROCESS_CSV_URLS["전체 절차 개요"]
+    local_path = "SI_FULL_PROCESS_HIERARCHY.csv"
+    gdown.download(url, local_path, quiet=True)
+
+    # TSV + CP949 로드
+    df = pd.read_csv(local_path, sep="\t", encoding="cp949", engine="python")
+    df.columns = df.columns.str.replace("\ufeff","").str.strip()
     return df
 
 df = load_csv()
