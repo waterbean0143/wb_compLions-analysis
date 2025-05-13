@@ -2,19 +2,7 @@ import os
 import streamlit as st
 
 # ─────────────────────────────────────────────────────
-# 1) Secrets에서 키 가져와 환경변수에 세팅
-# ─────────────────────────────────────────────────────
-os.environ["OPENAI_API_KEY"]      = st.secrets["openai"]["api_key"]
-st.write("🔑 OPENAI_API_KEY env:", os.getenv("OPENAI_API_KEY"))
-os.environ["UPSTAGE_API_KEY"]     = st.secrets["upstage"]["api_key"]
-os.environ["LANGCHAIN_API_KEY"]   = st.secrets["langchain"]["api_key"]
-os.environ["LANGCHAIN_ENDPOINT"]  = st.secrets["langchain"]["endpoint"]
-os.environ["LANGCHAIN_PROJECT"]   = st.secrets["langchain"]["project"]
-os.environ["LANGCHAIN_TRACING_V2"]= st.secrets["langchain"]["tracing_v2"]
-os.environ["LANGSMITH_API_KEY"]   = st.secrets["langsmith"]["api_key"]
-
-# ─────────────────────────────────────────────────────
-# 2) 기본 라이브러리 임포트
+# 1) 기본 라이브러리 임포트
 # ─────────────────────────────────────────────────────
 import re
 from io import BytesIO
@@ -31,7 +19,7 @@ import matplotlib.pyplot as plt
 from concurrent.futures import ThreadPoolExecutor
 
 # ─────────────────────────────────────────────────────
-# 3) 글로벌 변수 및 설정
+# 2) 글로벌 변수 및 설정
 # ─────────────────────────────────────────────────────
 executor = ThreadPoolExecutor(max_workers=5)
 bm25_weight = 0.3
@@ -41,6 +29,18 @@ plt.rcParams['font.family'] = 'NanumGothic'
 plt.rcParams['axes.unicode_minus'] = False
 
 st.set_page_config(page_title="AX SI 방법론 이행봇", page_icon="🤖", layout='wide')
+
+# ─────────────────────────────────────────────────────
+# 3) Secrets에서 키 가져와 환경변수에 세팅
+# ─────────────────────────────────────────────────────
+os.environ["OPENAI_API_KEY"]      = st.secrets["openai"]["api_key"]
+st.write("🔑 OPENAI_API_KEY env:", os.getenv("OPENAI_API_KEY"))
+os.environ["UPSTAGE_API_KEY"]     = st.secrets["upstage"]["api_key"]
+os.environ["LANGCHAIN_API_KEY"]   = st.secrets["langchain"]["api_key"]
+os.environ["LANGCHAIN_ENDPOINT"]  = st.secrets["langchain"]["endpoint"]
+os.environ["LANGCHAIN_PROJECT"]   = st.secrets["langchain"]["project"]
+os.environ["LANGCHAIN_TRACING_V2"]= st.secrets["langchain"]["tracing_v2"]
+os.environ["LANGSMITH_API_KEY"]   = st.secrets["langsmith"]["api_key"]
 
 # ─────────────────────────────────────────────────────
 # 4) 로그인
