@@ -117,7 +117,7 @@ QNA_PDF_URLS = {
 @st.cache_data
 def load_csv():
     # PDF 매핑하신 것처럼
-    url = PROCESS_CSV_URLS["전체 절차 개요"]
+    url = PROCESS_INDEX_CSV_URLS["전체 절차 개요"]
     local_path = "SI_FULL_PROCESS_HIERARCHY.csv"
     gdown.download(url, local_path, quiet=True)
 
