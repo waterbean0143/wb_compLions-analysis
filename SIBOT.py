@@ -258,13 +258,21 @@ def preprocess(text: str) -> str:
 # ─────────────────────────────────────────────────────
 # 7) 문서 split & VectorDB 빌드
 # ─────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────
+# 7) 문서 split & VectorDB 빌드
+# ─────────────────────────────────────────────────────
 @st.cache_data(ttl=24*3600)
 def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]]]:
-    from langchain.text_splitter import CharacterTextSplitter, RegexTextSplitter
+    from langchain.text_splitter import CharacterTextSplitter
 
     # 1) splitters 정의
-    # 첫 페이지(Index)용: 헤더 "##숫자." 앞에서 분리
-    index_splitter = RegexTextSplitter(pattern=r"^##\d+\.\s+", keep_separator=True)
+    # 첫 페이지(Index)용: "##숫자. " を区切り文字として正規表現モードで分割
+    index_splitter = CharacterTextSplitter(
+        separator=r"(?=^##\d+\.\s+)",  # lookahead でタイトル行ごとに分割
+        chunk_size=1,                  # chunk_size は小さくともOK
+        chunk_overlap=0,
+        is_separator_regex=True,
+    )
     # 나머지 본문용: 고정 길이 분할
     body_splitter  = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
 
@@ -272,7 +280,7 @@ def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]
 
     def dl_and_split(url, is_qna=False):
         docs = download_and_load(url)
-        out_chunks = []
+        out_chunks: List[Document] = []
         for d in docs:
             text = d.page_content
             if d.metadata.get("page", 0) == 0 and not is_qna:
@@ -294,7 +302,6 @@ def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]
         qna_map[step] = dl_and_split(url, is_qna=True)
 
     return proc_map, qna_map
-
 
 @st.cache_resource(ttl=3600*24)
 def build_vectordbs(
