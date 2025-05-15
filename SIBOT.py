@@ -260,63 +260,51 @@ def preprocess(text: str) -> str:
 # ─────────────────────────────────────────────────────
 @st.cache_data(ttl=3600*24)
 def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]]]:
-    from langchain.text_splitter import RegexSplitter, CharacterTextSplitter
+    from langchain.text_splitter import CharacterTextSplitter
 
-    # 첫 페이지는 heading/문장 단위로, 나머지는 고정 길이로 chunking
-    index_splitter = RegexSplitter(
-        pattern=r"\n{2,}|\.(?:\s|$)",
-        is_separator_regex=True
+    # 첫 페이지 전용: 빈 줄(2번 연속 개행) 또는 “.␣”을 경계로 자릅니다.
+    first_page_splitter = CharacterTextSplitter(
+        separator=r"\n{2,}|\.(?:\s|$)",
+        chunk_size=800,
+        chunk_overlap=0,
+        is_separator_regex=True,
     )
-    body_splitter = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
+    # 나머지 페이지 전용: 고정 길이 청크
+    body_splitter = CharacterTextSplitter(
+        chunk_size=800,
+        chunk_overlap=100,
+    )
 
     proc_map: Dict[str, List[Document]] = {}
     qna_map:  Dict[str, List[Document]] = {}
 
-    def download_and_split(url: str) -> List[Document]:
-        # PDF 다운로드 + 로드
-        resp = requests.get(url)
-        resp.raise_for_status()
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tf:
-            tf.write(resp.content)
-            tmp_path = tf.name
-
-        try:
-            pages = PyMuPDFLoader(tmp_path).load()
-        finally:
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
-
-        out: List[Document] = []
+    def dl_and_chunk(url: str) -> List[Document]:
+        pages = download_and_load(url)
         if not pages:
-            return out
+            return []
 
-        # 1) 첫 페이지만 index_splitter
-        first = pages[0]
-        for chunk in index_splitter.split_text(first.page_content):
-            if chunk.strip():
-                out.append(Document(page_content=chunk, metadata=first.metadata.copy()))
+        # 첫 페이지만 regex 스타일로 쪼개고
+        first, *rest = pages
+        first_texts = first_page_splitter.split_text(first.page_content)
+        first_docs = [
+            Document(page_content=text, metadata={**first.metadata})
+            for text in first_texts
+            if text.strip()
+        ]
 
-        # 2) 나머지 페이지는 body_splitter
-        rest = pages[1:]
-        if rest:
-            body_docs = body_splitter.split_documents(rest)
-            out.extend(body_docs)
+        # 나머지는 CharacterTextSplitter로
+        rest_docs = body_splitter.split_documents(rest) if rest else []
+        return first_docs + rest_docs
 
-        return out
-
-    # STEP 문서 로드
     for step, url in PROCESS_PDF_URLS.items():
-        docs = download_and_split(url)
+        docs = dl_and_chunk(url)
         for d in docs:
             d.page_content = preprocess(d.page_content)
             d.metadata["step"] = step
         proc_map[step] = docs
 
-    # Q&A 문서 로드
     for step, url in QNA_PDF_URLS.items():
-        docs = download_and_split(url)
+        docs = dl_and_chunk(url)
         for d in docs:
             d.page_content = preprocess(d.page_content)
             d.metadata["step"] = step
