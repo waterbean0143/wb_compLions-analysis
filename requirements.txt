@@ -23,3 +23,5 @@ streamlit_modal
 python-dotenv
 requests
 gdown
+tiktoken
+openai
