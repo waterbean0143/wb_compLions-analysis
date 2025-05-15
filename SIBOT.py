@@ -44,6 +44,50 @@ import openai
 from langchain.chains import RetrievalQA 
 
 # ─────────────────────────────────────────────────────
+# 0-1) PDF 첫페이지 인덱스 자동추출 유틸 (제안/계약 전용)
+# ─────────────────────────────────────────────────────
+def download_and_load(url: str) -> List[Document]:
+    resp = requests.get(url)  
+    resp.raise_for_status()  
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tf: 
+        tf.write(resp.content) 
+        tmp_path = tf.name  
+    try:  
+        docs = PyMuPDFLoader(tmp_path).load() 
+    except Exception: 
+        docs = []  
+    finally:  
+        try:  
+            os.remove(tmp_path) 
+        except OSError:  #추가
+            pass  #추가
+    return docs  #추가
+
+def extract_index_chunks(url: str) -> List[Document]:  
+    raw_docs = download_and_load(url)  
+    if not raw_docs: 
+        return [] 
+    first_page = raw_docs[0].page_content 
+    lines = first_page.splitlines()  
+    # '##' 헤딩 다음 줄부터 인덱스 시작
+    start = 0  
+    for i, line in enumerate(lines): 
+        if line.strip().startswith("##"): 
+            start = i + 1  
+            break  
+    pattern = re.compile(r"^(\d+)\.\s*(.+)$")  
+    index_docs: List[Document] = []  
+    for line in lines[start:]: 
+        m = pattern.match(line.strip()) 
+        if not m: 
+            break  
+        num, title = m.groups()  
+        meta = {"step": int(num), "title": title}  
+        text = f"{num}. {title}"  
+        index_docs.append(Document(page_content=text, metadata=meta))  
+    return index_docs  #추가
+
+# ─────────────────────────────────────────────────────
 # 1) 페이지 설정 및 Secrets 로드
 # ─────────────────────────────────────────────────────
 st.set_page_config(page_title="AX SI 방법론 이행봇", page_icon="🤖", layout="wide")
@@ -198,6 +242,9 @@ def build_vectordbs(
         for step, docs in qna_docs_map.items()
     }
     return proc_vdb, qna_vdb
+
+index_docs = extract_index_chunks(PROCESS_PDF_URLS["제안/계약"])  #추가
+st.write("🔍 제안/계약 INDEX:", [d.metadata for d in index_docs])  #추가
 
 # 앱 시작 시 한 번만 실행
 with st.spinner("📦 데이터 로드 중…"):
