@@ -91,7 +91,7 @@ class GraphState(TypedDict):
     attempts: int
 
 def classify_question_type(q: str) -> str:
-    q_lower = q.lower()  # ← 여기서 소문자 복사본을 만듭니다.
+    q_lower = q.lower()                    # q_lower 정의
     if any(k in q_lower for k in ["정의", "이란"]):
         return "정의 요청"
     if any(k in q_lower for k in ["어떻게", "절차", "방법"]):
@@ -100,7 +100,7 @@ def classify_question_type(q: str) -> str:
         return "산출물·문서 요구 사항"
     if any(k in q_lower for k in ["누가", "책임", "역할"]):
         return "책임·역할 분담"
-    # 숫자+일 패턴 또는 키워드로 일정 유형 감지
+    # q_lower를 사용해서 숫자+일 패턴도 감지
     if re.search(r"\d+일", q_lower) or any(k in q_lower for k in ["언제", "기한", "마감"]):
         return "일정·마일스톤 확인"
     return "일반 질문"
