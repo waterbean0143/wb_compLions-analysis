@@ -389,41 +389,46 @@ with qa_tab:
             st.text(d.page_content)
         # ────────────────────────────────────────────────
 
-        # 6) 질문 유형 분류
-        qtype = classify_question_type(query)
+  # 6) 질문 유형 분류
+    qtype = classify_question_type(query)
+    st.info(f"▶ 분류된 질문 유형: {qtype}")
 
-        # 7) INDEX retriever로 substep 추론
-        idx_retr = index_retrievers.get(step)
-        top_meta = idx_retr.get_relevant_documents(query)[0].metadata
-        sub_title = top_meta["title"]
+    # ─────────────────────────────────────────
+    # 🔍 전체 청크 확인
+    with st.expander("🔍 전체 청크 확인", expanded=False):
+        docs = proc_docs_map[step]
+        st.write(f"• 총 청크 개수: {len(docs)}")
+        for i, d in enumerate(docs):
+            st.markdown(f"**Chunk {i+1} (page {d.metadata.get('page', 'N/A')}):** {d.page_content[:100]}…")
 
-        st.info(f"📌 사용자의 질문은 ‘{sub_title}’ 단계의 “{qtype}” 입니다.")
+    # 7) INDEX retriever로 substep 예측 → 디버깅
+    idx_retr = index_retrievers[step]
+    idx_hits = idx_retr.get_relevant_documents(query)
+    with st.expander("🔍 Sub-step 예측 결과", expanded=False):
+        for rank, doc in enumerate(idx_hits[:3], 1):
+            st.write(f"{rank}. [{doc.metadata['title']}]")
+    sub_title = idx_hits[0].metadata["title"]
+    st.success(f"▶ 예측된 Sub-step: {sub_title}")
 
-        # 6) Q&A PDF(사례) 매핑 – threshold 기반으로 ‘바로 답변’
-        qna_db = qna_vectordbs[step]
-        docs_and_scores = qna_db.similarity_search_with_score(query, k=1)
-        top_doc, top_score = docs_and_scores[0]
-        if top_score > 0.7:
-            st.subheader("💡 사례 응답")
-            st.write(top_doc.page_content)
-            st.stop()
+    # 8) Q&A PDF 매핑 → 디버깅
+    qna_retr = qna_vectordbs[step].as_retriever()
+    qna_hits = qna_retr.get_relevant_documents(query)
+    with st.expander("🔍 Q&A 사례 매핑 결과", expanded=False):
+        for rank, doc in enumerate(qna_hits[:3], 1):
+            st.write(f"{rank}. ```\n{doc.page_content[:200]}…\n```")
+    # (threshold 분기 로직…)
 
-        # 8) substep vectordb 사용
-        retriever = substep_vectordbs.get(step, {}).get(sub_title)
-        if retriever is None:
-            retriever = proc_vectordbs[step].as_retriever()
+    # 9) substep vectordb 사용 → 디버깅
+    sub_vdb = substep_vectordbs[step].get(sub_title)
+    sub_retr = sub_vdb.as_retriever() if sub_vdb else proc_vectordbs[step].as_retriever()
+    sub_hits = sub_retr.get_relevant_documents(query)
+    with st.expander("🔍 Sub-step 절차청크 검색 결과", expanded=False):
+        for rank, doc in enumerate(sub_hits[:3], 1):
+            st.markdown(f"**{rank}. (page {doc.metadata.get('page','N/A')})**")
+            st.text(doc.page_content[:200] + "…")
 
-        # 9) 절차 검색 및 답변 생성 (RetrievalQA)
-        qa_chain = RetrievalQA.from_chain_type(
-            llm=ChatOpenAI(
-                model="gpt-4o-mini",
-                temperature=0,
-                openai_api_key=os.environ["OPENAI_API_KEY"],
-            ),
-            chain_type="stuff",
-            retriever=retriever
-        )
-        with st.spinner("답변 생성 중…"):
-            answer = qa_chain.run(query)
-        st.subheader("💡 답변")
-        st.write(answer)
+    # 10) RetrievalQA 실행 및 답변 표시
+    qa_chain = RetrievalQA.from_chain_type(…)
+    answer = qa_chain.run(query)
+    st.subheader("💡 답변")
+    st.write(answer)
