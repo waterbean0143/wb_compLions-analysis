@@ -124,6 +124,48 @@ def preprocess(text: str) -> str:
     return ' '.join(t.form for t in toks if t.tag.startswith(('N','V','MA')))
 
 # ─────────────────────────────────────────────────────
+# 7) 문서 로드 & 벡터DB 생성 (별도 저장)
+# ─────────────────────────────────────────────────────
+@st.cache_data(ttl=3600*24)
+def load_all_docs():
+    splitter = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
+    proc_map = {}
+    for step, url in PROCESS_PDF_URLS.items():
+        docs = splitter.split_documents(PyMuPDFLoader(url).load())
+        for d in docs:
+            d.page_content = preprocess(d.page_content)
+            d.metadata['step'] = step
+        proc_map[step] = docs
+    qna_map = {}
+    for step, url in QNA_PDF_URLS.items():
+        docs = splitter.split_documents(PyMuPDFLoader(url).load())
+        for d in docs:
+            d.page_content = preprocess(d.page_content)
+            d.metadata['step'] = step
+        qna_map[step] = docs
+    return proc_map, qna_map
+
+@st.cache_resource
+def build_vectordbs():
+    emb = OpenAIEmbeddings(
+        model="text-embedding-ada-002",
+        openai_api_key=st.secrets["openai"]["api_key"]
+    )
+    proc_vdb = {
+        step: FAISS.from_documents(docs, emb)
+        for step, docs in proc_docs_map.items()
+    }
+    qna_vdb = {
+        step: FAISS.from_documents(docs, emb)
+        for step, docs in qna_docs_map.items()
+    }
+    return proc_vdb, qna_vdb
+
+# 먼저 CSV/PDF 로드 & 전처리
+proc_docs_map, qna_docs_map = load_all_docs()
+proc_vectordbs, qna_vectordbs = build_vectordbs()
+
+# ─────────────────────────────────────────────────────
 # 8) Q&A 탭
 # ─────────────────────────────────────────────────────
 with qa_tab:
