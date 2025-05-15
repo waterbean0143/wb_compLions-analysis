@@ -310,73 +310,67 @@ with st.spinner("📦 데이터 로드 중…"):
     substep_vectordbs            = build_substep_vectordbs(proc_docs_map)
 
 # ─────────────────────────────────────────────────────
-# 8) Q&A 탭
+# 8) Q&A 탭 (start/end title 전달 추가)
 # ─────────────────────────────────────────────────────
 with qa_tab:
     st.header("AX SI 방법론 이행봇")
 
-    # 1) 절차 단계 선택
+    # 1) STEP 선택
     step = st.selectbox("📂 절차 단계 선택", list(PROCESS_PDF_URLS.keys()))
     if not step:
         st.info("먼저 절차 단계를 선택하세요.")
         st.stop()
 
-    # 2) INDEX 개요
+    # 2) INDEX 개요 및 start/end title 추출
     st.subheader(f"[{step}] 프로세스 개요")
     idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
     with st.expander("목록 펼치기", expanded=False):
         for d in idx_docs:
             st.markdown(f"- {d.page_content}")
+    # 동적으로 시작·끝 절차명 뽑기
+    start_title = idx_docs[0].metadata["title"]
+    end_title   = idx_docs[-1].metadata["title"]
 
     # 3) 질문 입력
     query = st.text_input("💬 질문을 입력하세요", key=f"query_{step}")
 
-    # 4) 버튼 클릭 시 로직 실행
+    # 4) 버튼 클릭
     if st.button("질문 요청", key=f"btn_{step}"):
         if not query.strip():
             st.warning("질문을 입력해주세요.")
         else:
-            # --- 1) 사례(Q&A) 매핑 (optionally) ---
-            qna_retr = qna_vectordbs[step].as_retriever()
-            docs_qna = qna_retr.get_relevant_documents(query)
-            # 예시 threshold 체크 (metadata["score"] 대신 실제 필드명으로)
-            if docs_qna and docs_qna[0].metadata.get("score", 0) > 0.8:
-                st.markdown("**🔍 사례 매핑 응답:**")
-                st.write(docs_qna[0].page_content)
-            else:
-                # --- 2) SUBSTEP 예측 ---
-                top_meta = index_retrievers[step].get_relevant_documents(query)[0].metadata
-                sub_title = top_meta["title"]
-                st.info(f"📌 이 질문은 ‘{sub_title}’ 단계입니다.")
+            # 5) SUBSTEP 예측(생략)
+            top_meta = index_retrievers[step].get_relevant_documents(query)[0].metadata
+            sub_title = top_meta["title"]
+            st.info(f"📌 이 질문은 ‘{sub_title}’ 단계입니다.")
 
-                # --- 3) retriever 변수 정의 (항상!) ---
-                retriever = substep_vectordbs.get(step, {}).get(sub_title)
-                if retriever is None:
-                    retriever = proc_vectordbs[step].as_retriever()
+            # 6) retriever 선택
+            retriever = substep_vectordbs.get(step, {}).get(sub_title)
+            if retriever is None:
+                retriever = proc_vectordbs[step].as_retriever()
 
-                # --- 4) Context 문서 로드 ---
-                docs = retriever.get_relevant_documents(query)
-                context = "\n\n".join(d.page_content for d in docs)
+            # 7) context 구성
+            docs = retriever.get_relevant_documents(query)
+            context = "\n\n".join(d.page_content for d in docs)
 
-                # --- 5) PromptTemplate 선택 ---
-                prompt_template = STEP_PROMPTS[step]
+            # 8) Chain 구성 및 실행 (start/end 포함)
+            qa_chain = ConversationalRetrievalChain.from_llm(
+                llm=ChatOpenAI(
+                    model="gpt-4o-mini", temperature=0,
+                    openai_api_key=os.environ["OPENAI_API_KEY"]
+                ),
+                retriever=retriever,
+                memory=memory,
+                combine_docs_chain_kwargs={"prompt": STEP_PROMPTS[step]}
+            )
+            with st.spinner("답변 생성 중…"):
+                result = qa_chain({
+                    "question":    query,
+                    "start_title": start_title,
+                    "end_title":   end_title,
+                    "chat_history": []        # 필요하다면
+                })
 
-                # --- 6) ConversationalRetrievalChain 구성 & 실행 ---
-                qa_chain = ConversationalRetrievalChain.from_llm(
-                    llm=ChatOpenAI(
-                        model="gpt-4o-mini",
-                        temperature=0,
-                        openai_api_key=os.environ["OPENAI_API_KEY"]
-                    ),
-                    retriever=retriever,
-                    memory=memory,
-                    combine_docs_chain_kwargs={"prompt": prompt_template}
-                )
-                with st.spinner("답변 생성 중…"):
-                    result = qa_chain({"question": query})
-
-                # --- 7) 답변 출력 ---
-                st.subheader("💡 답변")
-                st.write(result["answer"])
-
-
+            # 9) 출력
+            st.subheader("💡 답변")
+            st.write(result["answer"])
