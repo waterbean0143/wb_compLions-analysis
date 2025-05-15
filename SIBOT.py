@@ -275,18 +275,29 @@ def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]
 
 @st.cache_resource(ttl=24*3600)
 def build_vectordbs(
-    proc_docs_map: Dict[str, List[Document]],
-    qna_docs_map:  Dict[str, List[Document]]
+    _proc_docs_map: Dict[str, List[Document]],
+    _qna_docs_map:  Dict[str, List[Document]]
 ) -> Tuple[Dict[str, FAISS], Dict[str, FAISS]]:
-    emb = OpenAIEmbeddings(model="text-embedding-ada-002", openai_api_key=os.environ["OPENAI_API_KEY"])
-    return (
-        {step: FAISS.from_documents(docs, emb) for step, docs in proc_docs_map.items()},
-        {step: FAISS.from_documents(docs, emb) for step, docs in qna_docs_map.items()},
+    emb = OpenAIEmbeddings(
+        model="text-embedding-ada-002",
+        openai_api_key=os.environ["OPENAI_API_KEY"]
     )
+    proc_vdb = {
+        step: FAISS.from_documents(docs, emb)
+        for step, docs in _proc_docs_map.items()
+    }
+    qna_vdb = {
+        step: FAISS.from_documents(docs, emb)
+        for step, docs in _qna_docs_map.items()
+    }
+    return proc_vdb, qna_vdb
 
 @st.cache_resource(ttl=24*3600)
 def build_index_retrievers() -> Dict[str, any]:
-    emb = OpenAIEmbeddings(model="text-embedding-ada-002", openai_api_key=os.environ["OPENAI_API_KEY"])
+    emb = OpenAIEmbeddings(
+        model="text-embedding-ada-002",
+        openai_api_key=os.environ["OPENAI_API_KEY"]
+    )
     idx = {}
     for step, url in PROCESS_PDF_URLS.items():
         chunks = extract_index_chunks(url)
@@ -295,8 +306,13 @@ def build_index_retrievers() -> Dict[str, any]:
     return idx
 
 @st.cache_resource(ttl=24*3600)
-def build_substep_vectordbs(proc_docs_map: Dict[str, List[Document]]) -> Dict[str, Dict[str, FAISS]]:
-    emb = OpenAIEmbeddings(model="text-embedding-ada-002", openai_api_key=os.environ["OPENAI_API_KEY"])
+def build_substep_vectordbs(
+    proc_docs_map: Dict[str, List[Document]]
+) -> Dict[str, Dict[str, FAISS]]:
+    emb = OpenAIEmbeddings(
+        model="text-embedding-ada-002",
+        openai_api_key=os.environ["OPENAI_API_KEY"]
+    )
     sub = {}
     for step, docs in proc_docs_map.items():
         chunks = extract_index_chunks(PROCESS_PDF_URLS[step])
@@ -309,6 +325,7 @@ def build_substep_vectordbs(proc_docs_map: Dict[str, List[Document]]) -> Dict[st
         sub[step] = db
     return sub
 
+# 앱 시작 시 한 번만 로드·벡터화·인덱스 생성
 with st.spinner("📦 데이터 로드 중…"):
     proc_docs_map, qna_docs_map   = load_all_docs()
     proc_vectordbs, qna_vectordbs = build_vectordbs(proc_docs_map, qna_docs_map)
