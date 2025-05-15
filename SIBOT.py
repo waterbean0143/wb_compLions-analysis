@@ -101,6 +101,15 @@ if 'logged_in' not in st.session_state:
 st.sidebar.title("⚙️ 설정")
 answer_mode = st.sidebar.radio("답변 모드 선택", ['빠른 답변', '정확한 답변'], index=0)
 
+selected_steps = st.sidebar.multiselect(
+    "⚙️ 절차 단계 선택",
+    options=list(PROCESS_PDF_URLS.keys()),
+    default=list(PROCESS_PDF_URLS.keys())[:1]
+)
+if not selected_steps:
+    st.sidebar.warning("하나 이상의 절차 단계를 선택하세요.")
+    st.stop()
+    
 tabs = st.tabs([" Q&A ", " (추가예정) "])
 qa_tab, else_tab = tabs
 
