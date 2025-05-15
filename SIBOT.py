@@ -126,27 +126,11 @@ def preprocess(text: str) -> str:
 # ─────────────────────────────────────────────────────
 # 7) 문서 로드 & 벡터DB 생성 (별도 저장)
 # ─────────────────────────────────────────────────────
-@st.cache_data(ttl=3600*24)
-def load_all_docs():
-    splitter = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
-    proc_map = {}
-    for step, url in PROCESS_PDF_URLS.items():
-        docs = splitter.split_documents(PyMuPDFLoader(url).load())
-        for d in docs:
-            d.page_content = preprocess(d.page_content)
-            d.metadata['step'] = step
-        proc_map[step] = docs
-    qna_map = {}
-    for step, url in QNA_PDF_URLS.items():
-        docs = splitter.split_documents(PyMuPDFLoader(url).load())
-        for d in docs:
-            d.page_content = preprocess(d.page_content)
-            d.metadata['step'] = step
-        qna_map[step] = docs
-    return proc_map, qna_map
-
-@st.cache_resource
-def build_vectordbs():
+@st.cache_resource(ttl=3600*24)
+def build_vectordbs(
+    proc_docs_map: Dict[str, List[Document]],
+    qna_docs_map:  Dict[str, List[Document]]
+) -> Tuple[Dict[str, FAISS], Dict[str, FAISS]]:
     emb = OpenAIEmbeddings(
         model="text-embedding-ada-002",
         openai_api_key=st.secrets["openai"]["api_key"]
@@ -161,44 +145,61 @@ def build_vectordbs():
     }
     return proc_vdb, qna_vdb
 
-# 먼저 CSV/PDF 로드 & 전처리
+# 호출부도 함께 변경
 proc_docs_map, qna_docs_map = load_all_docs()
-proc_vectordbs, qna_vectordbs = build_vectordbs()
+proc_vectordbs, qna_vectordbs = build_vectordbs(proc_docs_map, qna_docs_map)
+
 
 # ─────────────────────────────────────────────────────
 # 8) Q&A 탭
 # ─────────────────────────────────────────────────────
 with qa_tab:
     st.header("AX SI 방법론 이행봇")
-    st.subheader("📂 절차 선택 및 Q&A")
+    st.subheader("📂 절차 선택 및 질의응답")
 
+    # 단계 선택
     step = st.selectbox("📂 절차 단계 선택", list(PROCESS_PDF_URLS.keys()))
 
+    # Debug: 실제 로드된 vectordb 키 확인
+    st.write("🔍 사용 가능한 단계:", list(proc_vectordbs.keys()))
+
+    # 없는 단계 선택 시 안내
+    if step not in proc_vectordbs:
+        st.error(f"‘{step}’ 단계에 대한 데이터가 없습니다.")
+        st.stop()
+
+    # PDF 링크
     st.markdown(f"- [프로세스 PDF]({PROCESS_PDF_URLS[step]})")
     st.markdown(f"- [Q&A PDF]({QNA_PDF_URLS[step]})")
 
-    # 특정 단계 vectordb에서 retriever 생성
+    # 리트리버 구성
     proc_retr = proc_vectordbs[step].as_retriever()
     qna_retr  = qna_vectordbs[step].as_retriever()
-    retriever = EnsembleRetriever(
+    ensemble = EnsembleRetriever(
         retrievers=[qna_retr, proc_retr],
         weights=[bm25_weight, faiss_weight]
     )
 
-    qa_chain = ChatOpenAI(
+    # RetrievalQA 체인 준비
+    qa_llm = ChatOpenAI(
         model="gpt-4o-mini",
         temperature=0,
-        openai_api_key=st.secrets["openai"]["api_key"]
+        openai_api_key=os.environ["OPENAI_API_KEY"]
     )
-    qa = RetrievalQA.from_chain_type(
-        llm=qa_chain,
+    qa_chain = RetrievalQA.from_chain_type(
+        llm=qa_llm,
         chain_type="stuff",
-        retriever=retriever
+        retriever=ensemble,
+        return_source_documents=False
     )
 
+    # 질문 입력 및 답변 출력
     query = st.text_input("💬 질문을 입력하세요", key="proc_query")
-    if query:
-        with st.spinner("답변 생성 중…"):
-            answer = qa.run(query)
-        st.markdown("**답변:**")
-        st.write(answer)
+    if st.button("질문 요청"):
+        if not query.strip():
+            st.warning("먼저 질문을 입력해주세요.")
+        else:
+            with st.spinner("답변 생성 중…"):
+                answer = qa_chain.run(query)
+            st.markdown("**답변:**")
+            st.write(answer)
