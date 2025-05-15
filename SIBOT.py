@@ -397,7 +397,7 @@ with qa_tab:
         st.info(f"📌 사용자의 질문은 ‘{sub_title}’ 단계의 “{qtype}” 입니다.")
 
         # 6-3) 글로벌 Q&A 매핑 (Top-3, threshold=0.5)
-        docs_and_scores = global_qna_retriever.get_relevant_documents_with_score(query, k=3)
+        docs_and_scores = global_qna_vectordb.similarity_search_with_score(query, k=3)
         with st.expander("🔍 Q&A 유사도 Top 3", expanded=False):
             for doc, score in docs_and_scores:
                 st.write(f"- **{score:.3f}**: {doc.page_content[:150]}…")
