@@ -35,7 +35,6 @@ from langchain.memory import ConversationBufferMemory
 from langchain.schema import Document
 
 from langchain.chains import RetrievalQA, ConversationalRetrievalChain
-from langchain.text_splitter import RegexSplitter
 
 # ─────────────────────────────────────────────────────
 # 0-1) PDF 첫페이지 인덱스 자동추출 유틸
