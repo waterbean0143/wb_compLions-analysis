@@ -451,8 +451,8 @@ with qa_tab:
             for doc, score in docs_and_scores:
                 st.write(f"- **{score:.3f}**: {doc.page_content.splitlines()[0]}…")
         top_doc, top_score = docs_and_scores[0]
-        if top_score >= 0.5:
-            st.subheader("💡 사례 응답")
+        if top_score >= 0.8:
+            st.subheader("💡 대표질문 응답")
             st.write(top_doc.page_content)
             st.stop()
 
