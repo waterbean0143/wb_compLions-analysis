@@ -119,121 +119,39 @@ def preprocess(text: str) -> str:
     return ' '.join(t.form for t in toks if t.tag.startswith(('N','V','MA')))
 
 # ─────────────────────────────────────────────────────
-# 7) 문서 로드 & 벡터DB 생성 (캐시 활용)
-# ─────────────────────────────────────────────────────
-@st.cache_data(ttl=3600*24)
-def cached_load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]]]:
-    splitter = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
-    proc_map: Dict[str, List[Document]] = {}
-    qna_map: Dict[str, List[Document]] = {}
-
-    # 프로세스 문서 로드
-    for step, url in PROCESS_PDF_URLS.items():
-        docs = splitter.split_documents(PyMuPDFLoader(url).load())
-        for d in docs:
-            d.page_content = preprocess(d.page_content)
-            d.metadata['step'] = step
-        proc_map[step] = docs
-
-    # QnA 문서 로드
-    for step, url in QNA_PDF_URLS.items():
-        docs = splitter.split_documents(PyMuPDFLoader(url).load())
-        for d in docs:
-            d.page_content = preprocess(d.page_content)
-            d.metadata['step'] = step
-        qna_map[step] = docs
-
-    return proc_map, qna_map
-
-@st.cache_resource(ttl=3600*24)
-def cached_build_vectordbs(
-    proc_docs_map: Dict[str, List[Document]],
-    qna_docs_map:  Dict[str, List[Document]]
-) -> Tuple[Dict[str, FAISS], Dict[str, FAISS]]:
-    emb = OpenAIEmbeddings(
-        model="text-embedding-ada-002",
-        openai_api_key=os.environ["OPENAI_API_KEY"]
-    )
-    proc_vdb = {
-        step: FAISS.from_documents(docs, emb)
-        for step, docs in proc_docs_map.items()
-    }
-    qna_vdb = {
-        step: FAISS.from_documents(docs, emb)
-        for step, docs in qna_docs_map.items()
-    }
-    return proc_vdb, qna_vdb
-
-# 캐시 워밍업 (앱 실행 시 한 번만)
-with st.spinner("초기 데이터 준비 중…"):
-    proc_docs_map, qna_docs_map = cached_load_all_docs()
-    proc_vectordbs, qna_vectordbs = cached_build_vectordbs(proc_docs_map, qna_docs_map)
-
-# ─────────────────────────────────────────────────────
-# 8) 탭 UI 정의
-# ─────────────────────────────────────────────────────
-tabs = st.tabs(["Q&A", "Feedback", "사례관리"])
-qa_tab, fb_tab, case_tab = tabs
-
-# ─────────────────────────────────────────────────────
-# 9) Q&A 탭 로직
+# 8) Q&A 탭
 # ─────────────────────────────────────────────────────
 with qa_tab:
     st.header("AX SI 방법론 이행봇")
-    st.subheader("📂 절차 선택 및 질의응답")
+    st.subheader("📂 절차 선택 및 Q&A")
 
-    # 단계 선택
-    step = st.selectbox(
-        "📂 절차 단계 선택",
-        options=list(PROCESS_PDF_URLS.keys())
-    )
+    step = st.selectbox("📂 절차 단계 선택", list(PROCESS_PDF_URLS.keys()))
 
-    # PDF 링크
     st.markdown(f"- [프로세스 PDF]({PROCESS_PDF_URLS[step]})")
     st.markdown(f"- [Q&A PDF]({QNA_PDF_URLS[step]})")
 
-    # 리트리버 구성
+    # 특정 단계 vectordb에서 retriever 생성
     proc_retr = proc_vectordbs[step].as_retriever()
     qna_retr  = qna_vectordbs[step].as_retriever()
-    ensemble = EnsembleRetriever(
+    retriever = EnsembleRetriever(
         retrievers=[qna_retr, proc_retr],
         weights=[bm25_weight, faiss_weight]
     )
 
-    # RetrievalQA 체인 준비
-    qa_llm = ChatOpenAI(
+    qa_chain = ChatOpenAI(
         model="gpt-4o-mini",
         temperature=0,
-        openai_api_key=os.environ["OPENAI_API_KEY"]
+        openai_api_key=st.secrets["openai"]["api_key"]
     )
-    qa_chain = RetrievalQA.from_chain_type(
-        llm=qa_llm,
+    qa = RetrievalQA.from_chain_type(
+        llm=qa_chain,
         chain_type="stuff",
-        retriever=ensemble,
-        return_source_documents=False
+        retriever=retriever
     )
 
-    # 질문 입력 및 답변
     query = st.text_input("💬 질문을 입력하세요", key="proc_query")
-    if st.button("질문 요청"):
-        if not query.strip():
-            st.warning("먼저 질문을 입력해주세요.")
-        else:
-            with st.spinner("답변 생성 중…"):
-                answer = qa_chain.run(query)
-            st.markdown("**답변:**")
-            st.write(answer)
-
-# ─────────────────────────────────────────────────────
-# 10) Feedback 탭
-# ─────────────────────────────────────────────────────
-with fb_tab:
-    st.header("📝 Feedback")
-    st.write("Feedback 기능은 추후 구현 예정입니다.")
-
-# ─────────────────────────────────────────────────────
-# 11) 사례관리 탭
-# ─────────────────────────────────────────────────────
-with case_tab:
-    st.header("📂 사례관리")
-    st.write("사례관리 기능은 추후 구현 예정입니다.")
+    if query:
+        with st.spinner("답변 생성 중…"):
+            answer = qa.run(query)
+        st.markdown("**답변:**")
+        st.write(answer)
