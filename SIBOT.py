@@ -297,16 +297,23 @@ def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]
 
     return proc_map, qna_map
 
-@st.cache_resource(ttl=24*3600)
+@st.cache_resource(ttl=3600*24)
 def build_vectordbs(
     _proc_map: Dict[str, List[Document]],
     _qna_map:  Dict[str, List[Document]]
 ) -> Tuple[Dict[str, FAISS], Dict[str, FAISS]]:
-    emb = OpenAIEmbeddings(…)
-    proc_vdb = {step: FAISS.from_documents(docs, emb)
-                for step, docs in _proc_map.items()}
-    qna_vdb  = {step: FAISS.from_documents(docs, emb)
-                for step, docs in _qna_map.items()}
+    emb = OpenAIEmbeddings(
+        model="text-embedding-ada-002",
+        openai_api_key=os.environ["OPENAI_API_KEY"],
+    )
+    proc_vdb = {
+        step: FAISS.from_documents(docs, emb)
+        for step, docs in _proc_map.items()
+    }
+    qna_vdb = {
+        step: FAISS.from_documents(docs, emb)
+        for step, docs in _qna_map.items()
+    }
     return proc_vdb, qna_vdb
 
 @st.cache_resource(ttl=24*3600)
@@ -334,39 +341,41 @@ with st.spinner("📦 데이터 로드 중…"):
 with qa_tab:
     st.header("AX SI 방법론 이행봇")
 
-    # 1) 절차 단계 선택
+    # 1) step
     step = st.selectbox("📂 절차 단계를 하나 선택해 주세요", list(PROCESS_PDF_URLS.keys()))
     if not step:
-        st.info("모든 단계를 선택 후, 질문 입력 → ‘질문 요청’ 버튼을 눌러주세요.")
+        st.info("먼저 절차 단계를 선택 후, 질문을 눌러주세요.")
         st.stop()
 
-    # 2) 세부 절차 선택
+    # 2) substep
     idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
     sub_choices = [d.metadata["title"] for d in idx_docs]
     substep = st.selectbox("⚙️ 세부 절차를 하나 선택해 주세요", sub_choices)
     if not substep:
-        st.info("모든 단계를 선택 후, 질문 입력 → ‘질문 요청’ 버튼을 눌러주세요.")
+        st.info("세부 절차를 선택 후, 질문을 눌러주세요.")
         st.stop()
 
-    # 3) 질문 유형 선택
+    # 3) qtype
     qtype = st.selectbox("❓ 질문 유형을 하나 선택해 주세요", ["정의 요청", "일반 질의"])
     if not qtype:
-        st.info("모든 단계를 선택 후, 질문 입력 → ‘질문 요청’ 버튼을 눌러주세요.")
+        st.info("질문 유형을 선택 후, 질문을 눌러주세요.")
         st.stop()
 
-    # 4) 프로세스 개요
-    st.subheader(f"[{step}] 프로세스 개요")
-    with st.expander("목록 펼치기", expanded=False):
-        for d in idx_docs:
-            st.markdown(f"- {d.page_content}")
-
-    # 5) 질문 입력
+    # 4) input
     query = st.text_input("💬 질문을 입력하세요", key=f"query_{step}")
     if st.button("질문 요청", key=f"btn_{step}"):
-        if not query.strip():
+        if not query:
             st.warning("질문을 입력해주세요.")
             st.stop()
 
+        # — now we finally load & vectorize! —
+        with st.spinner("📦 데이터 로드 중…"):
+            proc_docs_map, qna_docs_map   = load_all_docs()
+            proc_vectordbs, qna_vectordbs = build_vectordbs(proc_docs_map, qna_docs_map)
+            global_qna_vectordb           = build_global_qna_vectordb(qna_docs_map)
+            index_retrievers              = build_index_retrievers()
+            substep_vectordbs             = build_substep_vectordbs(proc_docs_map)
+            
         # 6) (디버그용) 문서 로드 확인
         with st.expander("🔍 전체 청크 확인", expanded=False):
             st.write(f"• 총 청크 개수: {len(proc_docs_map[step])}")
