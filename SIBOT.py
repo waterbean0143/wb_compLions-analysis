@@ -101,7 +101,7 @@ if 'logged_in' not in st.session_state:
 st.sidebar.title("⚙️ 설정")
 answer_mode = st.sidebar.radio("답변 모드 선택", ['빠른 답변', '정확한 답변'], index=0)
 
-tabs = st.tabs(["Q&A", "(추가예정"])
+tabs = st.tabs([" Q&A ", " (추가예정) "])
 qa_tab, fb_tab, case_tab = tabs
 
 # ─────────────────────────────────────────────────────
