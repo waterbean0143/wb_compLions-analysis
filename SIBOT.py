@@ -131,11 +131,11 @@ if 'logged_in' not in st.session_state:
     if st.sidebar.button("로그인"):
         if uid in users and users[uid]['password'] == pwd:
             st.session_state['logged_in'] = True
-            st.session_state['user_id']   = uid
             st.sidebar.success(f"환영합니다, {users[uid]['name']}님!")
+            st.experimental_rerun()    # ← 로그인 성공 직후 스크립트를 강제 재실행
         else:
             st.sidebar.error("ID 또는 비밀번호가 올바르지 않습니다.")
-    st.stop()
+    st.stop()  # 로그인 안 된 경우에만 스탑
 
 # ─────────────────────────────────────────────────────
 # 4) PDF 매핑
