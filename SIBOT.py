@@ -27,10 +27,8 @@ from kiwipiepy import Kiwi
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
 from langchain_community.document_loaders import PyMuPDFLoader
-# langchain 자체에는 RegexSplitter가 없습니다. CharacterTextSplitter만 import:
 from langchain.text_splitter import CharacterTextSplitter, RecursiveCharacterTextSplitter
-# Regex 기반 청크 분할기는 별도 패키지에서:
-from langchain_text_splitters.regex import RegexTextSplitter
+from langchain_text_splitters import RegexTextSplitter
 
 from langchain_community.vectorstores import FAISS
 from langchain.retrievers import EnsembleRetriever
@@ -263,10 +261,10 @@ def preprocess(text: str) -> str:
 @st.cache_data(ttl=3600*24)
 def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]]]:
     # Q&A 페어 분리용
-    qa_pair_splitter = RegexTextSplitter(
-        pattern=r"\[\[질문\s*\d+\s*:\s*.+?\?\]\]\s*\[\[\[답변\]\]\s*.+?\.",
-        is_separator_regex=True,
-    )
+   qa_pair_splitter = RegexTextSplitter(
+    pattern=r"\[\[질문\s*\d+\s*:\s*.+?\?\]\]\s*\[\[\[답변\]\]\s*.+?\.",
+    is_separator_regex=True,
+)
     # 첫 페이지: 빈 줄 또는 ‘. ’ 기준
     first_page_splitter = CharacterTextSplitter(
         separator=r"\n{2,}|\.(?:\s|$)",
