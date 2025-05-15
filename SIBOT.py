@@ -367,71 +367,58 @@ with st.spinner("📦 데이터 로드 중…"):
  # ─────────────────────────────────────────────────────
 with qa_tab:
     st.header("AX SI 방법론 이행봇")
+    st.subheader("📂 절차 선택 및 Q&A")
 
     # 1) 절차 단계 선택
-    step = st.selectbox("📂 절차 단계 선택", list(PROCESS_PDF_URLS.keys()))
-    if not step:
-        st.info("먼저 절차 단계를 선택하세요.")
+    step = st.selectbox("📂 절차 단계 선택", ["절차 단계를 하나 선택해 주세요"] + list(PROCESS_PDF_URLS.keys()))
+    if step == "절차 단계를 하나 선택해 주세요":
+        st.warning("모든 단계를 선택 후, 질문을 입력하고 “질문 요청” 버튼을 눌러주세요.")
         st.stop()
 
-    # 2) SUBSTEP 선택 (추가)
+    # 2) SUBSTEP 선택
     idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
-    sub_choices = [d.metadata["title"] for d in idx_docs]
+    sub_choices = ["세부 절차를 하나 선택해 주세요"] + [d.metadata["title"] for d in idx_docs]
     substep = st.selectbox("⚙️ 세부 절차 선택", sub_choices)
+    if substep == "세부 절차를 하나 선택해 주세요":
+        st.warning("모든 단계를 선택 후, 질문을 입력하고 “질문 요청” 버튼을 눌러주세요.")
+        st.stop()
 
-    
-    # 3) 질문 유형 선택 (추가)
-    qtype = st.selectbox("❓ 질문 유형 선택", ["정의 요청", "일반 질의"])
+    # 3) 질문 유형 선택
+    qtype = st.selectbox("❓ 질문 유형 선택", ["질문 유형을 하나 선택해 주세요", "정의 요청", "일반 질의"])
+    if qtype == "질문 유형을 하나 선택해 주세요":
+        st.warning("모든 단계를 선택 후, 질문을 입력하고 “질문 요청” 버튼을 눌러주세요.")
+        st.stop()
 
     # 4) INDEX 개요
     st.subheader(f"[{step}] 프로세스 개요")
-    idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
     with st.expander("목록 펼치기", expanded=False):
         for d in idx_docs:
             st.markdown(f"- {d.page_content}")
 
     # 5) 질문 입력
     query = st.text_input("💬 질문을 입력하세요", key=f"query_{step}")
+
+    # 6) 질문 요청 버튼 — 이 안에서만 분석/API 호출 수행
     if st.button("질문 요청", key=f"btn_{step}"):
         if not query.strip():
             st.warning("질문을 입력해주세요.")
             st.stop()
 
-        # ─────────── 여기에 디버그 expander 삽입 ───────────
-        with st.expander("🔍 문서 로드 확인", expanded=True):
+        # (디버그용) 문서 로드 확인
+        with st.expander("🔍 문서 로드 확인", expanded=False):
             docs = proc_docs_map[step]
             st.write(f"• 총 청크 개수: {len(docs)}")
-            # 1) 모든 청크를 보여주기
-            for i, d in enumerate(docs):
-                st.markdown(f"**Chunk {i+1} (page {d.metadata['page']}):**")
-                st.text_area(
-                    label=f"문서 내용 {i+1}",
-                    value=d.page_content,
-                    height=150
+            for i, d in enumerate(docs[:3]):
+                st.markdown(
+                    f"**Chunk {i+1} (메타: {d.metadata}):**\n```\n{d.page_content[:200]}...\n```"
                 )
-        # ────────────────────────────────────────────────
 
-  # 6) 질문 유형 분류
-    qtype = classify_question_type(query)
-    st.info(f"▶ 분류된 질문 유형: {qtype}")
-
-    # ─────────────────────────────────────────
-    # 🔍 전체 청크 확인
-    with st.expander("🔍 전체 청크 확인", expanded=False):
-        docs = proc_docs_map[step]
-        st.write(f"• 총 청크 개수: {len(docs)}")
-        for i, d in enumerate(docs):
-            st.markdown(f"**Chunk {i+1} (page {d.metadata.get('page', 'N/A')}):** {d.page_content[:100]}…")
-
-    # 7) INDEX retriever로 substep 예측 → 디버깅
-    idx_retr = index_retrievers[step]
-    idx_hits = idx_retr.get_relevant_documents(query)
-    with st.expander("🔍 Sub-step 예측 결과", expanded=False):
-        for rank, doc in enumerate(idx_hits[:3], 1):
-            st.write(f"{rank}. [{doc.metadata['title']}]")
-    sub_title = idx_hits[0].metadata["title"]
-    st.success(f"▶ 예측된 Sub-step: {sub_title}")
-
+        # 7) 질문 유형 분류, Sub-step 예측 등 기존 로직...
+        qtype = classify_question_type(query)
+        idx_retr = index_retrievers[step]
+        top_meta = idx_retr.get_relevant_documents(query)[0].metadata
+        sub_title = top_meta["title"]
+        st.info(f"📌 사용자의 질문은 ‘{sub_title}’ 단계의 “{qtype}” 입니다.")
     # 8) Q&A PDF 매핑 → 디버깅
     qna_retr = qna_vectordbs[step].as_retriever()
     qna_hits = qna_retr.get_relevant_documents(query)
