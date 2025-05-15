@@ -95,8 +95,20 @@ if 'logged_in' not in st.session_state:
             st.sidebar.error("ID 또는 비밀번호가 올바르지 않습니다.")
     st.stop()
 
+
 # ─────────────────────────────────────────────────────
-# 4) UI 설정
+# 4) PDF 매핑
+# ─────────────────────────────────────────────────────
+PROCESS_PDF_URLS = {
+    "제안/계약": "https://drive.google.com/uc?export=download&id=1TNOhmUds7hMpwz3NO4QD-mO-J1sUJoEa",
+    "착수/계획": "https://drive.google.com/uc?export=download&id=16j9ypXkWD7oi477ylSXWhVVe7jLtRuI7",
+}
+QNA_PDF_URLS = {
+    "제안/계약": "https://drive.google.com/uc?export=download&id=17M1mnMZVl29EahbSVqzcyZEX8LYsx5ER",
+}
+
+# ─────────────────────────────────────────────────────
+# 5) UI 설정
 # ─────────────────────────────────────────────────────
 st.sidebar.title("⚙️ 설정")
 answer_mode = st.sidebar.radio("답변 모드 선택", ['빠른 답변', '정확한 답변'], index=0)
@@ -113,16 +125,6 @@ if not selected_steps:
 tabs = st.tabs([" Q&A ", " (추가예정) "])
 qa_tab, else_tab = tabs
 
-# ─────────────────────────────────────────────────────
-# 5) PDF 매핑
-# ─────────────────────────────────────────────────────
-PROCESS_PDF_URLS = {
-    "제안/계약": "https://drive.google.com/uc?export=download&id=1TNOhmUds7hMpwz3NO4QD-mO-J1sUJoEa",
-    "착수/계획": "https://drive.google.com/uc?export=download&id=16j9ypXkWD7oi477ylSXWhVVe7jLtRuI7",
-}
-QNA_PDF_URLS = {
-    "제안/계약": "https://drive.google.com/uc?export=download&id=17M1mnMZVl29EahbSVqzcyZEX8LYsx5ER",
-}
 
 # ─────────────────────────────────────────────────────
 # 6) 전처리 함수
