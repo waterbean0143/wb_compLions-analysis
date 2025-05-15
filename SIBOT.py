@@ -243,8 +243,9 @@ def build_vectordbs(
     }
     return proc_vdb, qna_vdb
 
-index_docs = extract_index_chunks(PROCESS_PDF_URLS["제안/계약"])  #추가
-st.write("🔍 제안/계약 INDEX:", [d.metadata for d in index_docs])  #추가
+index_docs = extract_index_chunks(PROCESS_PDF_URLS["제안/계약"])
+#디버깅용
+#st.write("🔍 제안/계약 INDEX:", [d.metadata for d in index_docs])  
 
 # 앱 시작 시 한 번만 실행
 with st.spinner("📦 데이터 로드 중…"):
