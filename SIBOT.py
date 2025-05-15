@@ -306,52 +306,59 @@ with st.spinner("📦 데이터 로드 중…"):
 # 8) Q&A 탭
 # ─────────────────────────────────────────────────────
 with qa_tab:
-    st.header("AX SI 방법론 이행봇")
+    # STEP 선택 및 INDEX expander… (생략)  
 
-    # 1) 절차 단계 선택
-    step = st.selectbox("📂 절차 단계 선택", list(PROCESS_PDF_URLS.keys()))
-    if not step:
-        st.info("먼저 절차 단계를 선택하세요.")
-        st.stop()
-
-    # 2) INDEX 개요
-    st.subheader(f"[{step}] 프로세스 개요")
-    idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
-    with st.expander("목록 펼치기", expanded=False):
-        for d in idx_docs:
-            st.markdown(f"- {d.page_content}")
-
-    # 3) 질문 입력
-    query = st.text_input("💬 질문을 입력하세요", key=f"query_{step}")
     if st.button("질문 요청", key=f"btn_{step}"):
-        if not query.strip():
+        query = st.session_state[f"query_{step}"].strip()
+        if not query:
             st.warning("질문을 입력해주세요.")
-        else:
-            # 4) 세부절차 추론
-            top_meta = index_retrievers[step].get_relevant_documents(query)[0].metadata
-            sub_title = top_meta["title"]
-            st.info(f"📌 이 질문은 ‘{sub_title}’ 단계입니다.")
+            return
 
-            # 5) retriever 선택
-            retriever = substep_vectordbs.get(step, {}).get(sub_title)
-            if retriever is None:
-                retriever = proc_vectordbs[step].as_retriever()
+        # ──────────────────────────────
+        # 1) 사례(Q&A) 매핑
+        # ──────────────────────────────
+        #  - qna_vectordbs[step]에서 유사도 최고인 문서 찾고
+        #  - threshold 이상이면, 그 문서의 answer 필드(메타데이터) 바로 반환
+        qna_retr = qna_vectordbs.get(step).as_retriever()
+        docs_qna = qna_retr.get_relevant_documents(query)
+        if docs_qna and docs_qna[0].metadata.get("answer_score", 0) > 0.8:
+            st.markdown("**🔍 사례 매핑 응답:**")
+            st.write(docs_qna[0].page_content)
+            return
 
-            # 6) ConversationalRetrievalChain 구성
-            qa_chain = ConversationalRetrievalChain.from_llm(
-                llm=ChatOpenAI(
-                    model="gpt-4o-mini",
-                    temperature=0,
-                    openai_api_key=os.environ["OPENAI_API_KEY"]
-                ),
-                retriever=retriever,
-                memory=memory,
-                combine_docs_chain_kwargs={"prompt": STEP_PROMPTS[step]}
-            )
+        # ──────────────────────────────
+        # 2) SUBSTEP(주요절차) 예측
+        # ──────────────────────────────
+        idx_retr = index_retrievers[step]
+        sub_title = idx_retr.get_relevant_documents(query)[0].metadata["title"]
+        st.info(f"📌 이 질문은 ‘{sub_title}’ 단계입니다.")
 
-            # 7) 실행 및 출력 (history 키로 빈 리스트 전달)
-            with st.spinner("답변 생성 중…"):
-                result = qa_chain({"question": query})
+        # ──────────────────────────────
+        # 3) RetrievalQA → LLM 호출
+        # ──────────────────────────────
+        #  - 해당 substep vectordb가 있으면 좁혀서 검색
+        #  - 없으면 전체 STEP vectordb에서 검색
+        retriever = substep_vectordbs.get(step, {}).get(sub_title)
+        if retriever is None:
+            retriever = proc_vectordbs[step].as_retriever()
 
-            st.subheader("💡 답변")
-            st.write(result["answer"])
+        # 3-1) 관련 청크 로드
+        docs = retriever.get_relevant_documents(query)
+        context = "\n\n".join(d.page_content for d in docs)
+
+        # 3-2) STEP별 하이브리드 프롬프트
+        prompt = STEP_PROMPTS[step].format_prompt(
+            question=query,
+            context=context
+        )
+
+        # 3-3) LLM + Memory 체인 실행
+        qa_chain = ConversationalRetrievalChain.from_llm(
+            llm=ChatOpenAI(...),
+            retriever=retriever,
+            memory=memory,
+            combine_docs_chain_kwargs={"prompt": prompt}
+        )
+        result = qa_chain({"question": query})
+        st.subheader("💡 답변")
+        st.write(result["answer"])
