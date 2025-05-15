@@ -86,7 +86,15 @@ def extract_index_chunks(url: str) -> List[Document]:
     return index_docs
 
 # ─────────────────────────────────────────────────────
-# 0-2) STEP별 PromptTemplate 정의
+# 0-2) 대화 이력 메모리 설정
+# ─────────────────────────────────────────────────────
+memory = ConversationBufferMemory(
+    memory_key="history",
+    return_messages=True
+)
+
+# ─────────────────────────────────────────────────────
+# 0-4) STEP별 시스템 메시지 정의
 # ─────────────────────────────────────────────────────
 STEP_SYSTEM_PROMPTS = {
     "제안/계약": """당신은 AX SI 방법론의 ‘제안/계약’ 단계 전문가입니다.
@@ -123,14 +131,19 @@ PMS 구축, 조직·역할 정의, 관리정책 수립 등의 절차를 설명�
 """,
 }
 
+# ─────────────────────────────────────────────────────
+# 0-3) ChatPromptTemplate 생성
+# ─────────────────────────────────────────────────────
 STEP_PROMPTS = {
     step: ChatPromptTemplate.from_messages([
-        SystemMessagePromptTemplate.from_template(sys_tpl),
-        HumanMessagePromptTemplate.from_template(
-            "질문: {question}\n\n관련 절차 요약:\n{context}\n\n자세히 설명해주세요."
-        )
+        # 시스템 메시지
+        ("system", STEP_SYSTEM_PROMPTS[step]),
+        # 과거 대화 이력
+        MessagesPlaceholder(variable_name="history"),
+        # 사용자 메시지
+        ("user", "질문: {question}\n\n관련 절차 요약:\n{context}\n\n자세히 설명해주세요.")
     ])
-    for step, sys_tpl in STEP_SYSTEM_PROMPTS.items()
+    for step in STEP_SYSTEM_PROMPTS
 }
 
 # ─────────────────────────────────────────────────────
@@ -295,6 +308,9 @@ with st.spinner("📦 데이터 로드 중…"):
 # ─────────────────────────────────────────────────────
 # 8) Q&A 탭
 # ─────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────
+# 8) Q&A 탭
+# ─────────────────────────────────────────────────────
 with qa_tab:
     st.header("AX SI 방법론 이행봇")
 
@@ -317,26 +333,41 @@ with qa_tab:
         if not query.strip():
             st.warning("질문을 입력해주세요.")
         else:
-            # 4) INDEX retriever로 substep 추론
-            idx_retr = index_retrievers.get(step)
+            # 4) 세부절차(substep) 추론
+            idx_retr = index_retrievers[step]
             top_meta = idx_retr.get_relevant_documents(query)[0].metadata
             sub_title = top_meta["title"]
             st.info(f"📌 이 질문은 ‘{sub_title}’ 단계입니다.")
 
-            # 5) substep vectordb 사용
+            # 5) 해당 substep 또는 전체 단계 리트리버 선택
             retriever = substep_vectordbs.get(step, {}).get(sub_title)
             if retriever is None:
-                # fallback to 전체 단계
                 retriever = proc_vectordbs[step].as_retriever()
 
-            # 6) 답변 생성
-            qa_chain = RetrievalQA.from_chain_type(
-                llm=ChatOpenAI(model="gpt-4o-mini", temperature=0,
-                               openai_api_key=os.environ["OPENAI_API_KEY"]),
-                chain_type="stuff",
-                retriever=retriever
+            # 6) 컨텍스트 문서 로드
+            docs = retriever.get_relevant_documents(query)
+            context = "\n".join(d.page_content for d in docs)
+
+            # 7) 하이브리드 프롬프트 생성
+            chat_prompt = STEP_PROMPTS[step].format_prompt(
+                question=query,
+                context=context
+            )
+
+            # 8) ConversationalRetrievalChain 구성 및 실행
+            qa_chain = ConversationalRetrievalChain.from_llm(
+                llm=ChatOpenAI(
+                    model="gpt-4o-mini",
+                    temperature=0,
+                    openai_api_key=os.environ["OPENAI_API_KEY"]
+                ),
+                retriever=retriever,
+                memory=memory,
+                combine_docs_chain_kwargs={"prompt": chat_prompt}
             )
             with st.spinner("답변 생성 중…"):
-                answer = qa_chain.run(query)
+                result = qa_chain({"question": query})
+
+            # 9) 답변 출력
             st.subheader("💡 답변")
-            st.write(answer)
+            st.write(result["answer"])
