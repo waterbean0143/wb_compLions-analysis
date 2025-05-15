@@ -100,7 +100,7 @@ def classify_question_type(q: str) -> str:
         return "산출물·문서 요구 사항"
     if any(k in q for k in ["누가", "책임", "역할"]):
         return "책임·역할 분담"
-    if any(k in q for k in ["언제", "기한", "마감", "n일"]):
+    if re.search(r"\d+일", q_lower) or any(k in q_lower for k in ["언제", "기한", "마감"]):
         return "일정·마일스톤 확인"
     return "일반 질문"
 
