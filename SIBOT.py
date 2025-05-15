@@ -400,11 +400,12 @@ with qa_tab:
 
     # 6) 질문 요청 버튼 — 이 안에서만 분석/API 호출 수행
     if st.button("질문 요청", key=f"btn_{step}"):
+        # --- 유효성 검사 ---
         if not query.strip():
             st.warning("질문을 입력해주세요.")
             st.stop()
 
-        # (디버그용) 문서 로드 확인
+        # --- (디버그) 문서 로드 확인 ---
         with st.expander("🔍 문서 로드 확인", expanded=False):
             docs = proc_docs_map[step]
             st.write(f"• 총 청크 개수: {len(docs)}")
@@ -413,40 +414,43 @@ with qa_tab:
                     f"**Chunk {i+1} (메타: {d.metadata}):**\n```\n{d.page_content[:200]}...\n```"
                 )
 
-        # 7) 질문 유형 분류, Sub-step 예측 등 기존 로직...
-        qtype = classify_question_type(query)
-        idx_retr = index_retrievers[step]
-        top_meta = idx_retr.get_relevant_documents(query)[0].metadata
-        sub_title = top_meta["title"]
-        st.info(f"📌 사용자의 질문은 ‘{sub_title}’ 단계의 “{qtype}” 입니다.")
-    # 8) Q&A PDF 매핑 → 디버깅
-    qna_retr = qna_vectordbs[step].as_retriever()
-    qna_hits = qna_retr.get_relevant_documents(query)
-    with st.expander("🔍 Q&A 사례 매핑 결과", expanded=False):
-        for rank, doc in enumerate(qna_hits[:3], 1):
-            st.write(f"{rank}. ```\n{doc.page_content[:200]}…\n```")
-    # (threshold 분기 로직…)
+        # --- 1) 사용자 선택값 가져오기 ---
+        selected_sub = substep
+        selected_qtype = qtype
+        st.info(f"📌 사용자의 질문은 ‘{selected_sub}’ 단계의 “{selected_qtype}” 입니다.")
 
-    # 9) substep vectordb 사용 → 디버깅
-    sub_vdb = substep_vectordbs[step].get(sub_title)
-    sub_retr = sub_vdb.as_retriever() if sub_vdb else proc_vectordbs[step].as_retriever()
-    sub_hits = sub_retr.get_relevant_documents(query)
-    with st.expander("🔍 Sub-step 절차청크 검색 결과", expanded=False):
-        for rank, doc in enumerate(sub_hits[:3], 1):
-            st.markdown(f"**{rank}. (page {doc.metadata.get('page','N/A')})**")
-            st.text(doc.page_content[:200] + "…")
+        # --- 2) Q&A 사례 매핑 (threshold 분기) ---
+        qna_retr = qna_vectordbs[step].as_retriever()
+        docs_and_scores = qna_retr.get_relevant_documents(query, with_scores=True)
+        top_doc, top_score = docs_and_scores[0]
+        if top_score > 0.7:
+            st.subheader("💡 사례 응답")
+            st.write(top_doc.page_content)
+            st.stop()
 
-# 10) RetrievalQA 실행 및 답변 표시
-qa_chain = RetrievalQA.from_chain_type(
-    llm=ChatOpenAI(
-        model="gpt-4o-mini",
-        temperature=0,
-        openai_api_key=os.environ["OPENAI_API_KEY"],
-    ),
-    chain_type="stuff",
-    retriever=sub_retr
-)
-with st.spinner("답변 생성 중…"):
-    answer = qa_chain.run(query)
-st.subheader("💡 답변")
-st.write(answer)
+        # --- 3) Substep vectordb에서 Retriever 구성 ---
+        sub_vdb = substep_vectordbs[step].get(selected_sub)
+        retriever = sub_vdb.as_retriever() if sub_vdb else proc_vectordbs[step].as_retriever()
+
+        # --- (디버그) Sub-step 청크 검색 결과 ---
+        sub_hits = retriever.get_relevant_documents(query)
+        with st.expander("🔍 Sub-step 절차청크 검색 결과", expanded=False):
+            for i, d in enumerate(sub_hits[:3]):
+                st.markdown(f"**{i+1}.** `{d.page_content[:100]}...`")
+
+        # --- 4) RetrievalQA 실행 ---
+        qa_chain = RetrievalQA.from_chain_type(
+            llm=ChatOpenAI(
+                model="gpt-4o-mini",
+                temperature=0,
+                openai_api_key=os.environ["OPENAI_API_KEY"],
+            ),
+            chain_type="stuff",
+            retriever=retriever
+        )
+        with st.spinner("답변 생성 중…"):
+            answer = qa_chain.run(query)
+
+        # --- 5) 결과 출력 ---
+        st.subheader("💡 답변")
+        st.write(answer)
