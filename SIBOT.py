@@ -126,7 +126,9 @@ def preprocess(text: str) -> str:
 # ─────────────────────────────────────────────────────
 # 7) 문서 로드 & 벡터DB 생성 (별도 저장)
 # ─────────────────────────────────────────────────────
-@st.cache_resource(ttl=3600*24)
+@st.cache_data(ttl=3600*24)
+def load_all_docs() -> Tuple[...]:
+    
 def build_vectordbs(
     proc_docs_map: Dict[str, List[Document]],
     qna_docs_map:  Dict[str, List[Document]]
