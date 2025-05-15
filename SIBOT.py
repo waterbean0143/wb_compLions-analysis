@@ -260,7 +260,12 @@ def preprocess(text: str) -> str:
 # ─────────────────────────────────────────────────────
 @st.cache_data(ttl=24*3600)
 def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]]]:
-    from langchain.text_splitter import CharacterTextSplitter
+    from langchain.text_splitter import CharacterTextSplitter, RegexTextSplitter
+
+    # 1) splitters 정의
+    # 첫 페이지(Index)용: 헤더 "##숫자." 앞에서 분리
+    index_splitter = RegexTextSplitter(pattern=r"^##\d+\.\s+", keep_separator=True)
+    # 나머지 본문용: 고정 길이 분할
     body_splitter  = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
 
     proc_map, qna_map = {}, {}
@@ -271,9 +276,8 @@ def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]
         for d in docs:
             text = d.page_content
             if d.metadata.get("page", 0) == 0 and not is_qna:
-                # 첫 페이지: 인덱스용 자동 추출
-                idxs = index_splitter.split_text(text)
-                for idx in idxs:
+                # 첫 페이지: 인덱스용 분할
+                for idx in index_splitter.split_text(text):
                     out_chunks.append(Document(page_content=idx, metadata=d.metadata))
             else:
                 # 나머지 페이지: 길이 기반 분할
@@ -281,15 +285,16 @@ def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]
                     out_chunks.append(Document(page_content=chunk, metadata=d.metadata))
         return out_chunks
 
-    # PROCESS PDF
+    # PROCESS PDF 로딩
     for step, url in PROCESS_PDF_URLS.items():
         proc_map[step] = dl_and_split(url, is_qna=False)
 
-    # Q&A PDF
+    # Q&A PDF 로딩
     for step, url in QNA_PDF_URLS.items():
         qna_map[step] = dl_and_split(url, is_qna=True)
 
     return proc_map, qna_map
+
 
 @st.cache_resource(ttl=3600*24)
 def build_vectordbs(
@@ -306,6 +311,7 @@ def build_vectordbs(
                 for step, docs in _qna_map.items()}
     return proc_vdb, qna_vdb
 
+
 @st.cache_resource(ttl=3600*24)
 def build_global_qna_vectordb(
     _qna_map: Dict[str, List[Document]]
@@ -319,6 +325,7 @@ def build_global_qna_vectordb(
     )
     return FAISS.from_documents(all_qna, emb)
 
+
 @st.cache_resource(ttl=3600*24)
 def build_index_retrievers() -> Dict[str, any]:
     emb = OpenAIEmbeddings(
@@ -331,6 +338,7 @@ def build_index_retrievers() -> Dict[str, any]:
         if idx_docs:
             idx_retrs[step] = FAISS.from_documents(idx_docs, emb).as_retriever()
     return idx_retrs
+
 
 @st.cache_resource(ttl=3600*24)
 def build_substep_vectordbs(
@@ -351,6 +359,7 @@ def build_substep_vectordbs(
                 sub_db[title] = FAISS.from_documents(subset, emb)
         sub_vdbs[step] = sub_db
     return sub_vdbs
+
 
 # 앱 시작 시 한 번만 로드·벡터화
 with st.spinner("📦 데이터 로드 중…"):
@@ -396,7 +405,7 @@ with qa_tab:
     # 5) 질문 입력
     query = st.text_input("💬 질문을 입력하세요", key=f"query_{step}")
 
-    # 6) 질문 요청 버튼 — 여기서만 모든 분석/API 호출 수행
+    # 6) 질문 요청 버튼 — 여기서만 분석/API 호출 수행
     if st.button("질문 요청", key=f"btn_{step}"):
         if not query.strip():
             st.warning("질문을 입력해주세요.")
@@ -411,22 +420,21 @@ with qa_tab:
                     f"**Chunk {i+1} (메타: {d.metadata}):**\n```\n{d.page_content[:200]}...\n```"
                 )
 
-        # 7) 질문 유형·SUBSTEP 매핑 출력
+        # 7) 질문 유형·SUBSTEP 매핑
         st.info(f"📌 사용자의 질문은 ‘{substep}’ 단계의 “{qtype}” 입니다.")
 
-        # 8) Q&A 사례 (<0.5 threshold) — 글로벌 retriever 사용
+        # 8) 글로벌 Q&A 매핑 (Top-3, threshold=0.5)
         docs_and_scores = global_qna_vectordb.similarity_search_with_score(query, k=3)
         with st.expander("🔍 Q&A 유사도 Top 3", expanded=False):
             for doc, score in docs_and_scores:
                 st.write(f"- **{score:.3f}**: {doc.page_content.splitlines()[0]}…")
-        # 첫 케이스가 충분히 유사하면 바로 리턴
         top_doc, top_score = docs_and_scores[0]
         if top_score >= 0.5:
             st.subheader("💡 사례 응답")
             st.write(top_doc.page_content)
             st.stop()
 
-        # 9) SUBSTEP 벡터DB로 RetrievalQA
+        # 9) SUBSTEP RetrievalQA
         retriever = substep_vectordbs[step].get(substep) or proc_vectordbs[step].as_retriever()
         qa_chain = RetrievalQA.from_chain_type(
             llm=ChatOpenAI(model="gpt-4o-mini", temperature=0,
