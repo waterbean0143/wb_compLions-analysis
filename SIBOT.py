@@ -379,14 +379,6 @@ with qa_tab:
                     label=f"문서 내용 {i+1}",
                     value=d.page_content,
                     height=150
-        )
-
-    # 2) 또는 'VDC-A' 키워드 포함 청크만 보기
-    st.write("— ‘VDC-A’ 포함 청크 —")
-    for i, d in enumerate(docs):
-        if "vdc-a" in d.page_content.lower():
-            st.markdown(f"**Chunk {i+1} (page {d.metadata['page']}):**")
-            st.text(d.page_content)
         # ────────────────────────────────────────────────
 
   # 6) 질문 유형 분류
