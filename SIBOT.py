@@ -345,14 +345,23 @@ with qa_tab:
         st.info("먼저 절차 단계를 선택하세요.")
         st.stop()
 
-    # 2) INDEX 개요
+    # 2) SUBSTEP 선택 (추가)
+    idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
+    sub_choices = [d.metadata["title"] for d in idx_docs]
+    substep = st.selectbox("⚙️ 세부 절차 선택", sub_choices)
+
+    
+    # 3) 질문 유형 선택 (추가)
+    qtype = st.selectbox("❓ 질문 유형 선택", ["정의 요청", "일반 질의"])
+
+    # 4) INDEX 개요
     st.subheader(f"[{step}] 프로세스 개요")
     idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
     with st.expander("목록 펼치기", expanded=False):
         for d in idx_docs:
             st.markdown(f"- {d.page_content}")
 
-    # 3) 질문 입력
+    # 5) 질문 입력
     query = st.text_input("💬 질문을 입력하세요", key=f"query_{step}")
     if st.button("질문 요청", key=f"btn_{step}"):
         if not query.strip():
@@ -369,10 +378,10 @@ with qa_tab:
                 )
         # ────────────────────────────────────────────────
 
-        # 4) 질문 유형 분류
+        # 6) 질문 유형 분류
         qtype = classify_question_type(query)
 
-        # 5) INDEX retriever로 substep 추론
+        # 7) INDEX retriever로 substep 추론
         idx_retr = index_retrievers.get(step)
         top_meta = idx_retr.get_relevant_documents(query)[0].metadata
         sub_title = top_meta["title"]
@@ -388,12 +397,12 @@ with qa_tab:
             st.write(top_doc.page_content)
             st.stop()
 
-        # 7) substep vectordb 사용
+        # 8) substep vectordb 사용
         retriever = substep_vectordbs.get(step, {}).get(sub_title)
         if retriever is None:
             retriever = proc_vectordbs[step].as_retriever()
 
-        # 8) 절차 검색 및 답변 생성 (RetrievalQA)
+        # 9) 절차 검색 및 답변 생성 (RetrievalQA)
         qa_chain = RetrievalQA.from_chain_type(
             llm=ChatOpenAI(
                 model="gpt-4o-mini",
