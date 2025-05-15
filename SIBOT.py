@@ -255,7 +255,7 @@ def preprocess(text: str) -> str:
 # ─────────────────────────────────────────────────────
 # 7) 문서 로드 & vectordb 생성
 # ─────────────────────────────────────────────────────
-@st.cache_data(ttl=24*3600)
+@st.cache_data(ttl=24 * 3600)
 def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]]]:
     splitter = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
     proc_map, qna_map = {}, {}
@@ -273,7 +273,7 @@ def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]
         qna_map[step] = docs
     return proc_map, qna_map
 
-@st.cache_resource(ttl=24*3600)
+@st.cache_resource(ttl=24 * 3600)
 def build_vectordbs(
     _proc_docs_map: Dict[str, List[Document]],
     _qna_docs_map:  Dict[str, List[Document]]
@@ -292,38 +292,38 @@ def build_vectordbs(
     }
     return proc_vdb, qna_vdb
 
-@st.cache_resource(ttl=24*3600)
+@st.cache_resource(ttl=24 * 3600)
 def build_index_retrievers() -> Dict[str, any]:
     emb = OpenAIEmbeddings(
         model="text-embedding-ada-002",
         openai_api_key=os.environ["OPENAI_API_KEY"]
     )
-    idx = {}
+    idx_retrs = {}
     for step, url in PROCESS_PDF_URLS.items():
         chunks = extract_index_chunks(url)
         if chunks:
-            idx[step] = FAISS.from_documents(chunks, emb).as_retriever()
-    return idx
+            idx_retrs[step] = FAISS.from_documents(chunks, emb).as_retriever()
+    return idx_retrs
 
-@st.cache_resource(ttl=24*3600)
+@st.cache_resource(ttl=24 * 3600)
 def build_substep_vectordbs(
-    proc_docs_map: Dict[str, List[Document]]
+    _proc_docs_map: Dict[str, List[Document]]
 ) -> Dict[str, Dict[str, FAISS]]:
     emb = OpenAIEmbeddings(
         model="text-embedding-ada-002",
         openai_api_key=os.environ["OPENAI_API_KEY"]
     )
-    sub = {}
-    for step, docs in proc_docs_map.items():
+    sub_vdbs = {}
+    for step, docs in _proc_docs_map.items():
         chunks = extract_index_chunks(PROCESS_PDF_URLS[step])
-        db = {}
+        sub_db = {}
         for c in chunks:
             title = c.metadata["title"]
             subset = [d for d in docs if title in d.page_content]
             if subset:
-                db[title] = FAISS.from_documents(subset, emb)
-        sub[step] = db
-    return sub
+                sub_db[title] = FAISS.from_documents(subset, emb)
+        sub_vdbs[step] = sub_db
+    return sub_vdbs
 
 # 앱 시작 시 한 번만 로드·벡터화·인덱스 생성
 with st.spinner("📦 데이터 로드 중…"):
