@@ -253,28 +253,41 @@ def preprocess(text: str) -> str:
     toks = kiwi.analyze(text)[0][0]
     return ' '.join(t.form for t in toks if t.tag.startswith(('N','V','MA')))
 
-# ─────────────────────────────────────────────────────
-# 7) 문서 로드 & vectordb 생성 (per-step + global Q&A)
-# ─────────────────────────────────────────────────────
-@st.cache_data(ttl=3600*24)
+@st.cache_data(ttl=24*3600)
 def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]]]:
-    splitter = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
+    # 1) splitters 정의
+    from langchain_text_splitters.regex import RegexTextSplitter
+    index_splitter = RegexTextSplitter(pattern=r"^##\d+\.\s+", keep_separator=True)
+    body_splitter  = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
+
     proc_map, qna_map = {}, {}
-    def dl(url):
+
+    def dl_and_split(url, is_qna=False):
         docs = download_and_load(url)
-        return splitter.split_documents(docs)
+        out_chunks = []
+        for d in docs:
+            text = d.page_content
+            if d.metadata.get("page", 0) == 0 and not is_qna:
+                # 첫 페이지: 인덱스용
+                idxs = index_splitter.split_text(text)
+                for idx in idxs:
+                    out_chunks.append(Document(page_content=idx, metadata=d.metadata))
+            else:
+                # 나머지 페이지: 본문용
+                for chunk in body_splitter.split_text(text):
+                    out_chunks.append(Document(page_content=chunk, metadata=d.metadata))
+        return out_chunks
+
+    # 2) PROCESS 문서
     for step, url in PROCESS_PDF_URLS.items():
-        docs = dl(url)
-        for d in docs:
-            d.page_content = preprocess(d.page_content)
-            d.metadata['step'] = step
-        proc_map[step] = docs
+        proc_map[step] = dl_and_split(url, is_qna=False)
+
+    # 3) Q&A 문서
+    #    전체 PDF를 먼저 질문·답변 블록으로 잘라낸 뒤, 각 블록 내에서 “?”와 “[[[답변]”로 파싱해도 되고
+    #    간단히 본문처럼 CharacterTextSplitter로 쪼개셔도 무방합니다.
     for step, url in QNA_PDF_URLS.items():
-        docs = dl(url)
-        for d in docs:
-            d.page_content = preprocess(d.page_content)
-            d.metadata['step'] = step
-        qna_map[step] = docs
+        qna_map[step] = dl_and_split(url, is_qna=True)
+
     return proc_map, qna_map
 
 @st.cache_resource(ttl=3600*24)
