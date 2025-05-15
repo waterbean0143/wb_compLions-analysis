@@ -33,7 +33,9 @@ from langchain.retrievers import EnsembleRetriever
 from langchain_community.retrievers import BM25Retriever
 from langchain.memory import ConversationBufferMemory
 from langchain.schema import Document
+
 from langchain.chains import RetrievalQA, ConversationalRetrievalChain
+from langchain_text_splitters.regex import RegexTextSplitter
 
 # ─────────────────────────────────────────────────────
 # 0-1) PDF 첫페이지 인덱스 자동추출 유틸
@@ -253,38 +255,38 @@ def preprocess(text: str) -> str:
     toks = kiwi.analyze(text)[0][0]
     return ' '.join(t.form for t in toks if t.tag.startswith(('N','V','MA')))
 
+# ─────────────────────────────────────────────────────
+# 7) 문서 split & 벡터 DB 생성
+# ─────────────────────────────────────────────────────
 @st.cache_data(ttl=24*3600)
 def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]]]:
-    # 1) splitters 정의
-    from langchain_text_splitters.regex import RegexTextSplitter
-    index_splitter = RegexTextSplitter(pattern=r"^##\d+\.\s+", keep_separator=True)
-    body_splitter  = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
+    from langchain.text_splitter import CharacterTextSplitter
+    # 본문용 splitter
+    body_splitter = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
 
-    proc_map, qna_map = {}, {}
+    proc_map: Dict[str, List[Document]] = {}
+    qna_map:  Dict[str, List[Document]] = {}
 
-    def dl_and_split(url, is_qna=False):
-        docs = download_and_load(url)
-        out_chunks = []
-        for d in docs:
+    def dl_and_split(url: str, is_qna: bool) -> List[Document]:
+        raw_docs = download_and_load(url)
+        out_chunks: List[Document] = []
+        for d in raw_docs:
             text = d.page_content
-            if d.metadata.get("page", 0) == 0 and not is_qna:
-                # 첫 페이지: 인덱스용
-                idxs = index_splitter.split_text(text)
-                for idx in idxs:
-                    out_chunks.append(Document(page_content=idx, metadata=d.metadata))
-            else:
-                # 나머지 페이지: 본문용
-                for chunk in body_splitter.split_text(text):
-                    out_chunks.append(Document(page_content=chunk, metadata=d.metadata))
+            if not is_qna and d.metadata.get("page", 0) == 0:
+                # 첫 페이지는 인덱스 자동추출로 처리
+                idxs = extract_index_chunks(url)
+                out_chunks.extend(idxs)
+                continue
+            # 그 외 페이지 또는 Q&A는 본문 기준 분할
+            for chunk in body_splitter.split_text(text):
+                out_chunks.append(Document(page_content=chunk, metadata=d.metadata))
         return out_chunks
 
-    # 2) PROCESS 문서
+    # 1) STEP(Proc) 문서
     for step, url in PROCESS_PDF_URLS.items():
         proc_map[step] = dl_and_split(url, is_qna=False)
 
-    # 3) Q&A 문서
-    #    전체 PDF를 먼저 질문·답변 블록으로 잘라낸 뒤, 각 블록 내에서 “?”와 “[[[답변]”로 파싱해도 되고
-    #    간단히 본문처럼 CharacterTextSplitter로 쪼개셔도 무방합니다.
+    # 2) Q&A 문서
     for step, url in QNA_PDF_URLS.items():
         qna_map[step] = dl_and_split(url, is_qna=True)
 
@@ -307,7 +309,7 @@ def build_vectordbs(
 def build_global_qna_vectordb(
     _qna_docs_map: Dict[str, List[Document]]
 ) -> FAISS:
-    all_qna = []
+    all_qna: List[Document] = []
     for docs in _qna_docs_map.values():
         all_qna.extend(docs)
     emb = OpenAIEmbeddings(model="text-embedding-ada-002",
@@ -318,7 +320,7 @@ def build_global_qna_vectordb(
 def build_index_retrievers() -> Dict[str, any]:
     emb = OpenAIEmbeddings(model="text-embedding-ada-002",
                            openai_api_key=os.environ["OPENAI_API_KEY"])
-    idx_retrs = {}
+    idx_retrs: Dict[str, any] = {}
     for step, url in PROCESS_PDF_URLS.items():
         idx_docs = extract_index_chunks(url)
         if idx_docs:
@@ -334,7 +336,7 @@ def build_substep_vectordbs(
     sub_vdbs: Dict[str, Dict[str, FAISS]] = {}
     for step, docs in _proc_docs_map.items():
         idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
-        sub_db = {}
+        sub_db: Dict[str, FAISS] = {}
         for idx in idx_docs:
             title = idx.metadata["title"]
             subset = [d for d in docs if title in d.page_content]
@@ -343,9 +345,7 @@ def build_substep_vectordbs(
         sub_vdbs[step] = sub_db
     return sub_vdbs
 
-# ─────────────────────────────────────────────────────
-# 앱 시작 시 한 번만 로드·벡터화
-# ─────────────────────────────────────────────────────
+# 앱 시작 시 한 번만 로드·벡터화·인덱스 생성
 with st.spinner("📦 데이터 로드 중…"):
     proc_docs_map, qna_docs_map   = load_all_docs()
     proc_vectordbs, qna_vectordbs = build_vectordbs(proc_docs_map, qna_docs_map)
@@ -361,27 +361,28 @@ with qa_tab:
     st.header("AX SI 방법론 이행봇")
 
     # 1) 절차 단계 선택
-    step = st.selectbox("📂 절차 단계 선택", ["절차 단계를 하나 선택해 주세요"] + list(PROCESS_PDF_URLS.keys()))
-    if step == "절차 단계를 하나 선택해 주세요":
-        st.info("모든 단계를 선택 후, 질문을 입력하고 '질문 요청' 버튼을 눌러주세요.")
+    step = st.selectbox("📂 절차 단계 선택", ["– 선택 –"] + list(PROCESS_PDF_URLS.keys()))
+    if step == "– 선택 –":
+        st.info("절차 단계를 하나 선택해 주세요.")
         st.stop()
 
     # 2) SUBSTEP 선택
     idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
-    sub_choices = ["세부 절차를 하나 선택해 주세요"] + [d.metadata["title"] for d in idx_docs]
+    sub_choices = ["– 선택 –"] + [d.metadata["title"] for d in idx_docs]
     substep = st.selectbox("⚙️ 세부 절차 선택", sub_choices)
-    if substep == "세부 절차를 하나 선택해 주세요":
-        st.info("모든 단계를 선택 후, 질문을 입력하고 '질문 요청' 버튼을 눌러주세요.")
+    if substep == "– 선택 –":
+        st.info("세부 절차를 하나 선택해 주세요.")
         st.stop()
 
     # 3) 질문 유형 선택
-    qtypes = ["질문 유형을 하나 선택해 주세요", "정의 요청", "일반 질의"]
+    qtypes = ["– 선택 –", "정의 요청", "수행 절차 안내", "산출물·문서 요구 사항",
+              "책임·역할 분담", "일정·마일스톤 확인", "일반 질문"]
     qtype = st.selectbox("❓ 질문 유형 선택", qtypes)
-    if qtype == qtypes[0]:
-        st.info("모든 단계를 선택 후, 질문을 입력하고 '질문 요청' 버튼을 눌러주세요.")
+    if qtype == "– 선택 –":
+        st.info("질문 유형을 하나 선택해 주세요.")
         st.stop()
 
-    # 4) 프로세스 개요
+    # 4) INDEX 개요
     st.subheader(f"[{step}] 프로세스 개요")
     with st.expander("목록 펼치기", expanded=False):
         for d in idx_docs:
@@ -394,32 +395,33 @@ with qa_tab:
             st.warning("질문을 입력해주세요.")
             st.stop()
 
-        # 6) 전체 청크 디버그
+        # 6) 문서 로드 확인 (디버그용)
         with st.expander("🔍 전체 청크 확인", expanded=False):
             docs = proc_docs_map[step]
             st.write(f"• 총 청크 개수: {len(docs)}")
             for i, d in enumerate(docs[:3]):
-                st.markdown(f"**Chunk {i+1}**\n```\n{d.page_content[:200]}...\n```")
+                st.markdown(f"Chunk {i+1}: {d.page_content[:200]}…")
 
-        # 7) 선택정보 안내
+        # 7) 사용자의 질문 매핑
         st.info(f"📌 사용자의 질문은 ‘{substep}’ 단계의 “{qtype}” 입니다.")
 
-        # 8) 글로벌 Q&A 매핑
+        # 8-1) 글로벌 Q&A 매핑 (Top-3, threshold=0.5)
         docs_and_scores = global_qna_vectordb.similarity_search_with_score(query, k=3)
         with st.expander("🔍 Q&A 유사도 Top 3", expanded=False):
             for doc, score in docs_and_scores:
-                st.write(f"- **{score:.3f}**: {doc.page_content[:150]}…")
+                st.write(f"- **{score:.3f}**: {doc.page_content.splitlines()[0]}")
+
         top_doc, top_score = docs_and_scores[0]
         if top_score > 0.5:
             st.subheader("💡 사례 응답")
             st.write(top_doc.page_content)
             st.stop()
 
-        # 9) Substep 검색
+        # 8-2) SUBSTEP 벡터 검색
         sub_vdb = substep_vectordbs[step].get(substep)
         retriever = sub_vdb.as_retriever() if sub_vdb else proc_vectordbs[step].as_retriever()
 
-        # 10) 절차 기반 답변 생성
+        # 9) RetrievalQA
         qa_chain = RetrievalQA.from_chain_type(
             llm=ChatOpenAI(model="gpt-4o-mini", temperature=0,
                            openai_api_key=os.environ["OPENAI_API_KEY"]),
@@ -428,5 +430,6 @@ with qa_tab:
         )
         with st.spinner("답변 생성 중…"):
             answer = qa_chain.run(query)
+
         st.subheader("💡 답변")
         st.write(answer)
