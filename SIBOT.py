@@ -369,13 +369,24 @@ with qa_tab:
             st.stop()
 
         # ─────────── 여기에 디버그 expander 삽입 ───────────
-        with st.expander("🔍 문서 로드 확인", expanded=False):
-            docs = proc_docs_map[step]  # 해당 STEP의 전체 청크 리스트
+        with st.expander("🔍 문서 로드 확인", expanded=True):
+            docs = proc_docs_map[step]
             st.write(f"• 총 청크 개수: {len(docs)}")
-            for i, d in enumerate(docs[:3]):  # 앞의 3개 청크만 미리 보기
-                st.markdown(
-                    f"**Chunk {i+1} (메타: {d.metadata}):**\n```\n{d.page_content[:200]}...\n```"
-                )
+            # 1) 모든 청크를 보여주기
+            for i, d in enumerate(docs):
+                st.markdown(f"**Chunk {i+1} (page {d.metadata['page']}):**")
+                st.text_area(
+                    label=f"문서 내용 {i+1}",
+                    value=d.page_content,
+                    height=150
+        )
+
+    # 2) 또는 'VDC-A' 키워드 포함 청크만 보기
+    st.write("— ‘VDC-A’ 포함 청크 —")
+    for i, d in enumerate(docs):
+        if "vdc-a" in d.page_content.lower():
+            st.markdown(f"**Chunk {i+1} (page {d.metadata['page']}):**")
+            st.text(d.page_content)
         # ────────────────────────────────────────────────
 
         # 6) 질문 유형 분류
