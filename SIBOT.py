@@ -305,9 +305,6 @@ with st.spinner("📦 데이터 로드 중…"):
 # ─────────────────────────────────────────────────────
 # 8) Q&A 탭
 # ─────────────────────────────────────────────────────
-# ─────────────────────────────────────────────────────
-# 8) Q&A 탭
-# ─────────────────────────────────────────────────────
 with qa_tab:
     st.header("AX SI 방법론 이행봇")
 
@@ -331,8 +328,7 @@ with qa_tab:
             st.warning("질문을 입력해주세요.")
         else:
             # 4) 세부절차(substep) 추론
-            idx_retr = index_retrievers[step]
-            top_meta = idx_retr.get_relevant_documents(query)[0].metadata
+            top_meta = index_retrievers[step].get_relevant_documents(query)[0].metadata
             sub_title = top_meta["title"]
             st.info(f"📌 이 질문은 ‘{sub_title}’ 단계입니다.")
 
@@ -341,17 +337,7 @@ with qa_tab:
             if retriever is None:
                 retriever = proc_vectordbs[step].as_retriever()
 
-            # 6) 컨텍스트 문서 로드
-            docs = retriever.get_relevant_documents(query)
-            context = "\n".join(d.page_content for d in docs)
-
-            # 7) 하이브리드 프롬프트 생성
-            chat_prompt = STEP_PROMPTS[step].format_prompt(
-                question=query,
-                context=context
-            )
-
-            # 8) ConversationalRetrievalChain 구성 및 실행
+            # 6) ConversationalRetrievalChain 구성
             qa_chain = ConversationalRetrievalChain.from_llm(
                 llm=ChatOpenAI(
                     model="gpt-4o-mini",
@@ -360,11 +346,11 @@ with qa_tab:
                 ),
                 retriever=retriever,
                 memory=memory,
-                combine_docs_chain_kwargs={"prompt": chat_prompt}
+                combine_docs_chain_kwargs={"prompt": STEP_PROMPTS[step]}
             )
+
+            # 7) 실행 및 출력
             with st.spinner("답변 생성 중…"):
                 result = qa_chain({"question": query})
-
-            # 9) 답변 출력
             st.subheader("💡 답변")
             st.write(result["answer"])
