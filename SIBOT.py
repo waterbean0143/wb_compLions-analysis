@@ -256,27 +256,34 @@ def preprocess(text: str) -> str:
 # ─────────────────────────────────────────────────────
 # 7) 문서 로드 & vectordb 생성 (하이브리드 분할)
 # ─────────────────────────────────────────────────────
+from langchain.text_splitter import RecursiveCharacterTextSplitter, CharacterTextSplitter  # 변경
+
 @st.cache_data(ttl=24 * 3600)
 def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]]]:
-    # 첫 페이지: 문단·문장 단위로 자르고(인덱스 디버깅용)
-    index_splitter = CharacterTextSplitter(
+    # 첫 페이지(인덱스)는 문단·문장 경계로 분할
+    index_splitter = RecursiveCharacterTextSplitter(
         separators=["\n\n", "\n", ". "],
-        chunk_size=1000,     # 충분히 큰 chunk_size
-        chunk_overlap=0
+        chunk_size=1000,
+        chunk_overlap=0,
     )
-    # 나머지: 기존 길이 기준
-    body_splitter = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
+    # 나머지 본문은 고정 길이 청크
+    body_splitter = CharacterTextSplitter(
+        chunk_size=800,
+        chunk_overlap=100,
+    )
 
     proc_map, qna_map = {}, {}
 
     def hybrid_split(docs: List[Document]) -> List[Document]:
         if not docs:
             return []
-        first_page, rest_pages = docs[0], docs[1:]
+        # 0번째 문서를 인덱스 페이지로 가정
+        first_page, rest = docs[0], docs[1:]
         first_chunks = index_splitter.split_documents([first_page])
-        rest_chunks  = body_splitter.split_documents(rest_pages)
+        rest_chunks  = body_splitter.split_documents(rest)
         return first_chunks + rest_chunks
 
+    # 절차 PDF
     for step, url in PROCESS_PDF_URLS.items():
         raw = PyMuPDFLoader(url).load()
         docs = hybrid_split(raw)
@@ -285,6 +292,7 @@ def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]
             d.metadata["step"] = step
         proc_map[step] = docs
 
+    # Q&A PDF
     for step, url in QNA_PDF_URLS.items():
         raw = PyMuPDFLoader(url).load()
         docs = hybrid_split(raw)
