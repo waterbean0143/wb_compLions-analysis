@@ -188,60 +188,41 @@ def build_vectordbs(
     }
     return proc_vdb, qna_vdb
 
-with st.spinner("초기 데이터 준비 중…"):
+# 앱 시작 시 한 번만 실행
+with st.spinner("📦 데이터 로드 중…"):
     proc_docs_map, qna_docs_map   = load_all_docs()
     proc_vectordbs, qna_vectordbs = build_vectordbs(proc_docs_map, qna_docs_map)
 
 # ─────────────────────────────────────────────────────
 # 8) Q&A 탭
 # ─────────────────────────────────────────────────────
+# Q&A 탭
 with qa_tab:
-    st.header("AX SI 방법론 이행봇")
-    st.subheader("📂 절차 선택 및 질의응답")
+    # (1) 단계 선택 확인
+    st.write("▶️ 선택된 단계:", selected_steps)
 
-    # 단계 선택
-    step = st.selectbox("📂 절차 단계 선택", list(PROCESS_PDF_URLS.keys()))
+    # (2) retriever 리스트 생성
+    retrievers = []
+    weights    = []
+    for step in selected_steps:
+        # proc + qna 두 개를 묶거나, BM25/FAISS 가중치를 달리할 수도 있고…
+        retrievers.append(proc_vectordbs[step].as_retriever())
+        retrievers.append(qna_vectordbs.get(step, []).as_retriever())
+        weights.extend([faiss_weight, bm25_weight])
 
-    # Debug: 실제 로드된 vectordb 키 확인
-    st.write("🔍 사용 가능한 단계:", list(proc_vectordbs.keys()))
+    ensemble = EnsembleRetriever(retrievers=retrievers, weights=weights)
 
-    # 없는 단계 선택 시 안내
-    if step not in proc_vectordbs:
-        st.error(f"‘{step}’ 단계에 대한 데이터가 없습니다.")
-        st.stop()
-
-    # PDF 링크
-    st.markdown(f"- [프로세스 PDF]({PROCESS_PDF_URLS[step]})")
-    st.markdown(f"- [Q&A PDF]({QNA_PDF_URLS[step]})")
-
-    # 리트리버 구성
-    proc_retr = proc_vectordbs[step].as_retriever()
-    qna_retr  = qna_vectordbs[step].as_retriever()
-    ensemble = EnsembleRetriever(
-        retrievers=[qna_retr, proc_retr],
-        weights=[bm25_weight, faiss_weight]
-    )
-
-    # RetrievalQA 체인 준비
-    qa_llm = ChatOpenAI(
-        model="gpt-4o-mini",
-        temperature=0,
-        openai_api_key=os.environ["OPENAI_API_KEY"]
-    )
+    # (3) 체인 생성
     qa_chain = RetrievalQA.from_chain_type(
-        llm=qa_llm,
+        llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
         chain_type="stuff",
-        retriever=ensemble,
-        return_source_documents=False
+        retriever=ensemble
     )
 
-    # 질문 입력 및 답변 출력
-    query = st.text_input("💬 질문을 입력하세요", key="proc_query")
-    if st.button("질문 요청"):
-        if not query.strip():
-            st.warning("먼저 질문을 입력해주세요.")
-        else:
-            with st.spinner("답변 생성 중…"):
-                answer = qa_chain.run(query)
-            st.markdown("**답변:**")
-            st.write(answer)
+    # (4) 질문 & 답변
+    query = st.text_input("💬 질문을 입력하세요")
+    if st.button("질문 요청") and query:
+        with st.spinner("⏳ 답변 생성 중…"):
+            answer = qa_chain.run(query)
+        st.markdown("**답변:**")
+        st.write(answer)
