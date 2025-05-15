@@ -27,7 +27,11 @@ from kiwipiepy import Kiwi
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
 from langchain_community.document_loaders import PyMuPDFLoader
+# langchain 자체에는 RegexSplitter가 없습니다. CharacterTextSplitter만 import:
 from langchain.text_splitter import CharacterTextSplitter, RecursiveCharacterTextSplitter
+# Regex 기반 청크 분할기는 별도 패키지에서:
+from langchain_text_splitters.regex import RegexTextSplitter
+
 from langchain_community.vectorstores import FAISS
 from langchain.retrievers import EnsembleRetriever
 from langchain_community.retrievers import BM25Retriever
@@ -35,7 +39,6 @@ from langchain.memory import ConversationBufferMemory
 from langchain.schema import Document
 
 from langchain.chains import RetrievalQA, ConversationalRetrievalChain
-
 # ─────────────────────────────────────────────────────
 # 0-1) PDF 첫페이지 인덱스 자동추출 유틸
 # ─────────────────────────────────────────────────────
@@ -259,21 +262,19 @@ def preprocess(text: str) -> str:
 # ─────────────────────────────────────────────────────
 @st.cache_data(ttl=3600*24)
 def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]]]:
-    from langchain.text_splitter import CharacterTextSplitter, RegexSplitter
-
-    # (1) Q&A 전용: "[질문 n : ...?][[[답변] ... .]]" 한 덩어리로 split
-    qa_pair_splitter = RegexSplitter(
+    # Q&A 페어 분리용
+    qa_pair_splitter = RegexTextSplitter(
         pattern=r"\[\[질문\s*\d+\s*:\s*.+?\?\]\]\s*\[\[\[답변\]\]\s*.+?\.",
         is_separator_regex=True,
     )
-
-    # (2) STEP 문서: 첫 페이지만 regex style
+    # 첫 페이지: 빈 줄 또는 ‘. ’ 기준
     first_page_splitter = CharacterTextSplitter(
         separator=r"\n{2,}|\.(?:\s|$)",
         is_separator_regex=True,
         chunk_size=800,
         chunk_overlap=0,
     )
+    # 나머지 페이지: 고정 길이
     body_splitter = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
 
     proc_map: Dict[str, List[Document]] = {}
