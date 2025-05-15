@@ -174,7 +174,6 @@ def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]
     proc_map, qna_map = {}, {}
     def dl(url):
         docs = download_and_load(url)
-        # merge page chunks
         return splitter.split_documents(docs)
     for step, url in PROCESS_PDF_URLS.items():
         docs = dl(url)
@@ -190,23 +189,29 @@ def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]
         qna_map[step] = docs
     return proc_map, qna_map
 
-@st.cache_resource(ttl=3600*24)
 def build_vectordbs(
     proc_docs_map: Dict[str, List[Document]],
     qna_docs_map:  Dict[str, List[Document]]
 ) -> Tuple[Dict[str, FAISS], Dict[str, FAISS]]:
-    emb = OpenAIEmbeddings(model="text-embedding-ada-002",
-                           openai_api_key=os.environ["OPENAI_API_KEY"])
-    proc_vdb = {step: FAISS.from_documents(docs, emb)
-                for step, docs in proc_docs_map.items()}
-    qna_vdb  = {step: FAISS.from_documents(docs, emb)
-                for step, docs in qna_docs_map.items()}
+    emb = OpenAIEmbeddings(
+        model="text-embedding-ada-002",
+        openai_api_key=os.environ["OPENAI_API_KEY"]
+    )
+    proc_vdb = {
+        step: FAISS.from_documents(docs, emb)
+        for step, docs in proc_docs_map.items()
+    }
+    qna_vdb = {
+        step: FAISS.from_documents(docs, emb)
+        for step, docs in qna_docs_map.items()
+    }
     return proc_vdb, qna_vdb
 
-@st.cache_resource(ttl=3600*24)
 def build_index_retrievers() -> Dict[str, any]:
-    emb = OpenAIEmbeddings(model="text-embedding-ada-002",
-                           openai_api_key=os.environ["OPENAI_API_KEY"])
+    emb = OpenAIEmbeddings(
+        model="text-embedding-ada-002",
+        openai_api_key=os.environ["OPENAI_API_KEY"]
+    )
     idx_retrs = {}
     for step, url in PROCESS_PDF_URLS.items():
         idx_docs = extract_index_chunks(url)
@@ -214,16 +219,17 @@ def build_index_retrievers() -> Dict[str, any]:
             idx_retrs[step] = FAISS.from_documents(idx_docs, emb).as_retriever()
     return idx_retrs
 
-@st.cache_resource(ttl=3600*24)
 def build_substep_vectordbs(
     proc_docs_map: Dict[str, List[Document]]
 ) -> Dict[str, Dict[str, FAISS]]:
-    emb = OpenAIEmbeddings(model="text-embedding-ada-002",
-                           openai_api_key=os.environ["OPENAI_API_KEY"])
-    sub_vdbs = {}
+    emb = OpenAIEmbeddings(
+        model="text-embedding-ada-002",
+        openai_api_key=os.environ["OPENAI_API_KEY"]
+    )
+    sub_vdbs: Dict[str, Dict[str, FAISS]] = {}
     for step, docs in proc_docs_map.items():
         idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
-        sub_db = {}
+        sub_db: Dict[str, FAISS] = {}
         for idx in idx_docs:
             title = idx.metadata["title"]
             subset = [d for d in docs if title in d.page_content]
