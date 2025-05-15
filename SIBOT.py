@@ -136,11 +136,8 @@ PMS 구축, 조직·역할 정의, 관리정책 수립 등의 절차를 설명�
 # ─────────────────────────────────────────────────────
 STEP_PROMPTS = {
     step: ChatPromptTemplate.from_messages([
-        # 시스템 메시지
         ("system", STEP_SYSTEM_PROMPTS[step]),
-        # 과거 대화 이력
-        MessagesPlaceholder(variable_name="history"),
-        # 사용자 메시지
+        # MessagesPlaceholder(variable_name="history"),  <-- 이 줄 제거
         ("user", "질문: {question}\n\n관련 절차 요약:\n{context}\n\n자세히 설명해주세요.")
     ])
     for step in STEP_SYSTEM_PROMPTS
