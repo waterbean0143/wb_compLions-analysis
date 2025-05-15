@@ -84,7 +84,55 @@ def extract_index_chunks(url: str) -> List[Document]:
         text = f"{num}. {title}"
         index_docs.append(Document(page_content=text, metadata=meta))
     return index_docs
-    
+
+# ─────────────────────────────────────────────────────
+# 0-2) STEP별 PromptTemplate 정의
+# ─────────────────────────────────────────────────────
+STEP_SYSTEM_PROMPTS = {
+    "제안/계약": """당신은 AX SI 방법론의 ‘제안/계약’ 단계 전문가입니다.
+제안 기회 발굴부터 계약 체결까지의 프로세스를 깊이 이해하고 있으며,
+절차별로 무엇을, 왜, 어떻게 해야 하는지를 명확하게 설명하세요.
+
+답변 전 반드시 확인할 사항:
+1. 제안 범위(공공/민간)와 고객 특성이 질문에 명확히 드러나 있나요?
+2. 관련 이해관계자(영업대표·BD·PM 등)의 역할이 분명합니까?
+3. RFI/RFP 일정과 제출 기한이 명시되어 있나요?
+4. VDC-A/B/C 심의 요건(사전규격, 심의 소요 기간 등)이 충분히 주어졌습니까?
+5. 리스크 검토 항목(가격·기술·하도급·법무 등)이 언급되어 있나요?
+
+불명확한 점이 있으면, 추가 정보를 요청하세요. 예를 들어:
+- “이 제안이 공공사업인가요, 민간사업인가요?”
+- “VDC-A 발의 예정일이 언제인가요?”
+- “이해관계자 중 PM 역할을 하실 분의 이름과 소속을 알려주실 수 있나요?”
+
+이 정보를 바탕으로, 단계별 핵심 절차와 주의사항을 구체적으로 안내해 드립니다.
+""",
+    "착수/계획": """당신은 AX SI 방법론의 ‘착수/계획’ 단계 전문가입니다.
+계약 체결 후 프로젝트 착수 전까지의 준비사항을 체계적으로 파악하고,
+PMS 구축, 조직·역할 정의, 관리정책 수립 등의 절차를 설명하세요.
+
+답변 전 반드시 확인할 사항:
+1. 수주 결정 일자와 착수계 제출일이 명확히 주어졌나요?
+2. PMO·전사QA 등 주요 조직 구성원이 언급되어 있습니까?
+3. 관리·작업 환경 구축 범위(PMS·인력관리·보안 등)가 충분히 제공되었나요?
+4. 하도급 승인 여부 및 하도급 계약 조건이 명시되어 있나요?
+
+모호한 점이 있으면, 이렇게 물어 보세요:
+- “착수계 제출일을 확인해 주실 수 있나요?”
+- “PMS 설치 대상 모듈 또는 버전을 알려주실 수 있나요?”
+""",
+}
+
+STEP_PROMPTS = {
+    step: ChatPromptTemplate.from_messages([
+        SystemMessagePromptTemplate.from_template(sys_tpl),
+        HumanMessagePromptTemplate.from_template(
+            "질문: {question}\n\n관련 절차 요약:\n{context}\n\n자세히 설명해주세요."
+        )
+    ])
+    for step, sys_tpl in STEP_SYSTEM_PROMPTS.items()
+}
+
 # ─────────────────────────────────────────────────────
 # 1) 페이지 설정 및 Secrets 로드
 # ─────────────────────────────────────────────────────
@@ -238,7 +286,6 @@ def build_substep_vectordbs(
         sub_vdbs[step] = sub_db
     return sub_vdbs
 
-# 앱 시작 시 한 번만 로드·벡터화·인덱스 생성
 with st.spinner("📦 데이터 로드 중…"):
     proc_docs_map, qna_docs_map   = load_all_docs()
     proc_vectordbs, qna_vectordbs = build_vectordbs(proc_docs_map, qna_docs_map)
