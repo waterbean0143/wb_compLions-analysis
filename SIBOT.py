@@ -258,20 +258,71 @@ def preprocess(text: str) -> str:
 # ─────────────────────────────────────────────────────
 # 7) 문서 로드 & vectordb 생성
 # ─────────────────────────────────────────────────────
-@st.cache_data(ttl=3600 * 24)
+@st.cache_data(ttl=3600*24)
 def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]]]:
-    # 인덱스 전용: 첫 페이지에서 “##<숫자>. ” 패턴으로 분할
-    index_splitter = CharacterTextSplitter(
-        separator=r"(?m)^##\d+\.\s+",
-        is_separator_regex=True,
-        chunk_size=1,
-        chunk_overlap=0
+    from langchain.text_splitter import RegexSplitter, CharacterTextSplitter
+
+    # 첫 페이지는 heading/문장 단위로, 나머지는 고정 길이로 chunking
+    index_splitter = RegexSplitter(
+        pattern=r"\n{2,}|\.(?:\s|$)",
+        is_separator_regex=True
     )
-    # 본문 전용: 길이 기반 분할
     body_splitter = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
 
     proc_map: Dict[str, List[Document]] = {}
-    qna_map: Dict[str, List[Document]] = {}
+    qna_map:  Dict[str, List[Document]] = {}
+
+    def download_and_split(url: str) -> List[Document]:
+        # PDF 다운로드 + 로드
+        resp = requests.get(url)
+        resp.raise_for_status()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tf:
+            tf.write(resp.content)
+            tmp_path = tf.name
+
+        try:
+            pages = PyMuPDFLoader(tmp_path).load()
+        finally:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+
+        out: List[Document] = []
+        if not pages:
+            return out
+
+        # 1) 첫 페이지만 index_splitter
+        first = pages[0]
+        for chunk in index_splitter.split_text(first.page_content):
+            if chunk.strip():
+                out.append(Document(page_content=chunk, metadata=first.metadata.copy()))
+
+        # 2) 나머지 페이지는 body_splitter
+        rest = pages[1:]
+        if rest:
+            body_docs = body_splitter.split_documents(rest)
+            out.extend(body_docs)
+
+        return out
+
+    # STEP 문서 로드
+    for step, url in PROCESS_PDF_URLS.items():
+        docs = download_and_split(url)
+        for d in docs:
+            d.page_content = preprocess(d.page_content)
+            d.metadata["step"] = step
+        proc_map[step] = docs
+
+    # Q&A 문서 로드
+    for step, url in QNA_PDF_URLS.items():
+        docs = download_and_split(url)
+        for d in docs:
+            d.page_content = preprocess(d.page_content)
+            d.metadata["step"] = step
+        qna_map[step] = docs
+
+    return proc_map, qna_map
 
     def download_and_split(url: str) -> List[Document]:
         # PDF 다운로드
