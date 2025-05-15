@@ -336,36 +336,44 @@ with st.spinner("📦 데이터 로드 중…"):
  # ─────────────────────────────────────────────────────
  # 8) Q&A 탭
  # ─────────────────────────────────────────────────────
- with qa_tab:
-     st.header("AX SI 방법론 이행봇")
+ # ─────────────────────────────────────────────────────
+# 8) Q&A 탭
+# ─────────────────────────────────────────────────────
+with qa_tab:
+    st.header("AX SI 방법론 이행봇")
 
-     # 1) 절차 단계 선택
-     step = st.selectbox("📂 절차 단계 선택", list(PROCESS_PDF_URLS.keys()))
-     if not step:
-         st.info("먼저 절차 단계를 선택하세요.")
-         st.stop()
+    # 1) 절차 단계 선택
+    step = st.selectbox("📂 절차 단계 선택", list(PROCESS_PDF_URLS.keys()))
+    if not step:
+        st.info("먼저 절차 단계를 선택하세요.")
+        st.stop()
 
-     # 2) INDEX 개요
-     st.subheader(f"[{step}] 프로세스 개요")
-     idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
-     with st.expander("목록 펼치기", expanded=False):
-         for d in idx_docs:
-             st.markdown(f"- {d.page_content}")
+    # 2) INDEX 개요
+    st.subheader(f"[{step}] 프로세스 개요")
+    idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
+    with st.expander("목록 펼치기", expanded=False):
+        for d in idx_docs:
+            st.markdown(f"- {d.page_content}")
 
-     # 3) 질문 입력
-     query = st.text_input("💬 질문을 입력하세요", key=f"query_{step}")
-     if st.button("질문 요청", key=f"btn_{step}"):
-         if not query.strip():
-             st.warning("질문을 입력해주세요.")
-             st.stop()
+    # 3) 질문 입력
+    query = st.text_input("💬 질문을 입력하세요", key=f"query_{step}")
+    if st.button("질문 요청", key=f"btn_{step}"):
+        if not query.strip():
+            st.warning("질문을 입력해주세요.")
+            st.stop()
 
         # 4) 질문 유형 분류
         qtype = classify_question_type(query)
+
+        # 5) INDEX retriever로 substep 추론
+        idx_retr = index_retrievers.get(step)
+        top_meta = idx_retr.get_relevant_documents(query)[0].metadata
+        sub_title = top_meta["title"]
+
         st.info(f"📌 사용자의 질문은 ‘{sub_title}’ 단계의 “{qtype}” 입니다.")
 
-        # 5) Q&A PDF(사례) 매핑 – threshold 기반으로 ‘바로 답변’
+        # 6) Q&A PDF(사례) 매핑 – threshold 기반으로 ‘바로 답변’
         qna_retr = qna_vectordbs[step].as_retriever()
-        # get_relevant_documents_with_score 는 [ (doc, score), ... ] 반환 가정
         docs_and_scores = qna_retr.get_relevant_documents_with_score(query)
         top_doc, top_score = docs_and_scores[0]
         if top_score > 0.7:
@@ -373,28 +381,22 @@ with st.spinner("📦 데이터 로드 중…"):
             st.write(top_doc.page_content)
             st.stop()
 
-         # 6) INDEX retriever로 substep 추론
-         idx_retr = index_retrievers.get(step)
-         top_meta = idx_retr.get_relevant_documents(query)[0].metadata
-         sub_title = top_meta["title"]
-         st.info(f"📌 이 질문은 ‘{sub_title}’ 단계입니다.")
+        # 7) substep vectordb 사용
+        retriever = substep_vectordbs.get(step, {}).get(sub_title)
+        if retriever is None:
+            retriever = proc_vectordbs[step].as_retriever()
 
-         # 7) substep vectordb 사용
-         retriever = substep_vectordbs.get(step, {}).get(sub_title)
-         if retriever is None:
-             retriever = proc_vectordbs[step].as_retriever()
-
-         # 8) 절차 검색 및 답변 생성 (기존 RetrievalQA)
-         qa_chain = RetrievalQA.from_chain_type(
-             llm=ChatOpenAI(...),
-             chain_type="stuff",
-             retriever=retriever
-         )
-         with st.spinner("답변 생성 중…"):
-             answer = qa_chain.run(query)
-         st.subheader("💡 답변")
-         st.write(answer)
-
-            # 9) 출력
-            st.subheader("💡 답변")
-            st.write(answer)
+        # 8) 절차 검색 및 답변 생성 (RetrievalQA)
+        qa_chain = RetrievalQA.from_chain_type(
+            llm=ChatOpenAI(
+                model="gpt-4o-mini",
+                temperature=0,
+                openai_api_key=os.environ["OPENAI_API_KEY"],
+            ),
+            chain_type="stuff",
+            retriever=retriever
+        )
+        with st.spinner("답변 생성 중…"):
+            answer = qa_chain.run(query)
+        st.subheader("💡 답변")
+        st.write(answer)
