@@ -109,7 +109,7 @@ qa_tab, else_tab = tabs
 # ─────────────────────────────────────────────────────
 PROCESS_PDF_URLS = {
     "제안/계약": "https://drive.google.com/uc?export=download&id=1TNOhmUds7hMpwz3NO4QD-mO-J1sUJoEa",
-    "착수/계획" : "https://drive.google.com/file/d/16j9ypXkWD7oi477ylSXWhVVe7jLtRuI7/view?usp=sharing",
+    "착수/계획": "https://drive.google.com/uc?export=download&id=16j9ypXkWD7oi477ylSXWhVVe7jLtRuI7",
 }
 QNA_PDF_URLS = {
     "제안/계약": "https://drive.google.com/uc?export=download&id=17M1mnMZVl29EahbSVqzcyZEX8LYsx5ER",
