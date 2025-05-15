@@ -298,14 +298,17 @@ def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]
     return proc_map, qna_map
 
 @st.cache_resource(ttl=24*3600)
+@st.cache_resource(ttl=3600*24)
 def build_vectordbs(
-    proc_map: Dict[str, List[Document]],
-    qna_map:  Dict[str, List[Document]]
+    _proc_map: Dict[str, List[Document]],
+    _qna_map:  Dict[str, List[Document]]
 ) -> Tuple[Dict[str, FAISS], Dict[str, FAISS]]:
     emb = OpenAIEmbeddings(model="text-embedding-ada-002",
                            openai_api_key=os.environ["OPENAI_API_KEY"])
-    proc_vdb = {step: FAISS.from_documents(docs, emb) for step, docs in proc_map.items()}
-    qna_vdb  = {step: FAISS.from_documents(docs, emb) for step, docs in qna_map.items()}
+    proc_vdb = {step: FAISS.from_documents(docs, emb)
+                for step, docs in _proc_map.items()}
+    qna_vdb  = {step: FAISS.from_documents(docs, emb)
+                for step, docs in _qna_map.items()}
     return proc_vdb, qna_vdb
 
 @st.cache_resource(ttl=24*3600)
