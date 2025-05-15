@@ -260,52 +260,48 @@ def preprocess(text: str) -> str:
 # ─────────────────────────────────────────────────────
 @st.cache_data(ttl=3600*24)
 def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]]]:
-    # Q&A 페어 분리용
-   qa_pair_splitter = RegexTextSplitter(
-    pattern=r"\[\[질문\s*\d+\s*:\s*.+?\?\]\]\s*\[\[\[답변\]\]\s*.+?\.",
-    is_separator_regex=True,
-)
-    # 첫 페이지: 빈 줄 또는 ‘. ’ 기준
+    # 첫 페이지 전용: 빈 줄(2번 연속 개행) 또는 “.␣”을 경계로 자릅니다.
     first_page_splitter = CharacterTextSplitter(
         separator=r"\n{2,}|\.(?:\s|$)",
-        is_separator_regex=True,
         chunk_size=800,
         chunk_overlap=0,
+        is_separator_regex=True,
     )
-    # 나머지 페이지: 고정 길이
-    body_splitter = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
+    # 나머지 페이지 전용: 고정 길이 청크
+    body_splitter = CharacterTextSplitter(
+        chunk_size=800,
+        chunk_overlap=100,
+    )
 
     proc_map: Dict[str, List[Document]] = {}
-    qna_map:  Dict[str, List[Document]] = {}
+    qna_map: Dict[str, List[Document]] = {}
 
-    def dl_and_chunk_proc(url: str) -> List[Document]:
+    def dl_and_chunk(url: str) -> List[Document]:
         pages = download_and_load(url)
         if not pages:
             return []
+
+        # 첫 페이지만 regex 스타일로 쪼개고
         first, *rest = pages
         first_texts = first_page_splitter.split_text(first.page_content)
-        docs = [Document(page_content=t, metadata={**first.metadata}) for t in first_texts if t.strip()]
-        if rest:
-            docs += body_splitter.split_documents(rest)
-        return docs
+        first_docs = [
+            Document(page_content=text, metadata={**first.metadata})
+            for text in first_texts
+            if text.strip()
+        ]
+        # 나머지는 CharacterTextSplitter로
+        rest_docs = body_splitter.split_documents(rest) if rest else []
+        return first_docs + rest_docs
 
-    def dl_and_chunk_qna(url: str) -> List[Document]:
-        pages = download_and_load(url)
-        full_text = "\n\n".join(p.page_content for p in pages)
-        chunks = qa_pair_splitter.split_text(full_text)
-        return [Document(page_content=c, metadata={"source": url}) for c in chunks if c.strip()]
-
-    # load STEP PDFs
     for step, url in PROCESS_PDF_URLS.items():
-        docs = dl_and_chunk_proc(url)
+        docs = dl_and_chunk(url)
         for d in docs:
             d.page_content = preprocess(d.page_content)
             d.metadata["step"] = step
         proc_map[step] = docs
 
-    # load QNA PDFs
     for step, url in QNA_PDF_URLS.items():
-        docs = dl_and_chunk_qna(url)
+        docs = dl_and_chunk(url)
         for d in docs:
             d.page_content = preprocess(d.page_content)
             d.metadata["step"] = step
