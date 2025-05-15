@@ -420,12 +420,15 @@ with qa_tab:
         st.info(f"📌 사용자의 질문은 ‘{selected_sub}’ 단계의 “{selected_qtype}” 입니다.")
 
         # --- 2) Q&A 사례 매핑 (threshold 분기) ---
-        qna_retr = qna_vectordbs[step].as_retriever()
-        docs_and_scores = qna_retr.get_relevant_documents(query, with_scores=True)
-        top_doc, top_score = docs_and_scores[0]
+        docs_and_scores = qna_vectordbs[step].similarity_search_with_score(query, k=1)
+        if docs_and_scores:
+            top_doc, top_score = docs_and_scores[0]
+        else:
+            top_doc, top_score = None, 0.0
+            
         if top_score > 0.7:
             st.subheader("💡 사례 응답")
-            st.write(top_doc.page_content)
+            st.write(top_doc.page_content if top_doc else "사례 문서를 찾을 수 없습니다.")
             st.stop()
 
         # --- 3) Substep vectordb에서 Retriever 구성 ---
