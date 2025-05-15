@@ -256,31 +256,44 @@ with st.spinner("📦 데이터 로드 중…"):
 # ─────────────────────────────────────────────────────
 # Q&A 탭
 with qa_tab:
-    # (1) 단계 선택 확인
-    st.write("▶️ 선택된 단계:", selected_steps)
+    st.header("AX SI 방법론 이행봇")
 
-    # (2) retriever 리스트 생성
-    retrievers = []
-    weights    = []
-    for step in selected_steps:
-        # proc + qna 두 개를 묶거나, BM25/FAISS 가중치를 달리할 수도 있고…
-        retrievers.append(proc_vectordbs[step].as_retriever())
-        retrievers.append(qna_vectordbs.get(step, []).as_retriever())
-        weights.extend([faiss_weight, bm25_weight])
+    # 1) 단계 선택 (탭 진입만, 아직 로드 없음)
+    step = st.selectbox("📂 절차 단계 선택", list(PROCESS_PDF_URLS.keys()))
+    if not step:
+        st.info("먼저 위에서 ‘절차 단계’를 선택하세요.")
+        st.stop()
 
-    ensemble = EnsembleRetriever(retrievers=retrievers, weights=weights)
+    # 2) 선택된 단계에 대해 한 번만 로드/캐시 실행
+    with st.spinner(f"[{step}] INDEX/데이터 준비 중…"):
+        # (a) INDEX 청크 추출
+        index_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
+        # (b) 전체 문서 로드 & 벡터DB 생성 (캐시 활용)
+        proc_docs_map, qna_docs_map   = load_all_docs()
+        proc_vectordbs, qna_vectordbs = build_vectordbs(proc_docs_map, qna_docs_map)
 
-    # (3) 체인 생성
-    qa_chain = RetrievalQA.from_chain_type(
-        llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
-        chain_type="stuff",
-        retriever=ensemble
-    )
+    # 3) INDEX 개요 보여주기 (Expander로 접고 펼침)
+    with st.expander(f"[{step}] 프로세스 개요", expanded=False):
+        for d in index_docs:
+            st.markdown(f"- {d.page_content}")
 
-    # (4) 질문 & 답변
-    query = st.text_input("💬 질문을 입력하세요")
-    if st.button("질문 요청") and query:
-        with st.spinner("⏳ 답변 생성 중…"):
-            answer = qa_chain.run(query)
-        st.markdown("**답변:**")
-        st.write(answer)
+    # 4) 질문 입력 & 답변
+    query = st.text_input("💬 질문을 입력하세요", key=f"query_{step}")
+    if st.button("질문 요청", key=f"btn_{step}"):
+        if not query.strip():
+            st.warning("질문을 입력해주세요.")
+        else:
+            with st.spinner("답변 생성 중…"):
+                retriever = proc_vectordbs[step].as_retriever()
+                qa_chain = RetrievalQA.from_chain_type(
+                    llm=ChatOpenAI(
+                        model="gpt-4o-mini",
+                        temperature=0,
+                        openai_api_key=os.environ["OPENAI_API_KEY"]
+                    ),
+                    chain_type="stuff",
+                    retriever=retriever
+                )
+                answer = qa_chain.run(query)
+            st.markdown("**답변:**")
+            st.write(answer)
