@@ -327,12 +327,12 @@ with qa_tab:
         if not query.strip():
             st.warning("질문을 입력해주세요.")
         else:
-            # 4) 세부절차(substep) 추론
+            # 4) 세부절차 추론
             top_meta = index_retrievers[step].get_relevant_documents(query)[0].metadata
             sub_title = top_meta["title"]
             st.info(f"📌 이 질문은 ‘{sub_title}’ 단계입니다.")
 
-            # 5) 해당 substep 또는 전체 단계 리트리버 선택
+            # 5) retriever 선택
             retriever = substep_vectordbs.get(step, {}).get(sub_title)
             if retriever is None:
                 retriever = proc_vectordbs[step].as_retriever()
@@ -349,9 +349,9 @@ with qa_tab:
                 combine_docs_chain_kwargs={"prompt": STEP_PROMPTS[step]}
             )
 
-            # 7) 실행 및 출력 (chat_history 빈 리스트로 초기화)
+            # 7) 실행 및 출력 (history 키로 빈 리스트 전달)
             with st.spinner("답변 생성 중…"):
-                result = qa_chain({"question": query, "chat_history": []})
+                result = qa_chain({"question": query, "history": []})
 
             st.subheader("💡 답변")
             st.write(result["answer"])
