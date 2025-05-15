@@ -294,7 +294,6 @@ def build_vectordbs(
 def build_global_qna_vectordb(
     _qna_docs_map: Dict[str, List[Document]]
 ) -> FAISS:
-    # 모든 step의 Q&A 문서를 하나로 합친 뒤 FAISS 생성
     all_qna = []
     for docs in _qna_docs_map.values():
         all_qna.extend(docs)
@@ -302,7 +301,38 @@ def build_global_qna_vectordb(
                            openai_api_key=os.environ["OPENAI_API_KEY"])
     return FAISS.from_documents(all_qna, emb)
 
+@st.cache_resource(ttl=3600*24)
+def build_index_retrievers() -> Dict[str, any]:
+    emb = OpenAIEmbeddings(model="text-embedding-ada-002",
+                           openai_api_key=os.environ["OPENAI_API_KEY"])
+    idx_retrs = {}
+    for step, url in PROCESS_PDF_URLS.items():
+        idx_docs = extract_index_chunks(url)
+        if idx_docs:
+            idx_retrs[step] = FAISS.from_documents(idx_docs, emb).as_retriever()
+    return idx_retrs
+
+@st.cache_resource(ttl=3600*24)
+def build_substep_vectordbs(
+    _proc_docs_map: Dict[str, List[Document]]
+) -> Dict[str, Dict[str, FAISS]]:
+    emb = OpenAIEmbeddings(model="text-embedding-ada-002",
+                           openai_api_key=os.environ["OPENAI_API_KEY"])
+    sub_vdbs: Dict[str, Dict[str, FAISS]] = {}
+    for step, docs in _proc_docs_map.items():
+        idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
+        sub_db = {}
+        for idx in idx_docs:
+            title = idx.metadata["title"]
+            subset = [d for d in docs if title in d.page_content]
+            if subset:
+                sub_db[title] = FAISS.from_documents(subset, emb)
+        sub_vdbs[step] = sub_db
+    return sub_vdbs
+
+# ─────────────────────────────────────────────────────
 # 앱 시작 시 한 번만 로드·벡터화
+# ─────────────────────────────────────────────────────
 with st.spinner("📦 데이터 로드 중…"):
     proc_docs_map, qna_docs_map   = load_all_docs()
     proc_vectordbs, qna_vectordbs = build_vectordbs(proc_docs_map, qna_docs_map)
@@ -338,7 +368,7 @@ with qa_tab:
         st.info("모든 단계를 선택 후, 질문을 입력하고 '질문 요청' 버튼을 눌러주세요.")
         st.stop()
 
-    # 4) INDEX 개요
+    # 4) 프로세스 개요
     st.subheader(f"[{step}] 프로세스 개요")
     with st.expander("목록 펼치기", expanded=False):
         for d in idx_docs:
@@ -351,17 +381,17 @@ with qa_tab:
             st.warning("질문을 입력해주세요.")
             st.stop()
 
-        # 6) 문서 로드 디버그(선택)
+        # 6) 전체 청크 디버그
         with st.expander("🔍 전체 청크 확인", expanded=False):
             docs = proc_docs_map[step]
             st.write(f"• 총 청크 개수: {len(docs)}")
             for i, d in enumerate(docs[:3]):
-                st.markdown(f"**Chunk {i+1} (메타: {d.metadata})**\n```\n{d.page_content[:200]}...\n```")
+                st.markdown(f"**Chunk {i+1}**\n```\n{d.page_content[:200]}...\n```")
 
-        # 7) 질문유형·SUBSTEP 인포
+        # 7) 선택정보 안내
         st.info(f"📌 사용자의 질문은 ‘{substep}’ 단계의 “{qtype}” 입니다.")
 
-        # 8) 글로벌 Q&A 우선 매핑 (top-3, threshold=0.5)
+        # 8) 글로벌 Q&A 매핑
         docs_and_scores = global_qna_vectordb.similarity_search_with_score(query, k=3)
         with st.expander("🔍 Q&A 유사도 Top 3", expanded=False):
             for doc, score in docs_and_scores:
@@ -372,11 +402,11 @@ with qa_tab:
             st.write(top_doc.page_content)
             st.stop()
 
-        # 9) Substep vectordb 사용
+        # 9) Substep 검색
         sub_vdb = substep_vectordbs[step].get(substep)
         retriever = sub_vdb.as_retriever() if sub_vdb else proc_vectordbs[step].as_retriever()
 
-        # 10) 절차 검색 및 답변 생성
+        # 10) 절차 기반 답변 생성
         qa_chain = RetrievalQA.from_chain_type(
             llm=ChatOpenAI(model="gpt-4o-mini", temperature=0,
                            openai_api_key=os.environ["OPENAI_API_KEY"]),
@@ -385,6 +415,5 @@ with qa_tab:
         )
         with st.spinner("답변 생성 중…"):
             answer = qa_chain.run(query)
-
         st.subheader("💡 답변")
         st.write(answer)
