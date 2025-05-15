@@ -132,18 +132,35 @@ def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]
     proc_map: Dict[str, List[Document]] = {}
     qna_map:  Dict[str, List[Document]] = {}
 
-    # 1) 프로세스 문서 로드 → 전처리 → 청크 분할
+    def download_and_load(url: str, step: str) -> List[Document]:
+        # 1) PDF 바이너리 다운로드
+        resp = requests.get(url)
+        resp.raise_for_status()
+        # 2) 임시 파일에 저장
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tf:
+            tf.write(resp.content)
+            tf_path = tf.name
+        # 3) PyMuPDFLoader로 로드
+        docs = PyMuPDFLoader(tf_path).load()
+        # 4) 로드 후 임시 파일 삭제
+        try:
+            os.remove(tf_path)
+        except OSError:
+            pass
+        return docs
+
+    # 1) 프로세스 문서
     for step, url in PROCESS_PDF_URLS.items():
-        raw_docs = PyMuPDFLoader(url).load()
+        raw_docs = download_and_load(url, step)
         chunks = splitter.split_documents(raw_docs)
         for d in chunks:
             d.page_content = preprocess(d.page_content)
             d.metadata['step'] = step
         proc_map[step] = chunks
 
-    # 2) QnA 문서 로드 → 전처리 → 청크 분할
+    # 2) QnA 문서
     for step, url in QNA_PDF_URLS.items():
-        raw_docs = PyMuPDFLoader(url).load()
+        raw_docs = download_and_load(url, step)
         chunks = splitter.split_documents(raw_docs)
         for d in chunks:
             d.page_content = preprocess(d.page_content)
@@ -151,6 +168,7 @@ def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]
         qna_map[step] = chunks
 
     return proc_map, qna_map
+
 
 @st.cache_resource(ttl=3600*24)
 def build_vectordbs(
