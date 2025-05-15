@@ -386,7 +386,7 @@ with qa_tab:
                 retriever=retr
             )
             with st.spinner("답변 생성 중…"):
-                answer = qa_chain.run(prompt.format_prompt(question=query, context=context).to_messages())
+                answer = qa_chain.run(query)
 
             # 9) 출력
             st.subheader("💡 답변")
