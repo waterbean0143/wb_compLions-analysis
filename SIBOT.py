@@ -170,7 +170,6 @@ def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]
     return proc_map, qna_map
 
 
-@st.cache_resource(ttl=3600*24)
 def build_vectordbs(
     proc_docs_map: Dict[str, List[Document]],
     qna_docs_map:  Dict[str, List[Document]]
