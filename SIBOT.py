@@ -89,7 +89,7 @@ def extract_index_chunks(url: str) -> List[Document]:
 # 0-2) 대화 이력 메모리 설정
 # ─────────────────────────────────────────────────────
 memory = ConversationBufferMemory(
-    memory_key="history",
+    memory_key="chat_history",
     return_messages=True
 )
 
@@ -351,7 +351,7 @@ with qa_tab:
 
             # 7) 실행 및 출력 (history 키로 빈 리스트 전달)
             with st.spinner("답변 생성 중…"):
-                result = qa_chain({"question": query, "history": []})
+                result = qa_chain({"question": query})
 
             st.subheader("💡 답변")
             st.write(result["answer"])
