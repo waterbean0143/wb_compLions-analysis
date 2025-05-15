@@ -349,8 +349,9 @@ with qa_tab:
                 combine_docs_chain_kwargs={"prompt": STEP_PROMPTS[step]}
             )
 
-            # 7) 실행 및 출력
+            # 7) 실행 및 출력 (chat_history 빈 리스트로 초기화)
             with st.spinner("답변 생성 중…"):
-                result = qa_chain({"question": query})
+                result = qa_chain({"question": query, "chat_history": []})
+
             st.subheader("💡 답변")
             st.write(result["answer"])
