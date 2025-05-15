@@ -427,8 +427,17 @@ with qa_tab:
             st.markdown(f"**{rank}. (page {doc.metadata.get('page','N/A')})**")
             st.text(doc.page_content[:200] + "…")
 
-    # 10) RetrievalQA 실행 및 답변 표시
-    qa_chain = RetrievalQA.from_chain_type(…)
+# 10) RetrievalQA 실행 및 답변 표시
+qa_chain = RetrievalQA.from_chain_type(
+    llm=ChatOpenAI(
+        model="gpt-4o-mini",
+        temperature=0,
+        openai_api_key=os.environ["OPENAI_API_KEY"],
+    ),
+    chain_type="stuff",
+    retriever=sub_retr
+)
+with st.spinner("답변 생성 중…"):
     answer = qa_chain.run(query)
-    st.subheader("💡 답변")
-    st.write(answer)
+st.subheader("💡 답변")
+st.write(answer)
