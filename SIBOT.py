@@ -310,7 +310,7 @@ with st.spinner("📦 데이터 로드 중…"):
     substep_vectordbs            = build_substep_vectordbs(proc_docs_map)
 
 # ─────────────────────────────────────────────────────
-# 8) Q&A 탭 (start/end title 전달 추가)
+# 8) Q&A 탭  (start/end 동적 주입 버전)
 # ─────────────────────────────────────────────────────
 with qa_tab:
     st.header("AX SI 방법론 이행봇")
@@ -321,56 +321,65 @@ with qa_tab:
         st.info("먼저 절차 단계를 선택하세요.")
         st.stop()
 
-    # 2) INDEX 개요 및 start/end title 추출
+    # 2) INDEX 개요 및 start/end 뽑기
     st.subheader(f"[{step}] 프로세스 개요")
     idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
     with st.expander("목록 펼치기", expanded=False):
         for d in idx_docs:
             st.markdown(f"- {d.page_content}")
-    # 동적으로 시작·끝 절차명 뽑기
     start_title = idx_docs[0].metadata["title"]
     end_title   = idx_docs[-1].metadata["title"]
 
     # 3) 질문 입력
     query = st.text_input("💬 질문을 입력하세요", key=f"query_{step}")
 
-    # 4) 버튼 클릭
+    # 4) 버튼 클릭 시 로직 실행
     if st.button("질문 요청", key=f"btn_{step}"):
         if not query.strip():
             st.warning("질문을 입력해주세요.")
         else:
-            # 5) SUBSTEP 예측(생략)
+            # 5) SUBSTEP 예측
             top_meta = index_retrievers[step].get_relevant_documents(query)[0].metadata
             sub_title = top_meta["title"]
             st.info(f"📌 이 질문은 ‘{sub_title}’ 단계입니다.")
 
-            # 6) retriever 선택
-            retriever = substep_vectordbs.get(step, {}).get(sub_title)
-            if retriever is None:
-                retriever = proc_vectordbs[step].as_retriever()
-
-            # 7) context 구성
-            docs = retriever.get_relevant_documents(query)
+            # 6) retriever 선택 & context
+            retriever = substep_vectordbs.get(step, {}).get(sub_title) \
+                        or proc_vectordbs[step].as_retriever()
+            docs    = retriever.get_relevant_documents(query)
             context = "\n\n".join(d.page_content for d in docs)
 
-            # 8) Chain 구성 및 실행 (start/end 포함)
+            # 7) 이 단계 전용 SystemMessage에 start/end 주입
+            sys_tpl = STEP_SYSTEM_PROMPTS[step].format(
+                start_title=start_title,
+                end_title=end_title
+            )
+            user_tpl = (
+                "질문: {question}\n\n"
+                "관련 절차 요약:\n{context}\n\n"
+                "오직 제공된 문서만 참고하여, 단계별로 무엇을, 왜, 어떻게 해야 하는지 설명해주세요."
+            )
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", sys_tpl),
+                ("user",   user_tpl)
+            ])
+
+            # 8) Chain 생성 (memory 없이 또는 chat_history만)
             qa_chain = ConversationalRetrievalChain.from_llm(
                 llm=ChatOpenAI(
                     model="gpt-4o-mini", temperature=0,
                     openai_api_key=os.environ["OPENAI_API_KEY"]
                 ),
                 retriever=retriever,
-                memory=memory,
-                combine_docs_chain_kwargs={"prompt": STEP_PROMPTS[step]}
+                # 메모리 사용 시, 복잡도 줄이려고 잠시 빼거나
+                # memory=memory,
+                combine_docs_chain_kwargs={"prompt": prompt}
             )
-            with st.spinner("답변 생성 중…"):
-                result = qa_chain({
-                    "question":    query,
-                    "start_title": start_title,
-                    "end_title":   end_title,
-                    "chat_history": []        # 필요하다면
-                })
 
-            # 9) 출력
+            # 9) 실행: question만 넘기면 됩니다!
+            with st.spinner("답변 생성 중…"):
+                result = qa_chain({"question": query})
+
+            # 10) 출력
             st.subheader("💡 답변")
             st.write(result["answer"])
