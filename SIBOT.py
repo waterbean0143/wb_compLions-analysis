@@ -254,25 +254,45 @@ def preprocess(text: str) -> str:
     return ' '.join(t.form for t in toks if t.tag.startswith(('N','V','MA')))
 
 # ─────────────────────────────────────────────────────
-# 7) 문서 로드 & vectordb 생성
+# 7) 문서 로드 & vectordb 생성 (하이브리드 분할)
 # ─────────────────────────────────────────────────────
 @st.cache_data(ttl=24 * 3600)
 def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]]]:
-    splitter = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
+    # 첫 페이지는 문장+단락 추출용 RegexSplitter
+    from langchain.text_splitter import RegexTextSplitter
+    regex_splitter = RegexTextSplitter(
+        # 문장 끝, 개행 등을 기준으로 분할
+        pattern=r"\n{2,}|\.(?:\s|$)",
+        chunk_size=None,
+        chunk_overlap=0,
+    )
+    # 나머지 페이지는 고정 길이 청크
+    char_splitter = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
+
     proc_map, qna_map = {}, {}
+    def hybrid_split(docs: List[Document]) -> List[Document]:
+        # 첫 페이지만 regex, 나머지는 char
+        first, rest = docs[0], docs[1:]
+        first_chunks = regex_splitter.split_documents([first])
+        rest_chunks  = char_splitter.split_documents(rest)
+        return first_chunks + rest_chunks
+
     for step, url in PROCESS_PDF_URLS.items():
-        docs = splitter.split_documents(PyMuPDFLoader(url).load())
+        raw_docs = PyMuPDFLoader(url).load()
+        docs     = hybrid_split(raw_docs)
         for d in docs:
             d.page_content = preprocess(d.page_content)
             d.metadata['step'] = step
         proc_map[step] = docs
+
     for step, url in QNA_PDF_URLS.items():
-        docs = splitter.split_documents(PyMuPDFLoader(url).load())
+        raw_docs = PyMuPDFLoader(url).load()
+        docs     = hybrid_split(raw_docs)
         for d in docs:
             d.page_content = preprocess(d.page_content)
             d.metadata['step'] = step
         qna_map[step] = docs
-    return proc_map, qna_map
+
 
 @st.cache_resource(ttl=24 * 3600)
 def build_vectordbs(
