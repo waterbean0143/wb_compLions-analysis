@@ -306,59 +306,39 @@ with st.spinner("📦 데이터 로드 중…"):
 # 8) Q&A 탭
 # ─────────────────────────────────────────────────────
 with qa_tab:
-    # STEP 선택 및 INDEX expander… (생략)  
+    # … (step 선택, INDEX expander 등) …
 
     if st.button("질문 요청", key=f"btn_{step}"):
         query = st.session_state[f"query_{step}"].strip()
         if not query:
             st.warning("질문을 입력해주세요.")
-            return
+        else:
+            # 1) 사례 매핑
+            qna_retr = qna_vectordbs[step].as_retriever()
+            docs_qna = qna_retr.get_relevant_documents(query)
+            if docs_qna and docs_qna[0].metadata.get("answer_score", 0) > 0.8:
+                st.markdown("**🔍 사례 매핑 응답:**")
+                st.write(docs_qna[0].page_content)
+            else:
+                # 2) SUBSTEP 예측
+                top_meta = index_retrievers[step].get_relevant_documents(query)[0].metadata
+                sub_title = top_meta["title"]
+                st.info(f"📌 이 질문은 ‘{sub_title}’ 단계입니다.")
 
-        # ──────────────────────────────
-        # 1) 사례(Q&A) 매핑
-        # ──────────────────────────────
-        #  - qna_vectordbs[step]에서 유사도 최고인 문서 찾고
-        #  - threshold 이상이면, 그 문서의 answer 필드(메타데이터) 바로 반환
-        qna_retr = qna_vectordbs.get(step).as_retriever()
-        docs_qna = qna_retr.get_relevant_documents(query)
-        if docs_qna and docs_qna[0].metadata.get("answer_score", 0) > 0.8:
-            st.markdown("**🔍 사례 매핑 응답:**")
-            st.write(docs_qna[0].page_content)
-            return
-
-        # ──────────────────────────────
-        # 2) SUBSTEP(주요절차) 예측
-        # ──────────────────────────────
-        idx_retr = index_retrievers[step]
-        sub_title = idx_retr.get_relevant_documents(query)[0].metadata["title"]
-        st.info(f"📌 이 질문은 ‘{sub_title}’ 단계입니다.")
-
-        # ──────────────────────────────
-        # 3) RetrievalQA → LLM 호출
-        # ──────────────────────────────
-        #  - 해당 substep vectordb가 있으면 좁혀서 검색
-        #  - 없으면 전체 STEP vectordb에서 검색
-        retriever = substep_vectordbs.get(step, {}).get(sub_title)
-        if retriever is None:
-            retriever = proc_vectordbs[step].as_retriever()
-
-        # 3-1) 관련 청크 로드
-        docs = retriever.get_relevant_documents(query)
-        context = "\n\n".join(d.page_content for d in docs)
-
-        # 3-2) STEP별 하이브리드 프롬프트
-        prompt = STEP_PROMPTS[step].format_prompt(
-            question=query,
-            context=context
-        )
-
-        # 3-3) LLM + Memory 체인 실행
-        qa_chain = ConversationalRetrievalChain.from_llm(
-            llm=ChatOpenAI(...),
-            retriever=retriever,
-            memory=memory,
-            combine_docs_chain_kwargs={"prompt": prompt}
-        )
-        result = qa_chain({"question": query})
-        st.subheader("💡 답변")
-        st.write(result["answer"])
+                # 3) RetrievalQA
+                retriever = substep_vectordbs.get(step, {}).get(sub_title)
+                if retriever is None:
+                    retriever = proc_vectordbs[step].as_retriever()
+                docs = retriever.get_relevant_documents(query)
+                context = "\n".join(d.page_content for d in docs)
+                prompt = STEP_PROMPTS[step].format_prompt(question=query, context=context)
+                qa_chain = ConversationalRetrievalChain.from_llm(
+                    llm=ChatOpenAI(...),
+                    retriever=retriever,
+                    memory=memory,
+                    combine_docs_chain_kwargs={"prompt": prompt}
+                )
+                with st.spinner("답변 생성 중…"):
+                    result = qa_chain({"question": query})
+                st.subheader("💡 답변")
+                st.write(result["answer"])
