@@ -127,30 +127,53 @@ def preprocess(text: str) -> str:
 # 7) 문서 로드 & 벡터DB 생성 (별도 저장)
 # ─────────────────────────────────────────────────────
 @st.cache_data(ttl=3600*24)
-def load_all_docs() -> Tuple[...]:
-    
+def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]]]:
+    splitter = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
+    proc_map: Dict[str, List[Document]] = {}
+    qna_map:  Dict[str, List[Document]] = {}
+
+    # 1) 프로세스 문서 로드 → 전처리 → 청크 분할
+    for step, url in PROCESS_PDF_URLS.items():
+        raw_docs = PyMuPDFLoader(url).load()
+        chunks = splitter.split_documents(raw_docs)
+        for d in chunks:
+            d.page_content = preprocess(d.page_content)
+            d.metadata['step'] = step
+        proc_map[step] = chunks
+
+    # 2) QnA 문서 로드 → 전처리 → 청크 분할
+    for step, url in QNA_PDF_URLS.items():
+        raw_docs = PyMuPDFLoader(url).load()
+        chunks = splitter.split_documents(raw_docs)
+        for d in chunks:
+            d.page_content = preprocess(d.page_content)
+            d.metadata['step'] = step
+        qna_map[step] = chunks
+
+    return proc_map, qna_map
+
+@st.cache_resource(ttl=3600*24)
 def build_vectordbs(
     proc_docs_map: Dict[str, List[Document]],
     qna_docs_map:  Dict[str, List[Document]]
 ) -> Tuple[Dict[str, FAISS], Dict[str, FAISS]]:
     emb = OpenAIEmbeddings(
         model="text-embedding-ada-002",
-        openai_api_key=st.secrets["openai"]["api_key"]
+        openai_api_key=os.environ["OPENAI_API_KEY"]
     )
-    proc_vdb = {
+    proc_vdb: Dict[str, FAISS] = {
         step: FAISS.from_documents(docs, emb)
         for step, docs in proc_docs_map.items()
     }
-    qna_vdb = {
+    qna_vdb: Dict[str, FAISS] = {
         step: FAISS.from_documents(docs, emb)
         for step, docs in qna_docs_map.items()
     }
     return proc_vdb, qna_vdb
 
-# 호출부도 함께 변경
-proc_docs_map, qna_docs_map = load_all_docs()
-proc_vectordbs, qna_vectordbs = build_vectordbs(proc_docs_map, qna_docs_map)
-
+with st.spinner("초기 데이터 준비 중…"):
+    proc_docs_map, qna_docs_map   = load_all_docs()
+    proc_vectordbs, qna_vectordbs = build_vectordbs(proc_docs_map, qna_docs_map)
 
 # ─────────────────────────────────────────────────────
 # 8) Q&A 탭
