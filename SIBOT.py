@@ -378,7 +378,7 @@ with qa_tab:
 
             # 9) 실행: question만 넘기면 됩니다!
             with st.spinner("답변 생성 중…"):
-                result = qa_chain({"question": query})
+                result = qa_chain({"question": query,"chat_history": []})
 
             # 10) 출력
             st.subheader("💡 답변")
