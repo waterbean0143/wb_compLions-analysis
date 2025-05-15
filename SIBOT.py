@@ -40,7 +40,7 @@ from functools import partial
 import threading
 import openai
 
-from langchain.chains import RetrievalQA 
+from langchain.chains import RetrievalQA, ConversationalRetrievalChain
 
 # ─────────────────────────────────────────────────────
 # 0-1) PDF 첫페이지 인덱스 자동추출 유틸 (제안/계약 전용)
