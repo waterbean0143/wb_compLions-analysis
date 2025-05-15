@@ -373,8 +373,8 @@ with qa_tab:
         st.info(f"📌 사용자의 질문은 ‘{sub_title}’ 단계의 “{qtype}” 입니다.")
 
         # 6) Q&A PDF(사례) 매핑 – threshold 기반으로 ‘바로 답변’
-        qna_retr = qna_vectordbs[step].as_retriever()
-        docs_and_scores = qna_retr.get_relevant_documents_with_score(query)
+        qna_db = qna_vectordbs[step]
+        docs_and_scores = qna_db.similarity_search_with_score(query, k=1)
         top_doc, top_score = docs_and_scores[0]
         if top_score > 0.7:
             st.subheader("💡 사례 응답")
