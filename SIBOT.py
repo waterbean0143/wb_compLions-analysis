@@ -256,66 +256,83 @@ def preprocess(text: str) -> str:
     return ' '.join(t.form for t in toks if t.tag.startswith(('N','V','MA')))
 
 # ─────────────────────────────────────────────────────
-# 7) 문서 split & VectorDB 빌드
+# 7) 문서 로드 & vectordb 생성
 # ─────────────────────────────────────────────────────
-# ─────────────────────────────────────────────────────
-# 7) 문서 split & VectorDB 빌드
-# ─────────────────────────────────────────────────────
-@st.cache_data(ttl=24*3600)
+@st.cache_data(ttl=3600 * 24)
 def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]]]:
-    from langchain.text_splitter import CharacterTextSplitter
-
-    # 1) splitters 정의
-    # 첫 페이지(Index)용: "##숫자. " を区切り文字として正規表現モードで分割
+    # 인덱스 전용: 첫 페이지에서 “##<숫자>. ” 패턴으로 분할
     index_splitter = CharacterTextSplitter(
-        separator=r"(?=^##\d+\.\s+)",  # lookahead でタイトル行ごとに分割
-        chunk_size=1,                  # chunk_size は小さくともOK
-        chunk_overlap=0,
+        separator=r"(?m)^##\d+\.\s+",
         is_separator_regex=True,
+        chunk_size=1,
+        chunk_overlap=0
     )
-    # 나머지 본문용: 고정 길이 분할
-    body_splitter  = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
+    # 본문 전용: 길이 기반 분할
+    body_splitter = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
 
-    proc_map, qna_map = {}, {}
+    proc_map: Dict[str, List[Document]] = {}
+    qna_map: Dict[str, List[Document]] = {}
 
-    def dl_and_split(url, is_qna=False):
-        docs = download_and_load(url)
-        out_chunks: List[Document] = []
-        for d in docs:
-            text = d.page_content
-            if d.metadata.get("page", 0) == 0 and not is_qna:
-                # 첫 페이지: 인덱스용 분할
-                for idx in index_splitter.split_text(text):
-                    out_chunks.append(Document(page_content=idx, metadata=d.metadata))
-            else:
-                # 나머지 페이지: 길이 기반 분할
-                for chunk in body_splitter.split_text(text):
-                    out_chunks.append(Document(page_content=chunk, metadata=d.metadata))
-        return out_chunks
+    def download_and_split(url: str) -> List[Document]:
+        # PDF 다운로드
+        resp = requests.get(url)
+        resp.raise_for_status()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tf:
+            tf.write(resp.content)
+            tmp_path = tf.name
 
-    # PROCESS PDF 로딩
+        try:
+            pages = PyMuPDFLoader(tmp_path).load()
+        finally:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+
+        docs: List[Document] = []
+        if pages:
+            # 첫 페이지는 인덱스(chunk_size=1)로, 나머지는 body_splitter
+            first = pages[0]
+            idx_chunks = index_splitter.split_text(first.page_content)
+            for txt in idx_chunks:
+                docs.append(Document(page_content=txt, metadata=first.metadata.copy()))
+            # 2페이지부터
+            rest = pages[1:]
+            if rest:
+                rest_docs = body_splitter.split_documents(rest)
+                docs.extend(rest_docs)
+        return docs
+
+    # STEP 문서 로드
     for step, url in PROCESS_PDF_URLS.items():
-        proc_map[step] = dl_and_split(url, is_qna=False)
+        docs = download_and_split(url)
+        for d in docs:
+            d.page_content = preprocess(d.page_content)
+            d.metadata["step"] = step
+        proc_map[step] = docs
 
-    # Q&A PDF 로딩
+    # Q&A 문서 로드
     for step, url in QNA_PDF_URLS.items():
-        qna_map[step] = dl_and_split(url, is_qna=True)
+        docs = download_and_split(url)
+        for d in docs:
+            d.page_content = preprocess(d.page_content)
+            d.metadata["step"] = step
+        qna_map[step] = docs
 
     return proc_map, qna_map
 
-@st.cache_resource(ttl=3600*24)
+
+@st.cache_resource(ttl=3600 * 24)
 def build_vectordbs(
-    _proc_map: Dict[str, List[Document]],
-    _qna_map:  Dict[str, List[Document]]
+    _proc_docs_map: Dict[str, List[Document]],
+    _qna_docs_map: Dict[str, List[Document]]
 ) -> Tuple[Dict[str, FAISS], Dict[str, FAISS]]:
-    emb = OpenAIEmbeddings(
-        model="text-embedding-ada-002",
-        openai_api_key=os.environ["OPENAI_API_KEY"],
-    )
+    emb = OpenAIEmbeddings(model="text-embedding-ada-002",
+                           openai_api_key=os.environ["OPENAI_API_KEY"])
     proc_vdb = {step: FAISS.from_documents(docs, emb)
-                for step, docs in _proc_map.items()}
-    qna_vdb  = {step: FAISS.from_documents(docs, emb)
-                for step, docs in _qna_map.items()}
+                for step, docs in _proc_docs_map.items()}
+    qna_vdb = {step: FAISS.from_documents(docs, emb)
+               for step, docs in _qna_docs_map.items()}
     return proc_vdb, qna_vdb
 
 
