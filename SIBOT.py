@@ -26,6 +26,7 @@ from typing import TypedDict, Dict, List, Tuple
 import uuid
 import time
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.express as px
@@ -36,14 +37,12 @@ from functools import partial
 import threading
 import openai
 
-from langchain.chains import RetrievalQA
+from langchain.chains import RetrievalQA 
 
 # ─────────────────────────────────────────────────────
 # 1) 페이지 설정 및 Secrets 로드
 # ─────────────────────────────────────────────────────
 st.set_page_config(page_title="AX SI 방법론 이행봇", page_icon="🤖", layout="wide")
-
-# Load secrets into environment
 os.environ["OPENAI_API_KEY"]      = st.secrets["openai"]["api_key"]
 os.environ["UPSTAGE_API_KEY"]     = st.secrets["upstage"]["api_key"]
 os.environ["LANGCHAIN_API_KEY"]   = st.secrets["langchain"]["api_key"]
@@ -55,23 +54,30 @@ os.environ["LANGSMITH_API_KEY"]   = st.secrets.get("langsmith", {}).get("api_key
 # ─────────────────────────────────────────────────────
 # 2) 글로벌 설정
 # ─────────────────────────────────────────────────────
+proc_docs = []
+proc_vectordbs = {}
+qna_vectordbs = {}
+case_docs = []
+for_show_proc_vectordbs = {}
+selected_for_show_proc_vectordbs = {}
+proc_retrievers = {}
+qna_retrievers = {}
+
+
+executor = ThreadPoolExecutor(max_workers=5)
 bm25_weight = 0.3
 faiss_weight = 0.7
-
 plt.rcParams['font.family'] = 'NanumGothic'
 plt.rcParams['axes.unicode_minus'] = False
 
-kiwi = Kiwi()
-
 # ─────────────────────────────────────────────────────
-# 3) 로그인 (사이드바 게이팅)
+# 3) 로그인
 # ─────────────────────────────────────────────────────
 users = {
     "10154371": {"password": "10154371", "name": "배수빈"},
     "10154372": {"password": "10154372", "name": "김도완"},
     "10156350": {"password": "10156350", "name": "박영준"},
 }
-
 if 'logged_in' not in st.session_state:
     st.sidebar.title("🔒 로그인")
     uid = st.sidebar.text_input("ID", key="login_id")
@@ -86,10 +92,13 @@ if 'logged_in' not in st.session_state:
     st.stop()
 
 # ─────────────────────────────────────────────────────
-# 4) 사이드바 설정
+# 4) UI 설정
 # ─────────────────────────────────────────────────────
 st.sidebar.title("⚙️ 설정")
 answer_mode = st.sidebar.radio("답변 모드 선택", ['빠른 답변', '정확한 답변'], index=0)
+
+tabs = st.tabs(["Q&A", "Feedback", "사례관리"])
+qa_tab, fb_tab, case_tab = tabs
 
 # ─────────────────────────────────────────────────────
 # 5) PDF 매핑
@@ -102,8 +111,9 @@ QNA_PDF_URLS = {
 }
 
 # ─────────────────────────────────────────────────────
-# 6) 텍스트 전처리 함수
+# 6) 전처리 함수
 # ─────────────────────────────────────────────────────
+kiwi = Kiwi()
 def preprocess(text: str) -> str:
     toks = kiwi.analyze(text)[0][0]
     return ' '.join(t.form for t in toks if t.tag.startswith(('N','V','MA')))
