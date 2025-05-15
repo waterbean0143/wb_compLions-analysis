@@ -257,55 +257,56 @@ def preprocess(text: str) -> str:
 # ─────────────────────────────────────────────────────
 # 7) 문서 로드 & vectordb 생성
 # ─────────────────────────────────────────────────────
-@st.cache_data(ttl=3600 * 24)
+@st.cache_data(ttl=3600*24)
 def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]]]:
-    from langchain.text_splitter import CharacterTextSplitter
+    from langchain.text_splitter import CharacterTextSplitter, RegexSplitter
 
-    # 첫 페이지 전용: 빈 줄 두 번 연속 개행 또는 “. ” 을 경계로 분리
-    first_page_splitter = CharacterTextSplitter(
-        separator=r"\n{2,}|\.(?:\s|$)",
-        chunk_size=800,
-        chunk_overlap=0,
+    # (1) Q&A 전용: "[질문 n : ...?][[[답변] ... .]]" 한 덩어리로 split
+    qa_pair_splitter = RegexSplitter(
+        pattern=r"\[\[질문\s*\d+\s*:\s*.+?\?\]\]\s*\[\[\[답변\]\]\s*.+?\.",
         is_separator_regex=True,
     )
-    # 나머지 페이지 전용: 고정 길이 청크
-    body_splitter = CharacterTextSplitter(
+
+    # (2) STEP 문서: 첫 페이지만 regex style
+    first_page_splitter = CharacterTextSplitter(
+        separator=r"\n{2,}|\.(?:\s|$)",
+        is_separator_regex=True,
         chunk_size=800,
-        chunk_overlap=100,
+        chunk_overlap=0,
     )
+    body_splitter = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
 
     proc_map: Dict[str, List[Document]] = {}
     qna_map:  Dict[str, List[Document]] = {}
 
-    def dl_and_chunk(url: str) -> List[Document]:
+    def dl_and_chunk_proc(url: str) -> List[Document]:
         pages = download_and_load(url)
         if not pages:
             return []
-
-        # 첫 페이지만 regex 스타일로 쪼개기
         first, *rest = pages
         first_texts = first_page_splitter.split_text(first.page_content)
-        first_docs = [
-            Document(page_content=text, metadata={**first.metadata})
-            for text in first_texts
-            if text.strip()
-        ]
+        docs = [Document(page_content=t, metadata={**first.metadata}) for t in first_texts if t.strip()]
+        if rest:
+            docs += body_splitter.split_documents(rest)
+        return docs
 
-        # 나머지 페이지는 고정 길이 청크로 분리
-        rest_docs = body_splitter.split_documents(rest) if rest else []
-        return first_docs + rest_docs
+    def dl_and_chunk_qna(url: str) -> List[Document]:
+        pages = download_and_load(url)
+        full_text = "\n\n".join(p.page_content for p in pages)
+        chunks = qa_pair_splitter.split_text(full_text)
+        return [Document(page_content=c, metadata={"source": url}) for c in chunks if c.strip()]
 
-    # STEP 문서 로드
+    # load STEP PDFs
     for step, url in PROCESS_PDF_URLS.items():
-        docs = dl_and_chunk(url)
+        docs = dl_and_chunk_proc(url)
         for d in docs:
             d.page_content = preprocess(d.page_content)
             d.metadata["step"] = step
         proc_map[step] = docs
 
-    # Q&A 문서 로드
+    # load QNA PDFs
     for step, url in QNA_PDF_URLS.items():
-        docs = dl_and_chunk(url)
+        docs = dl_and_chunk_qna(url)
         for d in docs:
             d.page_content = preprocess(d.page_content)
             d.metadata["step"] = step
@@ -313,77 +314,25 @@ def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]
 
     return proc_map, qna_map
 
-
-@st.cache_resource(ttl=3600 * 24)
+@st.cache_resource(ttl=3600*24)
 def build_vectordbs(
     _proc_docs_map: Dict[str, List[Document]],
-    _qna_docs_map: Dict[str, List[Document]]
+    _qna_docs_map:  Dict[str, List[Document]]
 ) -> Tuple[Dict[str, FAISS], Dict[str, FAISS]]:
-    emb = OpenAIEmbeddings(
-        model="text-embedding-ada-002",
-        openai_api_key=os.environ["OPENAI_API_KEY"],
-    )
-    proc_vdb = {
-        step: FAISS.from_documents(docs, emb)
-        for step, docs in _proc_docs_map.items()
-    }
-    qna_vdb = {
-        step: FAISS.from_documents(docs, emb)
-        for step, docs in _qna_docs_map.items()
-    }
+    emb = OpenAIEmbeddings(model="text-embedding-ada-002", openai_api_key=os.environ["OPENAI_API_KEY"])
+    proc_vdb = {step: FAISS.from_documents(docs, emb) for step, docs in _proc_docs_map.items()}
+    qna_vdb  = {step: FAISS.from_documents(docs, emb) for step, docs in _qna_docs_map.items()}
     return proc_vdb, qna_vdb
 
-
-@st.cache_resource(ttl=3600 * 24)
+@st.cache_resource(ttl=3600*24)
 def build_global_qna_vectordb(
     _qna_map: Dict[str, List[Document]]
 ) -> FAISS:
-    all_qna = []
-    for docs in _qna_map.values():
-        all_qna.extend(docs)
-    emb = OpenAIEmbeddings(
-        model="text-embedding-ada-002",
-        openai_api_key=os.environ["OPENAI_API_KEY"],
-    )
+    all_qna = [doc for docs in _qna_map.values() for doc in docs]
+    emb = OpenAIEmbeddings(model="text-embedding-ada-002", openai_api_key=os.environ["OPENAI_API_KEY"])
     return FAISS.from_documents(all_qna, emb)
 
-
-@st.cache_resource(ttl=3600 * 24)
-def build_index_retrievers() -> Dict[str, any]:
-    emb = OpenAIEmbeddings(
-        model="text-embedding-ada-002",
-        openai_api_key=os.environ["OPENAI_API_KEY"],
-    )
-    idx_retrs = {}
-    for step, url in PROCESS_PDF_URLS.items():
-        idx_docs = extract_index_chunks(url)
-        if idx_docs:
-            idx_retrs[step] = FAISS.from_documents(idx_docs, emb).as_retriever()
-    return idx_retrs
-
-
-@st.cache_resource(ttl=3600 * 24)
-def build_substep_vectordbs(
-    _proc_docs_map: Dict[str, List[Document]]
-) -> Dict[str, Dict[str, FAISS]]:
-    emb = OpenAIEmbeddings(
-        model="text-embedding-ada-002",
-        openai_api_key=os.environ["OPENAI_API_KEY"],
-    )
-    sub_vdbs: Dict[str, Dict[str, FAISS]] = {}
-    for step, docs in _proc_docs_map.items():
-        idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
-        sub_db: Dict[str, FAISS] = {}
-        for idx in idx_docs:
-            title = idx.metadata["title"]
-            subset = [d for d in docs if title in d.page_content]
-            if subset:
-                sub_db[title] = FAISS.from_documents(subset, emb)
-        sub_vdbs[step] = sub_db
-    return sub_vdbs
-
-
-# 앱 시작 시 한 번만 로드·벡터화
+# 앱 시작 시
 with st.spinner("📦 데이터 로드 중…"):
     proc_docs_map, qna_docs_map   = load_all_docs()
     proc_vectordbs, qna_vectordbs = build_vectordbs(proc_docs_map, qna_docs_map)
