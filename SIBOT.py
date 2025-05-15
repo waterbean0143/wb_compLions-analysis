@@ -336,9 +336,6 @@ with st.spinner("📦 데이터 로드 중…"):
  # ─────────────────────────────────────────────────────
  # 8) Q&A 탭
  # ─────────────────────────────────────────────────────
- # ─────────────────────────────────────────────────────
-# 8) Q&A 탭
-# ─────────────────────────────────────────────────────
 with qa_tab:
     st.header("AX SI 방법론 이행봇")
 
@@ -361,6 +358,16 @@ with qa_tab:
         if not query.strip():
             st.warning("질문을 입력해주세요.")
             st.stop()
+
+        # ─────────── 여기에 디버그 expander 삽입 ───────────
+        with st.expander("🔍 문서 로드 확인", expanded=False):
+            docs = proc_docs_map[step]  # 해당 STEP의 전체 청크 리스트
+            st.write(f"• 총 청크 개수: {len(docs)}")
+            for i, d in enumerate(docs[:3]):  # 앞의 3개 청크만 미리 보기
+                st.markdown(
+                    f"**Chunk {i+1} (메타: {d.metadata}):**\n```\n{d.page_content[:200]}...\n```"
+                )
+        # ────────────────────────────────────────────────
 
         # 4) 질문 유형 분류
         qtype = classify_question_type(query)
