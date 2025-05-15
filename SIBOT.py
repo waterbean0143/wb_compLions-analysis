@@ -1,7 +1,6 @@
 # ─────────────────────────────────────────────────────
 # 0) 라이브러리 및 선언 영역
 # ─────────────────────────────────────────────────────
-
 import streamlit as st
 import requests
 import tempfile
@@ -47,46 +46,45 @@ from langchain.chains import RetrievalQA
 # 0-1) PDF 첫페이지 인덱스 자동추출 유틸 (제안/계약 전용)
 # ─────────────────────────────────────────────────────
 def download_and_load(url: str) -> List[Document]:
-    resp = requests.get(url)  
-    resp.raise_for_status()  
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tf: 
-        tf.write(resp.content) 
-        tmp_path = tf.name  
-    try:  
-        docs = PyMuPDFLoader(tmp_path).load() 
-    except Exception: 
-        docs = []  
-    finally:  
-        try:  
-            os.remove(tmp_path) 
-        except OSError:  #추가
-            pass  #추가
-    return docs  #추가
+    resp = requests.get(url)
+    resp.raise_for_status()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tf:
+        tf.write(resp.content)
+        tmp_path = tf.name
+    try:
+        docs = PyMuPDFLoader(tmp_path).load()
+    except Exception:
+        docs = []
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+    return docs
 
-def extract_index_chunks(url: str) -> List[Document]:  
-    raw_docs = download_and_load(url)  
-    if not raw_docs: 
-        return [] 
-    first_page = raw_docs[0].page_content 
-    lines = first_page.splitlines()  
-    # '##' 헤딩 다음 줄부터 인덱스 시작
-    start = 0  
-    for i, line in enumerate(lines): 
-        if line.strip().startswith("##"): 
-            start = i + 1  
-            break  
-    pattern = re.compile(r"^(\d+)\.\s*(.+)$")  
-    index_docs: List[Document] = []  
-    for line in lines[start:]: 
-        m = pattern.match(line.strip()) 
-        if not m: 
-            break  
-        num, title = m.groups()  
-        meta = {"step": int(num), "title": title}  
-        text = f"{num}. {title}"  
-        index_docs.append(Document(page_content=text, metadata=meta))  
-    return index_docs  #추가
-
+def extract_index_chunks(url: str) -> List[Document]:
+    raw_docs = download_and_load(url)
+    if not raw_docs:
+        return []
+    first_page = raw_docs[0].page_content
+    lines = first_page.splitlines()
+    start = 0
+    for i, line in enumerate(lines):
+        if line.strip().startswith("##"):
+            start = i + 1
+            break
+    pattern = re.compile(r"^(\d+)\.\s*(.+)$")
+    index_docs: List[Document] = []
+    for line in lines[start:]:
+        m = pattern.match(line.strip())
+        if not m:
+            break
+        num, title = m.groups()
+        meta = {"step": int(num), "title": title}
+        text = f"{num}. {title}"
+        index_docs.append(Document(page_content=text, metadata=meta))
+    return index_docs
+    
 # ─────────────────────────────────────────────────────
 # 1) 페이지 설정 및 Secrets 로드
 # ─────────────────────────────────────────────────────
@@ -139,7 +137,6 @@ if 'logged_in' not in st.session_state:
             st.sidebar.error("ID 또는 비밀번호가 올바르지 않습니다.")
     st.stop()
 
-
 # ─────────────────────────────────────────────────────
 # 4) PDF 매핑
 # ─────────────────────────────────────────────────────
@@ -157,18 +154,8 @@ QNA_PDF_URLS = {
 st.sidebar.title("⚙️ 설정")
 answer_mode = st.sidebar.radio("답변 모드 선택", ['빠른 답변', '정확한 답변'], index=0)
 
-selected_steps = st.sidebar.multiselect(
-    "⚙️ 절차 단계 선택",
-    options=list(PROCESS_PDF_URLS.keys()),
-    default=list(PROCESS_PDF_URLS.keys())[:1]
-)
-if not selected_steps:
-    st.sidebar.warning("하나 이상의 절차 단계를 선택하세요.")
-    st.stop()
-    
-tabs = st.tabs([" Q&A ", " (추가예정) "])
-qa_tab, else_tab = tabs
-
+tabs = st.tabs(["Q&A", "추가예정"])
+qa_tab, _ = tabs
 
 # ─────────────────────────────────────────────────────
 # 6) 전처리 함수
@@ -179,122 +166,124 @@ def preprocess(text: str) -> str:
     return ' '.join(t.form for t in toks if t.tag.startswith(('N','V','MA')))
 
 # ─────────────────────────────────────────────────────
-# 7) 문서 로드 & 벡터DB 생성 (별도 저장)
+# 7) 문서 로드 & vectordb 생성
 # ─────────────────────────────────────────────────────
 @st.cache_data(ttl=3600*24)
 def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]]]:
     splitter = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
-    proc_map: Dict[str, List[Document]] = {}
-    qna_map:  Dict[str, List[Document]] = {}
-
-    def download_and_load(url: str, step: str) -> List[Document]:
-        # 1) PDF 바이너리 다운로드
-        resp = requests.get(url)
-        resp.raise_for_status()
-        # 2) 임시 파일에 저장
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tf:
-            tf.write(resp.content)
-            tf_path = tf.name
-        # 3) PyMuPDFLoader로 로드
-        docs = PyMuPDFLoader(tf_path).load()
-        # 4) 로드 후 임시 파일 삭제
-        try:
-            os.remove(tf_path)
-        except OSError:
-            pass
-        return docs
-
-    # 1) 프로세스 문서
+    proc_map, qna_map = {}, {}
+    def dl(url):
+        docs = download_and_load(url)
+        # merge page chunks
+        return splitter.split_documents(docs)
     for step, url in PROCESS_PDF_URLS.items():
-        raw_docs = download_and_load(url, step)
-        chunks = splitter.split_documents(raw_docs)
-        for d in chunks:
+        docs = dl(url)
+        for d in docs:
             d.page_content = preprocess(d.page_content)
             d.metadata['step'] = step
-        proc_map[step] = chunks
-
-    # 2) QnA 문서
+        proc_map[step] = docs
     for step, url in QNA_PDF_URLS.items():
-        raw_docs = download_and_load(url, step)
-        chunks = splitter.split_documents(raw_docs)
-        for d in chunks:
+        docs = dl(url)
+        for d in docs:
             d.page_content = preprocess(d.page_content)
             d.metadata['step'] = step
-        qna_map[step] = chunks
-
+        qna_map[step] = docs
     return proc_map, qna_map
 
-
+@st.cache_resource(ttl=3600*24)
 def build_vectordbs(
     proc_docs_map: Dict[str, List[Document]],
     qna_docs_map:  Dict[str, List[Document]]
 ) -> Tuple[Dict[str, FAISS], Dict[str, FAISS]]:
-    emb = OpenAIEmbeddings(
-        model="text-embedding-ada-002",
-        openai_api_key=os.environ["OPENAI_API_KEY"]
-    )
-    proc_vdb: Dict[str, FAISS] = {
-        step: FAISS.from_documents(docs, emb)
-        for step, docs in proc_docs_map.items()
-    }
-    qna_vdb: Dict[str, FAISS] = {
-        step: FAISS.from_documents(docs, emb)
-        for step, docs in qna_docs_map.items()
-    }
+    emb = OpenAIEmbeddings(model="text-embedding-ada-002",
+                           openai_api_key=os.environ["OPENAI_API_KEY"])
+    proc_vdb = {step: FAISS.from_documents(docs, emb)
+                for step, docs in proc_docs_map.items()}
+    qna_vdb  = {step: FAISS.from_documents(docs, emb)
+                for step, docs in qna_docs_map.items()}
     return proc_vdb, qna_vdb
 
-index_docs = extract_index_chunks(PROCESS_PDF_URLS["제안/계약"])
-#디버깅용
-#st.write("🔍 제안/계약 INDEX:", [d.metadata for d in index_docs])  
+@st.cache_resource(ttl=3600*24)
+def build_index_retrievers() -> Dict[str, any]:
+    emb = OpenAIEmbeddings(model="text-embedding-ada-002",
+                           openai_api_key=os.environ["OPENAI_API_KEY"])
+    idx_retrs = {}
+    for step, url in PROCESS_PDF_URLS.items():
+        idx_docs = extract_index_chunks(url)
+        if idx_docs:
+            idx_retrs[step] = FAISS.from_documents(idx_docs, emb).as_retriever()
+    return idx_retrs
 
-# 앱 시작 시 한 번만 실행
+@st.cache_resource(ttl=3600*24)
+def build_substep_vectordbs(
+    proc_docs_map: Dict[str, List[Document]]
+) -> Dict[str, Dict[str, FAISS]]:
+    emb = OpenAIEmbeddings(model="text-embedding-ada-002",
+                           openai_api_key=os.environ["OPENAI_API_KEY"])
+    sub_vdbs = {}
+    for step, docs in proc_docs_map.items():
+        idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
+        sub_db = {}
+        for idx in idx_docs:
+            title = idx.metadata["title"]
+            subset = [d for d in docs if title in d.page_content]
+            if subset:
+                sub_db[title] = FAISS.from_documents(subset, emb)
+        sub_vdbs[step] = sub_db
+    return sub_vdbs
+
+# 앱 시작 시 한 번만 로드·벡터화·인덱스 생성
 with st.spinner("📦 데이터 로드 중…"):
     proc_docs_map, qna_docs_map   = load_all_docs()
     proc_vectordbs, qna_vectordbs = build_vectordbs(proc_docs_map, qna_docs_map)
+    index_retrievers             = build_index_retrievers()
+    substep_vectordbs            = build_substep_vectordbs(proc_docs_map)
 
 # ─────────────────────────────────────────────────────
 # 8) Q&A 탭
 # ─────────────────────────────────────────────────────
-# Q&A 탭
 with qa_tab:
     st.header("AX SI 방법론 이행봇")
 
-    # 1) 단계 선택 (탭 진입만, 아직 로드 없음)
+    # 1) 절차 단계 선택
     step = st.selectbox("📂 절차 단계 선택", list(PROCESS_PDF_URLS.keys()))
     if not step:
-        st.info("먼저 위에서 ‘절차 단계’를 선택하세요.")
+        st.info("먼저 절차 단계를 선택하세요.")
         st.stop()
 
-    # 2) 선택된 단계에 대해 한 번만 로드/캐시 실행
-    with st.spinner(f"[{step}] INDEX/데이터 준비 중…"):
-        # (a) INDEX 청크 추출
-        index_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
-        # (b) 전체 문서 로드 & 벡터DB 생성 (캐시 활용)
-        proc_docs_map, qna_docs_map   = load_all_docs()
-        proc_vectordbs, qna_vectordbs = build_vectordbs(proc_docs_map, qna_docs_map)
-
-    # 3) INDEX 개요 보여주기 (Expander로 접고 펼침)
-    with st.expander(f"[{step}] 프로세스 개요", expanded=False):
-        for d in index_docs:
+    # 2) INDEX 개요
+    st.subheader(f"[{step}] 프로세스 개요")
+    idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
+    with st.expander("목록 펼치기", expanded=False):
+        for d in idx_docs:
             st.markdown(f"- {d.page_content}")
 
-    # 4) 질문 입력 & 답변
+    # 3) 질문 입력
     query = st.text_input("💬 질문을 입력하세요", key=f"query_{step}")
     if st.button("질문 요청", key=f"btn_{step}"):
         if not query.strip():
             st.warning("질문을 입력해주세요.")
         else:
-            with st.spinner("답변 생성 중…"):
+            # 4) INDEX retriever로 substep 추론
+            idx_retr = index_retrievers.get(step)
+            top_meta = idx_retr.get_relevant_documents(query)[0].metadata
+            sub_title = top_meta["title"]
+            st.info(f"📌 이 질문은 ‘{sub_title}’ 단계입니다.")
+
+            # 5) substep vectordb 사용
+            retriever = substep_vectordbs.get(step, {}).get(sub_title)
+            if retriever is None:
+                # fallback to 전체 단계
                 retriever = proc_vectordbs[step].as_retriever()
-                qa_chain = RetrievalQA.from_chain_type(
-                    llm=ChatOpenAI(
-                        model="gpt-4o-mini",
-                        temperature=0,
-                        openai_api_key=os.environ["OPENAI_API_KEY"]
-                    ),
-                    chain_type="stuff",
-                    retriever=retriever
-                )
+
+            # 6) 답변 생성
+            qa_chain = RetrievalQA.from_chain_type(
+                llm=ChatOpenAI(model="gpt-4o-mini", temperature=0,
+                               openai_api_key=os.environ["OPENAI_API_KEY"]),
+                chain_type="stuff",
+                retriever=retriever
+            )
+            with st.spinner("답변 생성 중…"):
                 answer = qa_chain.run(query)
-            st.markdown("**답변:**")
+            st.subheader("💡 답변")
             st.write(answer)
