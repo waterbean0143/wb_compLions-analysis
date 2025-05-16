@@ -28,8 +28,6 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
 from langchain_community.document_loaders import PyMuPDFLoader
 from langchain.text_splitter import CharacterTextSplitter, RecursiveCharacterTextSplitter
-from langchain_text_splitters import RegexTextSplitter
-
 from langchain_community.vectorstores import FAISS
 from langchain.retrievers import EnsembleRetriever
 from langchain_community.retrievers import BM25Retriever
@@ -37,6 +35,7 @@ from langchain.memory import ConversationBufferMemory
 from langchain.schema import Document
 
 from langchain.chains import RetrievalQA, ConversationalRetrievalChain
+
 # ─────────────────────────────────────────────────────
 # 0-1) PDF 첫페이지 인덱스 자동추출 유틸
 # ─────────────────────────────────────────────────────
@@ -260,6 +259,8 @@ def preprocess(text: str) -> str:
 # ─────────────────────────────────────────────────────
 @st.cache_data(ttl=3600*24)
 def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]]]:
+    from langchain.text_splitter import CharacterTextSplitter
+
     # 첫 페이지 전용: 빈 줄(2번 연속 개행) 또는 “.␣”을 경계로 자릅니다.
     first_page_splitter = CharacterTextSplitter(
         separator=r"\n{2,}|\.(?:\s|$)",
@@ -274,7 +275,7 @@ def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]
     )
 
     proc_map: Dict[str, List[Document]] = {}
-    qna_map: Dict[str, List[Document]] = {}
+    qna_map:  Dict[str, List[Document]] = {}
 
     def dl_and_chunk(url: str) -> List[Document]:
         pages = download_and_load(url)
@@ -289,6 +290,7 @@ def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]
             for text in first_texts
             if text.strip()
         ]
+
         # 나머지는 CharacterTextSplitter로
         rest_docs = body_splitter.split_documents(rest) if rest else []
         return first_docs + rest_docs
@@ -309,25 +311,119 @@ def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]
 
     return proc_map, qna_map
 
-@st.cache_resource(ttl=3600*24)
+    def download_and_split(url: str) -> List[Document]:
+        # PDF 다운로드
+        resp = requests.get(url)
+        resp.raise_for_status()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tf:
+            tf.write(resp.content)
+            tmp_path = tf.name
+
+        try:
+            pages = PyMuPDFLoader(tmp_path).load()
+        finally:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+
+        docs: List[Document] = []
+        if pages:
+            # 첫 페이지는 인덱스(chunk_size=1)로, 나머지는 body_splitter
+            first = pages[0]
+            idx_chunks = index_splitter.split_text(first.page_content)
+            for txt in idx_chunks:
+                docs.append(Document(page_content=txt, metadata=first.metadata.copy()))
+            # 2페이지부터
+            rest = pages[1:]
+            if rest:
+                rest_docs = body_splitter.split_documents(rest)
+                docs.extend(rest_docs)
+        return docs
+
+    # STEP 문서 로드
+    for step, url in PROCESS_PDF_URLS.items():
+        docs = download_and_split(url)
+        for d in docs:
+            d.page_content = preprocess(d.page_content)
+            d.metadata["step"] = step
+        proc_map[step] = docs
+
+    # Q&A 문서 로드
+    for step, url in QNA_PDF_URLS.items():
+        docs = download_and_split(url)
+        for d in docs:
+            d.page_content = preprocess(d.page_content)
+            d.metadata["step"] = step
+        qna_map[step] = docs
+
+    return proc_map, qna_map
+
+
+@st.cache_resource(ttl=3600 * 24)
 def build_vectordbs(
     _proc_docs_map: Dict[str, List[Document]],
-    _qna_docs_map:  Dict[str, List[Document]]
+    _qna_docs_map: Dict[str, List[Document]]
 ) -> Tuple[Dict[str, FAISS], Dict[str, FAISS]]:
-    emb = OpenAIEmbeddings(model="text-embedding-ada-002", openai_api_key=os.environ["OPENAI_API_KEY"])
-    proc_vdb = {step: FAISS.from_documents(docs, emb) for step, docs in _proc_docs_map.items()}
-    qna_vdb  = {step: FAISS.from_documents(docs, emb) for step, docs in _qna_docs_map.items()}
+    emb = OpenAIEmbeddings(model="text-embedding-ada-002",
+                           openai_api_key=os.environ["OPENAI_API_KEY"])
+    proc_vdb = {step: FAISS.from_documents(docs, emb)
+                for step, docs in _proc_docs_map.items()}
+    qna_vdb = {step: FAISS.from_documents(docs, emb)
+               for step, docs in _qna_docs_map.items()}
     return proc_vdb, qna_vdb
+
 
 @st.cache_resource(ttl=3600*24)
 def build_global_qna_vectordb(
     _qna_map: Dict[str, List[Document]]
 ) -> FAISS:
-    all_qna = [doc for docs in _qna_map.values() for doc in docs]
-    emb = OpenAIEmbeddings(model="text-embedding-ada-002", openai_api_key=os.environ["OPENAI_API_KEY"])
+    all_qna = []
+    for docs in _qna_map.values():
+        all_qna.extend(docs)
+    emb = OpenAIEmbeddings(
+        model="text-embedding-ada-002",
+        openai_api_key=os.environ["OPENAI_API_KEY"],
+    )
     return FAISS.from_documents(all_qna, emb)
 
-# 앱 시작 시
+
+@st.cache_resource(ttl=3600*24)
+def build_index_retrievers() -> Dict[str, any]:
+    emb = OpenAIEmbeddings(
+        model="text-embedding-ada-002",
+        openai_api_key=os.environ["OPENAI_API_KEY"],
+    )
+    idx_retrs = {}
+    for step, url in PROCESS_PDF_URLS.items():
+        idx_docs = extract_index_chunks(url)
+        if idx_docs:
+            idx_retrs[step] = FAISS.from_documents(idx_docs, emb).as_retriever()
+    return idx_retrs
+
+
+@st.cache_resource(ttl=3600*24)
+def build_substep_vectordbs(
+    _proc_docs_map: Dict[str, List[Document]]
+) -> Dict[str, Dict[str, FAISS]]:
+    emb = OpenAIEmbeddings(
+        model="text-embedding-ada-002",
+        openai_api_key=os.environ["OPENAI_API_KEY"],
+    )
+    sub_vdbs: Dict[str, Dict[str, FAISS]] = {}
+    for step, docs in _proc_docs_map.items():
+        idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
+        sub_db: Dict[str, FAISS] = {}
+        for idx in idx_docs:
+            title = idx.metadata["title"]
+            subset = [d for d in docs if title in d.page_content]
+            if subset:
+                sub_db[title] = FAISS.from_documents(subset, emb)
+        sub_vdbs[step] = sub_db
+    return sub_vdbs
+
+
+# 앱 시작 시 한 번만 로드·벡터화
 with st.spinner("📦 데이터 로드 중…"):
     proc_docs_map, qna_docs_map   = load_all_docs()
     proc_vectordbs, qna_vectordbs = build_vectordbs(proc_docs_map, qna_docs_map)
@@ -395,8 +491,8 @@ with qa_tab:
             for doc, score in docs_and_scores:
                 st.write(f"- **{score:.3f}**: {doc.page_content.splitlines()[0]}…")
         top_doc, top_score = docs_and_scores[0]
-        if top_score >= 0.8:
-            st.subheader("💡 대표질문 응답")
+        if top_score >= 0.5:
+            st.subheader("💡 사례 응답")
             st.write(top_doc.page_content)
             st.stop()
 
