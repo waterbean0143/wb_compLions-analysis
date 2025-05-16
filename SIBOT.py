@@ -259,9 +259,7 @@ def preprocess(text: str) -> str:
 # ─────────────────────────────────────────────────────
 @st.cache_data(ttl=3600*24)
 def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]]]:
-    from langchain.text_splitter import CharacterTextSplitter
-
-    # 첫 페이지 전용: 빈 줄(2번 연속 개행) 또는 “.␣”을 경계로 자릅니다.
+    # 첫 페이지 전용: 빈 줄(2번 연속 개행) 또는 “.␣”을 경계로 분할
     first_page_splitter = CharacterTextSplitter(
         separator=r"\n{2,}|\.(?:\s|$)",
         chunk_size=800,
@@ -295,6 +293,7 @@ def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]
         rest_docs = body_splitter.split_documents(rest) if rest else []
         return first_docs + rest_docs
 
+    # STEP 문서 로드
     for step, url in PROCESS_PDF_URLS.items():
         docs = dl_and_chunk(url)
         for d in docs:
@@ -302,6 +301,7 @@ def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]
             d.metadata["step"] = step
         proc_map[step] = docs
 
+    # Q&A 문서 로드
     for step, url in QNA_PDF_URLS.items():
         docs = dl_and_chunk(url)
         for d in docs:
@@ -310,7 +310,7 @@ def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]
         qna_map[step] = docs
 
     return proc_map, qna_map
-
+    
     def download_and_split(url: str) -> List[Document]:
         # PDF 다운로드
         resp = requests.get(url)
