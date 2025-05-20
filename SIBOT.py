@@ -424,16 +424,13 @@ def build_substep_vectordbs(
 
 
 with st.spinner("📦 문서·인덱스 로드 중…"):
-    # 1) 문서 로드
+with st.spinner("📦 문서·인덱스 로드 중…"):
+    # 1) PDF 다운로드 및 전처리 → 캐시_DATA
     proc_docs_map, qna_docs_map, wordpool_map = load_all_docs()
 
-    # 2) 전체 QnA 합본 FAISS (글로벌 자유 질의용)
-    global_qna_vectordb = build_global_qna_vectordb(qna_docs_map)
-
-    # 3) STEP별 Substep 인덱스용 FAISS
-    index_vectordbs = build_index_vectordbs()
-
-    # 4) (버튼 클릭 시점으로 지연) 프로세스·QnA·Substep vectordb는 생성하지 않음
+    # 2) 서브스텝 자동 추론용 인덱스 FAISS 생성 (가볍게 실행)
+    index_retrievers = build_index_retrievers()        
+    # (build_index_retrievers 는 extract_index_chunks 로 얻은 소단계 목록만 벡터화합니다) :contentReference[oaicite:0]{index=0}:contentReference[oaicite:1]{index=1}
 
 
 # ─────────────────────────────────────────────────────
