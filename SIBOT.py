@@ -262,72 +262,44 @@ def load_all_docs() -> Tuple[
     splitter_body = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
 
     proc_map: Dict[str, List[Document]] = {}
-    original_proc_pages: Dict[str, List[Document]] = {}
+    qna_map: Dict[str, List[Document]] = {}
+    wordpool_map: Dict[str, List[Document]] = {}
+
+    original_proc: Dict[str, List[Document]] = {}
+    original_qna:  Dict[str, List[Document]] = {}
+    original_wp:   Dict[str, List[Document]] = {}
+
+    # 프로세스 PDF 로드 & 청크 생성
     for name, url in PROCESS_PDF_URLS.items():
         pages = download_and_load(url)
-        original_proc_pages[name] = pages.copy()
+        original_proc[name] = pages[1:]       # 첫 페이지(목차) 제외
         docs: List[Document] = []
         if pages:
             first, *rest = pages
-            # 첫 페이지를 문단/문장 단위로 분할
             for txt in splitter_first.split_text(first.page_content):
                 docs.append(Document(page_content=txt, metadata={**first.metadata}))
-            # 이후 페이지를 고정 크기로 분할
             docs += splitter_body.split_documents(rest)
         proc_map[name] = docs
 
-    qna_map: Dict[str, List[Document]] = {}
-    original_qna_pages: Dict[str, List[Document]] = {}
-    for name, url in QNA_PDF_URLS.items():
-        pages = download_and_load(url)
-        original_qna_pages[name] = pages.copy()
-        docs: List[Document] = []
-        if pages:
-            first, *rest = pages
-            for txt in splitter_first.split_text(first.page_content):
-                docs.append(Document(page_content=txt, metadata={**first.metadata}))
-            docs += splitter_body.split_documents(rest)
-        qna_map[name] = docs
-
-    wordpool_map: Dict[str, List[Document]] = {}
-    original_wp_pages: Dict[str, List[Document]] = {}
-    for name, url in WORDPOOL_PDF_URLS.items():
-        pages = download_and_load(url)
-        original_wp_pages[name] = pages.copy()
-        full_text = "\n".join(p.page_content for p in pages) if pages else ""
-        docs: List[Document] = []
-        for line in full_text.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            if ":" in line:
-                word, rest = [s.strip() for s in line.split(":", 1)]
-                definitions = [d.strip() for d in rest.split(",") if d.strip()]
-                content = f"{word}: {', '.join(definitions)}"
-                docs.append(Document(
-                    page_content=content,
-                    metadata={"source": name, "wp_word": word, "wp_definitions": definitions}
-                ))
-            else:
-                docs.append(Document(page_content=line, metadata={"source": name}))
-        wordpool_map[name] = docs
-
-   # (A) 프로세스용 원본 페이지 보관
-    original_proc: Dict[str, List[Document]] = {}
-    for name, url in PROCESS_PDF_URLS.items():
-        pages = download_and_load(url)
-        original_proc[name] = pages
-
-    # (B) QnA용 원본 페이지 보관
-    original_qna: Dict[str, List[Document]] = {}
+    # QnA PDF 로드 & 메타정보 추출
     for name, url in QNA_PDF_URLS.items():
         pages = download_and_load(url)
         original_qna[name] = pages
+        docs: List[Document] = []
+        for page in pages:
+            lines = page.page_content.splitlines()
+            tag = next((l for l in lines if l.startswith("[질문")), "")
+            qcont = next((l for l in lines if l.startswith("[질문")), "")
+            acont = next((l for l in lines if l.startswith("[[[답변]") or l.startswith("[[답변]")), "")
+            docs.append(Document(
+                page_content=page.page_content,
+                metadata={"tag": tag, "question_context": qcont, "answer_context": acont}
+            ))
+        qna_map[name] = docs
 
-    # (C) 워드풀은 생략해도 됩니다
-    original_wp: Dict[str, List[Document]] = {}
+    # 워드풀 PDF 로드 (생략 가능)
 
-    # 원본 페이지 맵 통합 (키에 prefix)
+    # 원본 페이지 맵 통합
     original_pages: Dict[str, List[Document]] = {}
     for k, v in original_proc.items():
         original_pages[f"proc:{k}"] = v
@@ -558,13 +530,10 @@ QnA 문서 청크:
         st.markdown(f"## {substep_option}")
         st.write(answer)
 
-        # 9) Expander: TOP3 - 절차 CHUNK (원본 구간 전체 + chunking)
+        # 9) Expander: TOP3 - 절차 CHUNK
         with st.expander("1) TOP3 - 절차 CHUNK"):
             for i, (doc, score) in enumerate(proc_scores, start=1):
-                # 제목
                 st.markdown(f"**[TOP_{i}]. {substep_option} — Score {score:.2f}**")
-
-                # 원본 구간 전체
                 pages = original_pages[f"proc:{step}"]
                 orig_text = ""
                 for p in pages:
@@ -573,8 +542,6 @@ QnA 문서 청크:
                         break
                 st.markdown("**— 원본 구간 전체 —**")
                 st.write(orig_text or "⚠️ 매핑된 원본을 찾을 수 없습니다.")
-
-                # chunking (문장별)
                 st.markdown("**— chunking (문장별) —**")
                 for j, sent in enumerate(orig_text.split(". "), start=1):
                     s = sent.strip()
@@ -584,40 +551,17 @@ QnA 문서 청크:
                         st.write(f"{j}. {s}")
                 st.write("---")
 
-        # 10) Expander: TOP3 - QNA CHUNK (원본 Q&A + chunking)
+        # 10) Expander: TOP3 - QNA CHUNK
         with st.expander("2) TOP3 - QNA CHUNK"):
             for i, (doc, score) in enumerate(qna_scores, start=1):
-                # 질문번호·제목 추출
-                lines = original_pages[f"qna:{step}"]
-                # 각 페이지에서 찾기
-                qline = ""
-                for page in lines:
-                    for l in page.page_content.splitlines():
-                        if l.startswith("[질문"):
-                            qline = l
-                            break
-                    if qline:
-                        break
-                st.markdown(f"**[TOP_{i}]. {qline or 'QnA 청크'} — Score {score:.2f}**")
-
-                # 원본 Q&A (질문+답변)
-                orig_qna = ""
-                in_block = False
-                for page in lines:
-                    for l in page.page_content.splitlines():
-                        if l.strip() == qline:
-                            in_block = True
-                        if in_block:
-                            orig_qna += l + "\n"
-                            if l.startswith("[[[답변]") or l.startswith("[[답변]"):
-                                break
-                    if in_block and orig_qna:
-                        break
+                tag = doc.metadata.get("tag", "")
+                st.markdown(f"**[TOP_{i}]. {tag} — Score {score:.2f}**")
+                qc = doc.metadata.get("question_context", "")
+                ac = doc.metadata.get("answer_context", "")
                 st.markdown("**— 원본 (질문+답변) —**")
-                st.write(orig_qna or "⚠️ 매핑된 QnA 원문을 찾을 수 없습니다.")
-
-                # chunking (줄 단위)
+                st.write(qc)
+                st.write(ac)
                 st.markdown("**— chunking (줄 단위) —**")
-                for j, l in enumerate(orig_qna.splitlines(), start=1):
-                    st.write(f"{j}. {l}")
+                for j, line in enumerate([qc, ac], start=1):
+                    st.write(f"{j}. {line}")
                 st.write("---")
