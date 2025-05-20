@@ -35,7 +35,7 @@ from langchain.memory import ConversationBufferMemory
 from langchain.schema import Document
 from langchain.chains import RetrievalQA, ConversationalRetrievalChain
 
-from langchain_core import LLMChain
+from langchain.chains import LLMChain
 
 # ─────────────────────────────────────────────────────
 # 0-1) PDF 첫페이지 인덱스 자동추출 유틸
@@ -110,7 +110,7 @@ def classify_question_type(q: str) -> str:
 def classify_with_llm(query: str) -> str:
     system = SystemMessagePromptTemplate.from_template(
         """당신은 AX SI 방법론 이행봇의 질문 유형 분류기입니다.
-질문을 보고 카테고리 하나를 다음 중에서 골라주세요:
+주어진 질문을 보고 아래 카테고리 중 하나로 분류해 주세요:
 - 정의 요청
 - 수행 절차 안내
 - 산출물·문서 요구 사항
@@ -119,18 +119,19 @@ def classify_with_llm(query: str) -> str:
 """
     )
     user = HumanMessagePromptTemplate.from_template("질문: {query}\n분류:")
-    prompt = ChatPromptTemplate.from_messages(
-        [("system", system), ("user", user)]
-    )
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", system),
+        ("user", user),
+    ])
 
     llm = ChatOpenAI(
         model="gpt-4o-mini",
         temperature=0,
         openai_api_key=os.environ["OPENAI_API_KEY"],
     )
-    chain = LLMChain(llm=llm, prompt=prompt)  # langchain_core LLMChain
-    # .run에는 문자열 또는 predict 키워드 인자로.
-    result = chain.run(query)                
+    chain = LLMChain(llm=llm, prompt=prompt)
+
+    result = chain.run(query)
     return result.strip()
 
 # ─────────────────────────────────────────────────────
