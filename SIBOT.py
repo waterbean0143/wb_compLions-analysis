@@ -32,10 +32,10 @@ from langchain_community.vectorstores import FAISS
 from langchain.retrievers import EnsembleRetriever
 from langchain_community.retrievers import BM25Retriever
 from langchain.memory import ConversationBufferMemory
-from langchain.schema import Document, SystemMessage, HumanMessage
+from langchain.schema import Document
 from langchain.chains import RetrievalQA, ConversationalRetrievalChain
 
-from langchain import LLMChain
+from langchain_core import LLMChain
 
 # ─────────────────────────────────────────────────────
 # 0-1) PDF 첫페이지 인덱스 자동추출 유틸
@@ -107,43 +107,30 @@ def classify_question_type(q: str) -> str:
         return "일정·마일스톤 확인"
     return "일반 질문"
 
-# 분류 가능한 라벨 목록
-LABELS = [
-    "정의 요청",
-    "수행 절차 안내",
-    "산출물·문서 요구 사항",
-    "책임·역할 분담",
-    "일정·마일스톤 확인",
-    "일반 질문",
-]
-
-# 분류용 prompt 생성
-CLASSIFY_PROMPT = ChatPromptTemplate.from_messages([
-    SystemMessagePromptTemplate.from_template(
-        "다음 사용자 질문을 아래 항목 중 하나로 분류하고, **레이블만** 출력하세요:\n"
-        f"{', '.join(LABELS)}"
-    ),
-    HumanMessagePromptTemplate.from_template("질문: {query}\n분류:"),
-])
-
 def classify_with_llm(query: str) -> str:
-    # 1) 분류용 Prompt 정의
     system = SystemMessagePromptTemplate.from_template(
         """당신은 AX SI 방법론 이행봇의 질문 유형 분류기입니다.
-        질문을 보고 카테고리 하나를 다음 중에서 골라주세요:
-        - 정의 요청
-        - 수행 절차 안내
-        - 산출물·문서 요구 사항
-        - 책임·역할 분담
-        - 일반 질문
-        """
+질문을 보고 카테고리 하나를 다음 중에서 골라주세요:
+- 정의 요청
+- 수행 절차 안내
+- 산출물·문서 요구 사항
+- 책임·역할 분담
+- 일반 질문
+"""
     )
     user = HumanMessagePromptTemplate.from_template("질문: {query}\n분류:")
-    prompt = ChatPromptTemplate.from_messages([("system", system), ("user", user)])
-    
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, openai_api_key=os.environ["OPENAI_API_KEY"])
-    chain = LLMChain(llm=llm, prompt=prompt)   # Core v0.2.x 용 생성자
-    result = chain.run({"query": query})
+    prompt = ChatPromptTemplate.from_messages(
+        [("system", system), ("user", user)]
+    )
+
+    llm = ChatOpenAI(
+        model="gpt-4o-mini",
+        temperature=0,
+        openai_api_key=os.environ["OPENAI_API_KEY"],
+    )
+    chain = LLMChain(llm=llm, prompt=prompt)  # langchain_core LLMChain
+    # .run에는 문자열 또는 predict 키워드 인자로.
+    result = chain.run(query)                
     return result.strip()
 
 # ─────────────────────────────────────────────────────
