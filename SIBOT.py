@@ -108,9 +108,9 @@ def classify_question_type(q: str) -> str:
     return "일반 질문"
 
 def classify_with_llm(query: str) -> str:
-    # 1) 시스템 메시지 (분류 지침)
+    # 시스템 메시지 템플릿
     sys_tm = SystemMessagePromptTemplate.from_template(
-        """당신은 AX SI 방법론 이행봇의 질문 유형 분류기입니다.
+        """당신은 AX SI 방법론 이행봇의 질문 분류기입니다.
 주어진 질문을 보고 아래 카테고리 중 하나로 분류해 주세요:
 - 정의 요청
 - 수행 절차 안내
@@ -119,20 +119,22 @@ def classify_with_llm(query: str) -> str:
 - 일반 질문
 """
     )
-    # 2) 사용자 메시지 템플릿
+    # 사용자 메시지 템플릿
     usr_tm = HumanMessagePromptTemplate.from_template(
-        "질문: {query}\n분류:"
+        "질문: {query}\n\n분류:"
     )
-    # 3) 프롬프트 조립
+    # 최종 ChatPromptTemplate 조립
     prompt = ChatPromptTemplate.from_messages([sys_tm, usr_tm])
-    # 4) LLMChain 생성
+
     llm = ChatOpenAI(
         model="gpt-4o-mini",
         temperature=0,
         openai_api_key=os.environ["OPENAI_API_KEY"],
     )
     chain = LLMChain(llm=llm, prompt=prompt)
-    # 5) 예측 실행
+    # 빈 query 방지
+    if not query.strip():
+        return "일반 질문"
     return chain.predict(query=query).strip()
 
 # ─────────────────────────────────────────────────────
@@ -597,26 +599,25 @@ with qa_tab:
     if not query:
         st.stop()
 
-    # 6) 질문 요청 버튼
+      # 6) 질문 요청 버튼
     if st.button("질문 요청", key=f"btn_{step}"):
+        if not query.strip():
+            st.warning("질문을 입력해주세요.")
+            st.stop()
 
-        # (디버그) 전체 청크 확인...
-        # …
-
-        # 7) qtype 결정
+        # ─── 분류 방식에 따라 qtype 결정 ─────────────────────────
         if classify_method == "키워드 기반":
             qtype = classify_question_type(query)
         elif classify_method == "LLM 기반":
             qtype = classify_with_llm(query)
         else:  # 비교 보기
-            q_kw  = classify_question_type(query)
-            q_llm = classify_with_llm(query)
-            st.write(f"**키워드 기반** 분류: {q_kw}")
-            st.write(f"**LLM 기반** 분류: {q_llm}")
-            # 여기선 일단 키워드 기반 결과를 사용
-            qtype = q_kw
-
+            kw = classify_question_type(query)
+            llm = classify_with_llm(query)
+            st.write(f"- **키워드 기반** 분류: {kw}")
+            st.write(f"- **LLM 기반** 분류: {llm}")
+            qtype = kw
         st.info(f"📌 사용자의 질문은 ‘{substep}’ 단계의 “{qtype}” 입니다.")
+        # ────────────────────────────────────────────────────────
 
         # 7) 글로벌 Q&A 매핑 (Top-3, threshold=0.5)
         docs_and_scores = global_qna_vectordb.similarity_search_with_score(query, k=3)
