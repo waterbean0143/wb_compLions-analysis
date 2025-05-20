@@ -499,15 +499,15 @@ with st.spinner("📦 데이터 로드 중…"):
 
 
 # ─────────────────────────────────────────────────────
-# 8) Q&A 탭
+# 8) Q&A 탭 (업데이트 버전)
 # ─────────────────────────────────────────────────────
 with qa_tab:
     st.header("AX SI 방법론 이행봇")
 
     # 1) 절차 단계 선택
     step = st.selectbox("📂 절차 단계를 하나 선택해 주세요", list(PROCESS_PDF_URLS.keys()))
-    if step is None:
-        st.info("모든 단계를 선택 후, 질문을 입력하고 '질문 요청' 버튼을 눌러주세요.")
+    if not step:
+        st.info("먼저 절차 단계를 선택하세요.")
         st.stop()
 
     # 2) SUBSTEP 선택
@@ -515,31 +515,17 @@ with qa_tab:
     sub_choices = [d.metadata["title"] for d in idx_docs]
     substep     = st.selectbox("⚙️ 세부 절차를 하나 선택해 주세요", sub_choices)
     if not substep:
-        st.info("모든 단계를 선택 후, 질문을 입력하고 '질문 요청' 버튼을 눌러주세요.")
+        st.info("먼저 세부 절차를 선택하세요.")
         st.stop()
 
-    # 3) 질문 유형 선택
-    qtype = st.selectbox("❓ 질문 유형을 하나 선택해 주세요", ["정의 요청", "일반 질문"])
-    if not qtype:
-        st.info("모든 단계를 선택 후, 질문을 입력하고 '질문 요청' 버튼을 눌러주세요.")
-        st.stop()
-
-    # 4) 절차 개요
-    st.subheader(f"[{step}] 프로세스 개요")
-    with st.expander("목록 펼치기", expanded=False):
-        for d in idx_docs:
-            st.markdown(f"- {d.page_content}")
-
-    # 5) 질문 입력
+    # 3) 질문 입력
     query = st.text_input("💬 질문을 입력하세요", key=f"query_{step}")
-
-    # 6) 질문 요청 버튼 — 여기서만 분석/API 호출 수행
     if st.button("질문 요청", key=f"btn_{step}"):
         if not query.strip():
             st.warning("질문을 입력해주세요.")
             st.stop()
 
-        # (디버그) 전체 청크 확인
+        # ─────────── 디버그: 전체 청크 확인 ───────────
         with st.expander("🔍 전체 청크 확인", expanded=False):
             docs = proc_docs_map[step]
             st.write(f"• 총 청크 개수: {len(docs)}")
@@ -548,70 +534,61 @@ with qa_tab:
                     f"**Chunk {i+1} (메타: {d.metadata}):**\n```\n{d.page_content[:200]}...\n```"
                 )
 
-        # 7) 질문 유형·SUBSTEP 매핑
-        st.info(f"📌 사용자의 질문은 ‘{substep}’ 단계의 “{qtype}” 입니다.")
+        # 4) LLM으로 질문 의도 분류 (정의/수행/산출물/책임/일정/일반)
+        qtype = classify_with_llm(query)
+        st.info(f"📌 사용자의 질문 의도는 “{qtype}” 입니다.")
 
-        # 8) 글로벌 Q&A 매핑 (Top-3, threshold=0.5)
+        # 5) 글로벌 Q&A 사례 매핑 (Top-3, threshold=0.5)
         docs_and_scores = global_qna_vectordb.similarity_search_with_score(query, k=3)
         with st.expander("🔍 Q&A 유사도 Top 3", expanded=False):
             for doc, score in docs_and_scores:
-                st.write(f"- **{score:.3f}**: {doc.page_content.splitlines()[0]}…")
+                first_line = doc.page_content.splitlines()[0]
+                st.write(f"- **{score:.3f}**: {first_line}…")
         top_doc, top_score = docs_and_scores[0]
         if top_score >= 0.5:
             st.subheader("💡 사례 응답")
             st.write(top_doc.page_content)
             st.stop()
 
-        # 9) SUBSTEP RetrievalQA → dynamic prompt 조립
-        start_title = idx_docs[0].metadata["title"]
-        end_title   = idx_docs[-1].metadata["title"]
+        # 6) SUBSTEP용 Retriever 선택 (없으면 STEP 전체)
+        retriever = substep_vectordbs[step].get(substep) or proc_vectordbs[step].as_retriever()
 
-        from langchain_core.prompts import (
-            ChatPromptTemplate,
-            SystemMessagePromptTemplate,
-            HumanMessagePromptTemplate,
-        )
-
-        # persona 메시지
-        persona_sys = SystemMessagePromptTemplate.from_template(BASE_PERSONA)
-        # 단계별 시스템 메시지 (start/end 반영)
-        stage_tpl = STEP_SYSTEM_PROMPTS[step].format(
-            start_title=start_title, end_title=end_title
-        )
-        stage_sys = SystemMessagePromptTemplate.from_template(stage_tpl)
-        # 질문 유형별 시스템 메시지
-        type_sys  = SystemMessagePromptTemplate.from_template(
-            QUESTION_TYPE_SYSTEM[qtype]
-        )
-        # 사용자 메시지 템플릿 (query, context)
-        user_sys  = HumanMessagePromptTemplate.from_template(
-            "질문: {query}\n\n절차 요약:\n{context}\n\n간결하게 답변해주세요."
-        )
-
+        # 7) 동적 프롬프트 조립
+        #    BASE_PERSONA, STEP_SYSTEM_PROMPTS, QUESTION_TYPE_SYSTEM, USER_TMPL 은
+        #    이미 0-3, 0-6 섹션에서 선언되어 있어야 합니다.
         prompt = ChatPromptTemplate.from_messages([
-            persona_sys,
-            stage_sys,
-            type_sys,
-            user_sys,
+            SystemMessagePromptTemplate.from_template(BASE_PERSONA),
+            # STEP별 시스템메시지에 start/end 동적으로 주입
+            SystemMessagePromptTemplate.from_template(
+                STEP_SYSTEM_PROMPTS[step].format(
+                    start_title=idx_docs[0].metadata["title"],
+                    end_title=idx_docs[-1].metadata["title"],
+                )
+            ),
+            # 질문유형별 시스템메시지에 substep 주입
+            SystemMessagePromptTemplate.from_template(
+                QUESTION_TYPE_SYSTEM[qtype].format(sub_title=substep)
+            ),
+            USER_TMPL  # "질문: {question}\n\n절차 요약:\n{context}..."
         ])
 
-        # retriever 선택
-       # 9) SUBSTEP RetrievalQA
-retriever = substep_vectordbs[step].get(substep) or proc_vectordbs[step].as_retriever()
+        # 8) RetrievalQA 체인에 연결 (LangSmith 콜백도 옵션으로 추가 가능)
+        qa_chain = RetrievalQA.from_chain_type(
+            llm=ChatOpenAI(
+                model="gpt-4o-mini",
+                temperature=0,
+                openai_api_key=os.environ["OPENAI_API_KEY"],
+            ),
+            chain_type="stuff",
+            retriever=retriever,
+            chain_type_kwargs={"prompt": prompt},
+            # callbacks=[LangSmithCallbackHandler(tracer)]  # LangSmith 사용 시
+        )
 
-# -- 여기서 동적으로 프롬프트 생성 --
-prompt = make_prompt_for_type(qtype)
+        # 9) 답변 생성
+        with st.spinner("답변 생성 중…"):
+            # .run()에 직접 query 문자열 넘기면 내부 입력키(query)로 맵핑됩니다.
+            answer = qa_chain.run(query)
 
-qa_chain = RetrievalQA.from_chain_type(
-    llm=ChatOpenAI(
-        model="gpt-4o-mini",
-        temperature=0,
-        openai_api_key=os.environ["OPENAI_API_KEY"],
-    ),
-    chain_type="stuff",
-    retriever=retriever,
-    chain_type_kwargs={"prompt": prompt},   # ← 새로 추가된 인자
-)
-
-with st.spinner("답변 생성 중…"):
-    answer = qa_chain.run({"query": query})
+        st.subheader("💡 답변")
+        st.write(answer)
