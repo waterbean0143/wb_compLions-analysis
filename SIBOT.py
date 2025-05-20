@@ -526,13 +526,52 @@ with qa_tab:
             st.write(top_doc.page_content)
             st.stop()
 
-        # 9) SUBSTEP RetrievalQA
+        # 9) SUBSTEP RetrievalQA → dynamic prompt 조립
+        start_title = idx_docs[0].metadata["title"]
+        end_title   = idx_docs[-1].metadata["title"]
+
+        from langchain_core.prompts import (
+            ChatPromptTemplate,
+            SystemMessagePromptTemplate,
+            HumanMessagePromptTemplate,
+        )
+
+        # persona 메시지
+        persona_sys = SystemMessagePromptTemplate.from_template(BASE_PERSONA)
+        # 단계별 시스템 메시지 (start/end 반영)
+        stage_tpl = STEP_SYSTEM_PROMPTS[step].format(
+            start_title=start_title, end_title=end_title
+        )
+        stage_sys = SystemMessagePromptTemplate.from_template(stage_tpl)
+        # 질문 유형별 시스템 메시지
+        type_sys  = SystemMessagePromptTemplate.from_template(
+            QUESTION_TYPE_SYSTEM[qtype]
+        )
+        # 사용자 메시지 템플릿 (query, context)
+        user_sys  = HumanMessagePromptTemplate.from_template(
+            "질문: {query}\n\n절차 요약:\n{context}\n\n간결하게 답변해주세요."
+        )
+
+        prompt = ChatPromptTemplate.from_messages([
+            persona_sys,
+            stage_sys,
+            type_sys,
+            user_sys,
+        ])
+
+        # retriever 선택
         retriever = substep_vectordbs[step].get(substep) or proc_vectordbs[step].as_retriever()
+
+        # chain 생성 시 chain_type_kwargs 에 prompt 전달
         qa_chain = RetrievalQA.from_chain_type(
-            llm=ChatOpenAI(model="gpt-4o-mini", temperature=0,
-                           openai_api_key=os.environ["OPENAI_API_KEY"]),
+            llm=ChatOpenAI(
+                model="gpt-4o-mini",
+                temperature=0,
+                openai_api_key=os.environ["OPENAI_API_KEY"],
+            ),
             chain_type="stuff",
             retriever=retriever,
+            chain_type_kwargs={"prompt": prompt},
         )
         with st.spinner("답변 생성 중…"):
             answer = qa_chain.run(query)
