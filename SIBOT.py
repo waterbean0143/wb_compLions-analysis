@@ -452,12 +452,17 @@ def build_substep_vectordbs(
 
 
 with st.spinner("📦 데이터 로드 중…"):
+    # 1) 문서 로드
     proc_docs_map, qna_docs_map, wordpool_map, original_pages = load_all_docs()
-    proc_vdbs, qna_vdbs   = build_vectordbs(proc_docs_map, qna_docs_map)
-    global_qna_vdb        = build_global_qna_vectordb(qna_docs_map)
-    index_vdbs            = build_index_vectordbs()
-    
-    # substep_vectordbs는 필요시 버튼 클릭 시점에 로드해도 됩니다.
+
+    # …(기존 vectordb 생성)…
+    proc_vectordbs, qna_vectordbs = build_vectordbs(proc_docs_map, qna_docs_map)
+    global_qna_vectordb           = build_global_qna_vectordb(qna_docs_map)
+
+    # 2) **Substep 인덱스용 FAISS 생성**
+    index_vectordbs               = build_index_vectordbs()
+
+    # 3) (선택) substep_vectordbs 생성
     substep_vectordbs             = build_substep_vectordbs(proc_docs_map)
 
 # ─────────────────────────────────────────────────────
