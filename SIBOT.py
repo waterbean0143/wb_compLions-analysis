@@ -499,6 +499,8 @@ with qa_tab:
 
     # 4) 질문 요청
     if st.button("질문 요청", key="btn_query"):
+        answer = None 
+        
         # 5) Substep 자동 추론 (Top-1만 사용)
         idx_scores     = index_vectordbs[step].similarity_search_with_score(query, k=1)
         substep_option = idx_scores[0][0].page_content
