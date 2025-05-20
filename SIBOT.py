@@ -1,8 +1,7 @@
 # ─────────────────────────────────────────────────────
-# 0) Streamlit 페이지 설정 — 반드시 최상단에
+# 0) 라이브러리 및 선언 영역
 # ─────────────────────────────────────────────────────
 import streamlit as st
-st.set_page_config(page_title="AX SI 방법론 이행봇", layout="wide")
 import requests
 import tempfile
 import os
@@ -12,24 +11,32 @@ from typing import TypedDict, Dict, List, Tuple
 from io import BytesIO
 import uuid
 import time
+import threading
+import asyncio
+import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 
 import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import plotly.express as px
+
 from kiwipiepy import Kiwi
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
-from langchain.text_splitter import CharacterTextSplitter, RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyMuPDFLoader
+from langchain.text_splitter import CharacterTextSplitter, RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain.retrievers import EnsembleRetriever
 from langchain_community.retrievers import BM25Retriever
 from langchain.memory import ConversationBufferMemory
 from langchain.schema import Document
 from langchain.chains import RetrievalQA, ConversationalRetrievalChain
-from langchain import LLMChain
 
 # ─────────────────────────────────────────────────────
-# 1) 유틸리티 함수 정의
+# 0-1) PDF 첫페이지 인덱스 자동추출 유틸
 # ─────────────────────────────────────────────────────
 def download_and_load(url: str) -> List[Document]:
     resp = requests.get(url)
@@ -38,56 +45,69 @@ def download_and_load(url: str) -> List[Document]:
         tf.write(resp.content)
         tmp_path = tf.name
     try:
-        pages = PyMuPDFLoader(tmp_path).load()
+        docs = PyMuPDFLoader(tmp_path).load()
+    except Exception:
+        docs = []
     finally:
-        os.remove(tmp_path)
-    return pages
-
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+    return docs
 
 def extract_index_chunks(url: str) -> List[Document]:
-    pages = download_and_load(url)
-    if not pages: return []
-    lines = pages[0].page_content.splitlines()
+    raw_docs = download_and_load(url)
+    if not raw_docs:
+        return []
+    first_page = raw_docs[0].page_content
+    lines = first_page.splitlines()
     start = 0
     for i, line in enumerate(lines):
-        if line.strip().startswith("##"): start = i+1; break
+        if line.strip().startswith("##"):
+            start = i + 1
+            break
     pattern = re.compile(r"^(\d+)\.\s*(.+)$")
-    out = []
+    index_docs: List[Document] = []
     for line in lines[start:]:
         m = pattern.match(line.strip())
-        if not m: break
+        if not m:
+            break
         num, title = m.groups()
-        out.append(Document(page_content=f"{num}. {title}", metadata={"step": num, "title": title}))
-    return out
+        meta = {"step": int(num), "title": title}
+        text = f"{num}. {title}"
+        index_docs.append(Document(page_content=text, metadata=meta))
+    return index_docs
 
 # ─────────────────────────────────────────────────────
-# 2) 질문 유도 및 분류 정의
+# 0-2) GraphState 정의 & 질문 유형 분류
 # ─────────────────────────────────────────────────────
-def classify_question_type(q: str) -> str:
-    ql = q.lower()
-    if any(k in ql for k in ["정의","이란"]): return "정의 요청"
-    if any(k in ql for k in ["어떻게","절차","방법"]): return "수행 절차 안내"
-    if any(k in ql for k in ["산출물","문서","준비"]): return "산출물·문서 요구 사항"
-    if any(k in ql for k in ["누가","책임","역할"]): return "책임·역할 분담"
-    if re.search(r"\d+일", ql) or any(k in ql for k in ["언제","기한","마감"]):
-        return "일정·마일스톤 확인"
-    return "일반 질문"
+class GraphState(TypedDict):
+    question: str
+    step_name: str
+    sub_title: str
+    question_type: str
+    context: str
+    response: str
+    attempts: int
 
+# ─────────────────────────────────────────────────────
+# 0-1) 질문 의도·맥락 분류용 시스템 메시지
+# ─────────────────────────────────────────────────────
 INTENT_CLASSIFICATION_PROMPT = ChatPromptTemplate.from_messages([
     SystemMessagePromptTemplate.from_template(
-        """
-당신은 AX SI 방법론 이행봇의 질문 의도 분류기입니다.
-아래 6가지 유형 중 하나로 분류:
-- 정의 요청
-- 수행 절차 안내
-- 산출물·문서 요구 사항
-- 책임·역할 분담
-- 일정·마일스톤 확인
-- 일반 질문
+        """당신은 AX SI 방법론 이행봇의 질문 의도 분류기입니다.
+아래 6가지 유형 중 하나로 이 질문의 **의도**를 분류하세요.
+- 정의 요청: 절차의 개념과 목적을 물음  
+- 수행 절차 안내: 절차를 단계별로 물음  
+- 산출물·문서 요구 사항: 준비해야 할 산출물·문서 물음  
+- 책임·역할 분담: 누가 무엇을 담당하는지 물음  
+- 일정·마일스톤 확인: 기한·마감·N일 이내 처리 여부 물음  
+- 일반 질문: 위에 해당하지 않는 기타 문의  
 
 질문: “{question}”
 
-출력형식: 질문유형: <위 6가지 중 하나>"""
+**출력 형식** (한 줄):
+질문유형: <위 6가지 중 하나>"""
     )
 ])
 
@@ -96,61 +116,138 @@ def classify_with_llm(question: str) -> str:
         llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
         prompt=INTENT_CLASSIFICATION_PROMPT
     )
-    out = chain.predict(question=question)
-    return out.split(':')[-1].strip()
+    output = chain.predict(question=question)
+    # 예시: "질문유형: 정의 요청"
+    return output.split("：")[-1].strip()
 
 # ─────────────────────────────────────────────────────
-# 3) 프롬프트 템플릿 정의
+# 0-3) 질문유형별 Persona + SystemPrompt
 # ─────────────────────────────────────────────────────
-BASE_PERSONA = """
-당신은 대기업 KT의 SI(Project Management) 전문 PM입니다.
-KT 내부 프로세스와 산출물 요건을 정확히 파악하고,
-실무에 바로 적용 가능한 언어로 답변하세요.
-"""
-
 QUESTION_TYPE_SYSTEM: Dict[str,str] = {
-    "정의 요청": """
-주어진 세부절차 "{substep}"의 개념과 목적을 명확히 정의하세요.
-– 무엇(What): 이 절차가 무엇인지
-– 왜(Why): 왜 필요한지
-– 언제(When): 언제 실시되는지
+    "정의 요청": """당신은 대기업 KT의 SI 이행론 전문 PM입니다.
+지금 질문은 세부절차 “{sub_title}”의 정의를 묻고 있습니다.
+What(무엇인지)과 Why(의의)를 간결히 설명하세요.
 """,
-    "수행 절차 안내": """
-주어진 세부절차 "{substep}"를 단계별로 안내하세요.
-– 선행·후속 절차 언급
-– 각 단계(What→Why→How)
+    "수행 절차 안내": """당신은 대기업 KT의 SI 이행론 전문 PM입니다.
+지금 질문은 세부절차 “{sub_title}”의 수행 방법을 묻고 있습니다.
+What/Why/How 순으로 단계별 설명하세요.
 """,
-    "산출물·문서 요구 사항": """
-"{substep}"에서 준비해야 할 산출물·문서를 리스트업하세요.
-– 산출물명
-– 형식·템플릿
-– 제출 시점
+    "산출물·문서 요구 사항": """당신은 대기업 KT의 SI 이행론 전문 PM입니다.
+지금 질문은 세부절차 “{sub_title}”의 필수 산출물을 묻고 있습니다.
+준비해야 할 문서·양식을 목록으로 제시하세요.
 """,
-    "책임·역할 분담": """
-"{substep}"에서 각 이해관계자(영업대표·PM·BD 등)의 역할을 정리하세요.
-– 누가(Who)
-– 어떤 활동(What)
-– 언제(When)
+    "책임·역할 분담": """당신은 대기업 KT의 SI 이행론 전문 PM입니다.
+지금 질문은 세부절차 “{sub_title}”의 책임 주체를 묻고 있습니다.
+RACI 형식으로 역할과 책임을 정리하세요.
 """,
-    "일정·마일스톤 확인": """
-"{substep}"의 기한·마일스톤을 표로 정리하세요.
-– 시작일
-– 종료일
-– N일 이내 요건
+    "일정·마일스톤 확인": """당신은 대기업 KT의 SI 이행론 전문 PM입니다.
+지금 질문은 세부절차 “{sub_title}”의 일정·마감 기한을 묻고 있습니다.
+시작일·종료일·N일 이내 요건을 표로 정리하세요.
 """,
-    "일반 질문": """
-주어진 절차 컨텍스트를 참고하여, 질문 의도에 맞게 간결히 답변하세요.
-""",
+    "일반 질문": """당신은 대기업 KT의 SI 이행론 전문 PM입니다.
+지금 질문은 세부절차 “{sub_title}”에 대한 일반 문의입니다.
+관련된 What/Why/How 또는 체크리스트를 간결히 답변하세요.
+"""
 }
 
 # ─────────────────────────────────────────────────────
-# 0) 문서 URL 정의 (반드시 함수 정의 위에 위치)
+# 0-4) STEP별 시스템 메시지 정의 (start/end 동적 반영)
+# ─────────────────────────────────────────────────────
+STEP_SYSTEM_PROMPTS = {
+    "제안/계약": """당신은 AX SI 방법론의 ‘제안/계약’ 단계 전문가입니다.
+‘{start_title}’부터 ‘{end_title}’까지의 프로세스를 깊이 이해하고 있으며,
+절차별로 무엇을, 왜, 어떻게 해야 하는지를 명확하게 설명하세요.
+
+답변 전 반드시 확인할 사항:
+1. 제안 범위(공공/민간)와 고객 특성이 질문에 명확히 드러나 있나요?
+2. 관련 이해관계자(영업대표·BD·PM 등)의 역할이 분명합니까?
+3. RFI/RFP 일정과 제출 기한이 명시되어 있나요?
+4. VDC-A/B/C 심의 요건(사전규격, 심의 소요 기간 등)이 충분히 주어졌습니까?
+5. 리스크 검토 항목(가격·기술·하도급·법무 등)이 언급되어 있나요?
+
+불명확한 점이 있으면, 추가 정보를 요청하세요.
+""",
+    "착수/계획": """당신은 AX SI 방법론의 ‘착수/계획’ 단계 전문가입니다.
+‘{start_title}’부터 ‘{end_title}’까지의 준비사항을 체계적으로 파악하고,
+PMS 구축, 조직·역할 정의, 관리정책 수립 등의 절차를 설명하세요.
+
+답변 전 반드시 확인할 사항:
+1. 수주 결정 일자와 착수계 제출일이 명확히 주어졌나요?
+2. PMO·전사QA 등 주요 조직 구성원이 언급되어 있습니까?
+3. 관리·작업 환경 구축 범위(PMS·인력관리·보안 등)가 충분히 제공되었나요?
+4. 하도급 승인 여부 및 하도급 계약 조건이 명시되어 있나요?
+
+모호한 점이 있으면, 추가 정보를 요청하세요.
+"""
+}
+
+# ─────────────────────────────────────────────────────
+# 0-5) STEP별 ChatPromptTemplate 생성
+# ─────────────────────────────────────────────────────
+STEP_PROMPTS = {
+    step: ChatPromptTemplate.from_messages([
+        ("system", STEP_SYSTEM_PROMPTS[step]),
+        ("user", """
+질문: {question}
+
+관련 절차 요약:
+{context}
+
+이 단계는 '{start_title}'부터 '{end_title}'까지 진행됩니다.
+오직 제공된 문서를 참고하여, 단계별로 무엇을, 왜, 어떻게 해야 하는지 설명해주세요.
+""")
+    ])
+    for step in STEP_SYSTEM_PROMPTS
+}
+
+# ─────────────────────────────────────────────────────
+# 1) 페이지 설정 및 Secrets 로드
+# ─────────────────────────────────────────────────────
+st.set_page_config(page_title="AX SI 방법론 이행봇", page_icon="🤖", layout="wide")
+os.environ["OPENAI_API_KEY"]      = st.secrets["openai"]["api_key"]
+os.environ["UPSTAGE_API_KEY"]     = st.secrets["upstage"]["api_key"]
+os.environ["LANGCHAIN_API_KEY"]   = st.secrets["langchain"]["api_key"]
+os.environ["LANGCHAIN_ENDPOINT"]  = st.secrets["langchain"]["endpoint"]
+os.environ["LANGCHAIN_PROJECT"]   = st.secrets["langchain"]["project"]
+os.environ["LANGCHAIN_TRACING_V2"] = st.secrets["langchain"]["tracing_v2"]
+os.environ["LANGSMITH_API_KEY"]   = st.secrets.get("langsmith", {}).get("api_key", "")
+
+# ─────────────────────────────────────────────────────
+# 2) 글로벌 설정
+# ─────────────────────────────────────────────────────
+executor = ThreadPoolExecutor(max_workers=5)
+bm25_weight, faiss_weight = 0.3, 0.7
+plt.rcParams['font.family'] = 'NanumGothic'
+plt.rcParams['axes.unicode_minus'] = False
+
+# ─────────────────────────────────────────────────────
+# 3) 로그인
+# ─────────────────────────────────────────────────────
+users = {
+    "10154371": {"password": "10154371", "name": "배수빈"},
+    "10154372": {"password": "10154372", "name": "김도완"},
+    "10156350": {"password": "10156350", "name": "박영준"},
+}
+if 'logged_in' not in st.session_state:
+    st.sidebar.title("🔒 로그인")
+    uid = st.sidebar.text_input("ID", key="login_id")
+    pwd = st.sidebar.text_input("PW", type="password", key="login_pw")
+    if st.sidebar.button("로그인"):
+        if uid in users and users[uid]['password'] == pwd:
+            st.session_state['logged_in'] = True
+            st.sidebar.success(f"환영합니다, {users[uid]['name']}님!")
+            st.experimental_rerun()
+        else:
+            st.sidebar.error("ID 또는 비밀번호가 올바르지 않습니다.")
+    st.stop()
+
+# ─────────────────────────────────────────────────────
+# 4) PDF 매핑
 # ─────────────────────────────────────────────────────
 PROCESS_PDF_URLS = {
     "제안/계약": "https://drive.google.com/uc?export=download&id=1TNOhmUds7hMpwz3NO4QD-mO-J1sUJoEa",
     "착수/계획": "https://drive.google.com/uc?export=download&id=16j9ypXkWD7oi477ylSXWhVVe7jLtRuI7",
 }
-
 QNA_PDF_URLS = {
     "제안/계약": "https://drive.google.com/uc?export=download&id=17M1mnMZVl29EahbSVqzcyZEX8LYsx5ER",
 }
@@ -160,184 +257,296 @@ WORDPOOL_PDF_URLS = {
 }
 
 # ─────────────────────────────────────────────────────
-# 4) 문서 로드 및 벡터 DB 생성
+# 5) UI 설정
 # ─────────────────────────────────────────────────────
-@st.cache_data(ttl=86400)
+st.sidebar.title("⚙️ 설정")
+answer_mode = st.sidebar.radio("답변 모드 선택", ['빠른 답변', '정확한 답변'], index=0)
+tabs = st.tabs(["Q&A", "추가예정"])
+qa_tab, _ = tabs
+
+# ─────────────────────────────────────────────────────
+# 6) 전처리 함수
+# ─────────────────────────────────────────────────────
+kiwi = Kiwi()
+def preprocess(text: str) -> str:
+    toks = kiwi.analyze(text)[0][0]
+    return ' '.join(t.form for t in toks if t.tag.startswith(('N','V','MA')))
+
+# ─────────────────────────────────────────────────────
+# 7) 문서 로드 & vectordb 생성
+# ─────────────────────────────────────────────────────
+@st.cache_data(ttl=3600*24)
 def load_all_docs() -> Tuple[
-        Dict[str, List[Document]],
-        Dict[str, List[Document]],
-        Dict[str, List[Document]]
-    ]:
-    splitter_first = CharacterTextSplitter(
+    Dict[str, List[Document]],  # proc_map
+    Dict[str, List[Document]],  # qna_map
+    Dict[str, List[Document]]   # wordpool_map
+]:
+    # 첫 페이지 전용: 빈 줄(2번 연속 개행) 또는 “.␣”을 경계로 분할
+    first_page_splitter = CharacterTextSplitter(
         separator=r"\n{2,}|\.(?:\s|$)",
-        is_separator_regex=True,
         chunk_size=800,
         chunk_overlap=0,
+        is_separator_regex=True,
     )
-    splitter_body = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
+    # 나머지 페이지 전용: 고정 길이 청크
+    body_splitter = CharacterTextSplitter(
+        chunk_size=800,
+        chunk_overlap=100,
+    )
 
-    # 1) 프로세스 문서
     proc_map: Dict[str, List[Document]] = {}
-    for name, url in PROCESS_PDF_URLS.items():
-        pages = download_and_load(url)
-        docs: List[Document] = []
-        if pages:
-            first, *rest = pages
-            for txt in splitter_first.split_text(first.page_content):
-                docs.append(Document(page_content=txt, metadata={**first.metadata}))
-            docs += splitter_body.split_documents(rest)
-        proc_map[name] = docs
-
-    # 2) 대표 QnA 문서
-    qna_map: Dict[str, List[Document]] = {}
-    for name, url in QNA_PDF_URLS.items():
-        pages = download_and_load(url)
-        docs: List[Document] = []
-        if pages:
-            first, *rest = pages
-            for txt in splitter_first.split_text(first.page_content):
-                docs.append(Document(page_content=txt, metadata={**first.metadata}))
-            docs += splitter_body.split_documents(rest)
-        qna_map[name] = docs
-
-    # 3) SI 용어집 워드풀
+    qna_map:  Dict[str, List[Document]] = {}
     wordpool_map: Dict[str, List[Document]] = {}
-    for name, url in WORDPOOL_PDF_URLS.items():
+
+    def dl_and_chunk(url: str) -> List[Document]:
         pages = download_and_load(url)
-        full_text = "\n".join(p.page_content for p in pages) if pages else ""
-        docs: List[Document] = []
-        for line in full_text.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            if ":" in line:
-                word, rest = [s.strip() for s in line.split(":", 1)]
-                definitions = [d.strip() for d in rest.split(",") if d.strip()]
-                content = f"{word}: {', '.join(definitions)}"
-                docs.append(Document(
-                    page_content=content,
-                    metadata={"source": name, "wp_word": word, "wp_definitions": definitions}
-                ))
-            else:
-                docs.append(Document(page_content=line, metadata={"source": name}))
+        if not pages:
+            return []
+        # 첫 페이지만 regex 스타일로 분할
+        first, *rest = pages
+        first_texts = first_page_splitter.split_text(first.page_content)
+        first_docs = [
+            Document(page_content=text, metadata={**first.metadata})
+            for text in first_texts if text.strip()
+        ]
+        # 나머지는 고정 길이 분할
+        rest_docs = body_splitter.split_documents(rest) if rest else []
+        return first_docs + rest_docs
+
+    # STEP 문서 로드
+    for step, url in PROCESS_PDF_URLS.items():
+        docs = dl_and_chunk(url)
+        for d in docs:
+            d.page_content = preprocess(d.page_content)
+            d.metadata["step"] = step
+        proc_map[step] = docs
+
+    # Q&A 문서 로드
+    for step, url in QNA_PDF_URLS.items():
+        docs = dl_and_chunk(url)
+        for d in docs:
+            d.page_content = preprocess(d.page_content)
+            d.metadata["step"] = step
+        qna_map[step] = docs
+
+    # 용어집(Wordpool) 문서 로드
+    for name, url in WORDPOOL_PDF_URLS.items():
+        docs = dl_and_chunk(url)
+        for d in docs:
+            d.page_content = preprocess(d.page_content)
+            d.metadata["step"] = name
         wordpool_map[name] = docs
 
     return proc_map, qna_map, wordpool_map
+    
+    def download_and_split(url: str) -> List[Document]:
+        # PDF 다운로드
+        resp = requests.get(url)
+        resp.raise_for_status()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tf:
+            tf.write(resp.content)
+            tmp_path = tf.name
+
+        try:
+            pages = PyMuPDFLoader(tmp_path).load()
+        finally:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+
+        docs: List[Document] = []
+        if pages:
+            # 첫 페이지는 인덱스(chunk_size=1)로, 나머지는 body_splitter
+            first = pages[0]
+            idx_chunks = index_splitter.split_text(first.page_content)
+            for txt in idx_chunks:
+                docs.append(Document(page_content=txt, metadata=first.metadata.copy()))
+            # 2페이지부터
+            rest = pages[1:]
+            if rest:
+                rest_docs = body_splitter.split_documents(rest)
+                docs.extend(rest_docs)
+        return docs
+
+    # STEP 문서 로드
+    for step, url in PROCESS_PDF_URLS.items():
+        docs = download_and_split(url)
+        for d in docs:
+            d.page_content = preprocess(d.page_content)
+            d.metadata["step"] = step
+        proc_map[step] = docs
+
+    # Q&A 문서 로드
+    for step, url in QNA_PDF_URLS.items():
+        docs = download_and_split(url)
+        for d in docs:
+            d.page_content = preprocess(d.page_content)
+            d.metadata["step"] = step
+        qna_map[step] = docs
+
+    return proc_map, qna_map
 
 
-@st.cache_resource(ttl=86400)
+@st.cache_resource(ttl=3600 * 24)
 def build_vectordbs(
-    proc_docs_map: Dict[str, List[Document]],
-    qna_docs_map:  Dict[str, List[Document]],
-    wordpool_docs_map: Dict[str, List[Document]]
-) -> Tuple[
-        Dict[str, FAISS],
-        Dict[str, FAISS],
-        Dict[str, FAISS]
-    ]:
+    _proc_docs_map: Dict[str, List[Document]],
+    _qna_docs_map: Dict[str, List[Document]]
+) -> Tuple[Dict[str, FAISS], Dict[str, FAISS]]:
+    emb = OpenAIEmbeddings(model="text-embedding-ada-002",
+                           openai_api_key=os.environ["OPENAI_API_KEY"])
+    proc_vdb = {step: FAISS.from_documents(docs, emb)
+                for step, docs in _proc_docs_map.items()}
+    qna_vdb = {step: FAISS.from_documents(docs, emb)
+               for step, docs in _qna_docs_map.items()}
+    return proc_vdb, qna_vdb
+
+
+@st.cache_resource(ttl=3600*24)
+def build_global_qna_vectordb(
+    _qna_map: Dict[str, List[Document]]
+) -> FAISS:
+    all_qna = []
+    for docs in _qna_map.values():
+        all_qna.extend(docs)
     emb = OpenAIEmbeddings(
         model="text-embedding-ada-002",
-        openai_api_key=os.getenv("OPENAI_API_KEY")
+        openai_api_key=os.environ["OPENAI_API_KEY"],
     )
-    proc_vdbs   = {k: FAISS.from_documents(v, emb) for k, v in proc_docs_map.items()}
-    qna_vdbs    = {k: FAISS.from_documents(v, emb) for k, v in qna_docs_map.items()}
-    wp_vdbs     = {k: FAISS.from_documents(v, emb) for k, v in wordpool_docs_map.items()}
-    return proc_vdbs, qna_vdbs, wp_vdbs
+    return FAISS.from_documents(all_qna, emb)
 
-@st.cache_resource(ttl=86400)
-def build_substep_vectordbs(proc_docs_map):
-    emb = OpenAIEmbeddings(…)
-    substep_map = {}
-    for step, docs in proc_docs_map.items():
-        buckets = {}
-        for d in docs:
-            t = d.metadata.get("title","Unknown")
-            buckets.setdefault(t,[]).append(d)
-        substep_map[step] = { t: FAISS.from_documents(docs,emb) for t,docs in buckets.items() }
-    return substep_map
+
+@st.cache_resource(ttl=3600*24)
+def build_index_retrievers() -> Dict[str, any]:
+    emb = OpenAIEmbeddings(
+        model="text-embedding-ada-002",
+        openai_api_key=os.environ["OPENAI_API_KEY"],
+    )
+    idx_retrs = {}
+    for step, url in PROCESS_PDF_URLS.items():
+        idx_docs = extract_index_chunks(url)
+        if idx_docs:
+            idx_retrs[step] = FAISS.from_documents(idx_docs, emb).as_retriever()
+    return idx_retrs
+
+
+@st.cache_resource(ttl=3600*24)
+def build_substep_vectordbs(
+    _proc_docs_map: Dict[str, List[Document]]
+) -> Dict[str, Dict[str, FAISS]]:
+    emb = OpenAIEmbeddings(
+        model="text-embedding-ada-002",
+        openai_api_key=os.environ["OPENAI_API_KEY"],
+    )
+    sub_vdbs: Dict[str, Dict[str, FAISS]] = {}
+    for step, docs in _proc_docs_map.items():
+        idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
+        sub_db: Dict[str, FAISS] = {}
+        for idx in idx_docs:
+            title = idx.metadata["title"]
+            subset = [d for d in docs if title in d.page_content]
+            if subset:
+                sub_db[title] = FAISS.from_documents(subset, emb)
+        sub_vdbs[step] = sub_db
+    return sub_vdbs
+
+
+# 앱 시작 시 한 번만 로드·벡터화
+with st.spinner("📦 데이터 로드 중…"):
+    # unpack all three
+    proc_docs_map, qna_docs_map, wordpool_map = load_all_docs()
+
+    proc_vectordbs, qna_vectordbs = build_vectordbs(proc_docs_map, qna_docs_map)
+    global_qna_vectordb           = build_global_qna_vectordb(qna_docs_map)
+    index_retrievers              = build_index_retrievers()
+    substep_vectordbs             = build_substep_vectordbs(proc_docs_map)
+
 
 # ─────────────────────────────────────────────────────
-# 5) 벡터 DB 생성 호출
-# ─────────────────────────────────────────────────────
-proc_docs_map, qna_docs_map, wp_docs_map = load_all_docs()
-proc_vdbs, qna_vdbs, wp_vdbs           = build_vectordbs(proc_docs_map, qna_docs_map, wp_docs_map)
-substep_vdbs                           = build_substep_vectordbs(proc_docs_map)
-
-# ─────────────────────────────────────────────────────
-# 6) Q&A 탭 (프로세스 Top-3 & QnA Top-3 → 우선순위 결정 → 원문 응답)
+# 8) Q&A 탭
 # ─────────────────────────────────────────────────────
 with qa_tab:
-    st.header("AX SI 방법론 이행봇 - Q&A")
+    st.header("AX SI 방법론 이행봇")
 
     # 1) 절차 단계 선택
-    step = st.selectbox(
-        "📂 절차 단계를 선택하세요",
-        list(PROCESS_PDF_URLS.keys()),
-        key="step_select"
-    )
-
-    # 2) 세부 절차(소단계) 선택
-    idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
-    substep = st.selectbox(
-        "⚙️ 세부 절차를 선택하세요",
-        [d.metadata["title"] for d in idx_docs],
-        key="substep_select"
-    )
-
-    # 3) 질문 입력
-    query = st.text_input("💬 질문을 입력하세요", key=f"query_{step}")
-    if not query:
+    step = st.selectbox("📂 절차 단계를 하나 선택해 주세요", list(PROCESS_PDF_URLS.keys()))
+    if step is None:
+        st.info("모든 단계를 선택 후, 질문을 입력하고 '질문 요청' 버튼을 눌러주세요.")
         st.stop()
 
-    # 4) 질문 요청 버튼
+    # 2) SUBSTEP 선택
+    idx_docs    = extract_index_chunks(PROCESS_PDF_URLS[step])
+    sub_choices = [d.metadata["title"] for d in idx_docs]
+    substep     = st.selectbox("⚙️ 세부 절차를 하나 선택해 주세요", sub_choices)
+    if not substep:
+        st.info("모든 단계를 선택 후, 질문을 입력하고 '질문 요청' 버튼을 눌러주세요.")
+        st.stop()
+
+    # 3) 질문 유형 선택
+    qtype = st.selectbox("❓ 질문 유형을 하나 선택해 주세요", ["정의 요청", "일반 질문"])
+    if not qtype:
+        st.info("모든 단계를 선택 후, 질문을 입력하고 '질문 요청' 버튼을 눌러주세요.")
+        st.stop()
+
+    # 4) 절차 개요
+    st.subheader(f"[{step}] 프로세스 개요")
+    with st.expander("목록 펼치기", expanded=False):
+        for d in idx_docs:
+            st.markdown(f"- {d.page_content}")
+
+    # 5) 질문 입력
+    query = st.text_input("💬 질문을 입력하세요", key=f"query_{step}")
+
+    # 6) 질문 요청 버튼 — 여기서만 분석/API 호출 수행
     if st.button("질문 요청", key=f"btn_{step}"):
-        # 4-1) 질문 유형 분류
-        qtype = classify_question_type(query)
-        st.info(f"📌 질문 유형: ‘{qtype}’")
+        if not query.strip():
+            st.warning("질문을 입력해주세요.")
+            st.stop()
 
-        # 4-2) 프로세스 문서 Top-3 검색
-        proc_scores = proc_vdbs[step].similarity_search_with_score(query, k=3)
-        st.subheader("🔍 프로세스 유사도 Top-3")
-        for i, (doc, score) in enumerate(proc_scores, start=1):
-            meta = doc.metadata
-            location = f"page {meta.get('page','?')}, sentence {meta.get('sentence_id','?')}"
-            snippet  = doc.page_content.replace("\n", " ")[:200] + "…"
-            st.write(f"{i}. Score {score:.2f} — {snippet}")
-            st.write(f"   • 위치: {location}")
+        # (디버그) 전체 청크 확인
+        with st.expander("🔍 전체 청크 확인", expanded=False):
+            docs = proc_docs_map[step]
+            st.write(f"• 총 청크 개수: {len(docs)}")
+            for i, d in enumerate(docs[:3]):
+                st.markdown(
+                    f"**Chunk {i+1} (메타: {d.metadata}):**\n```\n{d.page_content[:200]}...\n```"
+                )
 
-        # 4-3) QnA 문서 Top-3 검색
-        qna_scores = qna_vdbs[step].similarity_search_with_score(query, k=3)
-        st.subheader("🔍 사례 응답 유사도 Top-3")
-        for i, (doc, score) in enumerate(qna_scores, start=1):
-            lines  = doc.page_content.splitlines()
-            q_line = next((l for l in lines if l.startswith("[질문]")), lines[0])
-            a_line = next((l for l in lines if l.startswith("[[[답변]")), lines[-1])
-            st.write(f"{i}. Score {score:.2f} — {q_line}")
-            st.write(f"   {a_line}")
+        # 7) 질문 유형·SUBSTEP 매핑
+        st.info(f"📌 사용자의 질문은 ‘{substep}’ 단계의 “{qtype}” 입니다.")
 
-        # 5) 최우선 QnA 결과 활용 여부 결정
-        top_doc, top_score = qna_scores[0]
+       # 8) 글로벌 Q&A 매핑 (Top-3, threshold=0.5) => qna 응답 분기
+        docs_and_scores = global_qna_vectordb.similarity_search_with_score(query, k=3)
+        with st.expander("🔍 Q&A 유사도 Top 3", expanded=False):
+            for doc, score in docs_and_scores:
+                first_line = doc.page_content.splitlines()[0]
+                st.write(f"- **{score:.3f}**: {first_line}…")
+        top_doc, top_score = docs_and_scores[0]
         if top_score >= 0.5:
-            st.subheader("💡 QnA 우선 응답")
-            answer_text = next(
-                (l for l in top_doc.page_content.splitlines() if l.startswith("[[[답변]")),
-                ""
-            )
-            st.write(answer_text.replace("[[[답변]", "").rstrip("]"))
+            st.subheader("💡 qna 응답")
+            # 원문 (preprocess 되기 전) 이 필요하면, qna_docs_map[step]에서 metadata 비교 후 꺼내 쓰세요.
+            st.write(top_doc.page_content)
+            st.stop()
 
-        else:
-            st.subheader("💡 프로세스 응답")
-            retriever = substep_vdbs[step].get(substep) or proc_vdbs[step].as_retriever()
-            prompt    = make_prompt_for_type(qtype)
-            qa_chain  = RetrievalQA.from_chain_type(
-                llm=ChatOpenAI(
-                    model="gpt-4o-mini",
-                    temperature=0,
-                    openai_api_key=os.environ["OPENAI_API_KEY"]
-                ),
-                chain_type="stuff",
-                retriever=retriever,
-                chain_type_kwargs={"prompt": prompt},
-            )
-            answer = qa_chain.run({"query": query})
-            st.write(answer)
+         # 9) 프로세스 기반 RetrievalQA
+        retriever = substep_vectordbs[step].get(substep) or proc_vectordbs[step].as_retriever()
+
+        # (선택) 실제 참조한 청크 원문 보여주기
+        proc_docs = retriever.get_relevant_documents(query)
+        with st.expander("🔍 참조된 프로세스 내용", expanded=False):
+            for d in proc_docs[:3]:
+                st.markdown(f"- {d.page_content}")
+
+        st.subheader("💡 프로세스 응답")
+        qa_chain = RetrievalQA.from_chain_type(
+            llm=ChatOpenAI(
+                model="gpt-4o-mini",
+                temperature=0,
+                openai_api_key=os.environ["OPENAI_API_KEY"],
+            ),
+            chain_type="stuff",
+            retriever=retriever,
+        )
+        with st.spinner("답변 생성 중…"):
+            answer = qa_chain.run(query)
+        st.write(answer)
