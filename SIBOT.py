@@ -422,16 +422,21 @@ def build_substep_vectordbs(
     return sub_vdbs
 
 
-with st.spinner("📦 문서·인덱스 로드 중…"):
-    # PDF 로드 (캐시)
+with st.spinner("📦 데이터 로드 중…"):
+    # 1) PDF 로드
     proc_docs_map, qna_docs_map, wordpool_map = load_all_docs()
 
-    # 전체 QnA 합본 FAISS (자유 질의용)
-    global_qna_vectordb  = build_global_qna_vectordb(qna_docs_map)
+    # 2) 프로세스·QnA 벡터 DB 생성
+    proc_vectordbs, qna_vectordbs = build_vectordbs(proc_docs_map, qna_docs_map)
 
-    # STEP별 Substep 인덱스용 FAISS
-    index_vectordbs      = build_index_vectordbs()
+    # 3) 전체 QnA 합본 벡터 DB (자유 질의용)
+    global_qna_vectordb           = build_global_qna_vectordb(qna_docs_map)
 
+    # 4) STEP별 Substep 인덱스용 FAISS 생성
+    index_vectordbs               = build_index_vectordbs()
+
+    # 5) 세부절차별 벡터 DB 생성
+    substep_vectordbs             = build_substep_vectordbs(proc_docs_map)
 
 # ─────────────────────────────────────────────────────
 # 8) Q&A 탭 (STEP → Substep 자동 추론 → 유형 분기 → 답변 + TOP3)
