@@ -613,8 +613,7 @@ with qa_tab:
         else:  # 비교 보기
             kw = classify_question_type(query)
             llm = classify_with_llm(query)
-            st.info(f"🔎 **키워드 기반**: {kw}  
-                    🔍 **LLM 기반**: {llm}")
+            st.info(f"🔎 **키워드 기반**: {kw}\n🔍 **LLM 기반**: {llm}")
             # 대표 하나만 뽑고 싶으면, 예를 들어 KW 우선:
             qtype = kw
 
