@@ -269,41 +269,55 @@ proc_vdbs, qna_vdbs, wp_vdbs           = build_vectordbs(
 # 6) Q&A 탭 (프로세스 Top-3 & QnA Top-3 → 우선순위 결정 → 원문 응답)
 # ─────────────────────────────────────────────────────
 with qa_tab:
-    st.header("AX SI 방법론 이행봇")
+    st.header("AX SI 방법론 이행봇 - Q&A")
 
-    # 1) 절차 단계 + 세부절차 + 질문 입력
-    step   = st.selectbox("📂 절차 단계를 하나 선택해 주세요", list(PROCESS_PDF_URLS.keys()))
+    # 1) 절차 단계 선택
+    step = st.selectbox(
+        "📂 절차 단계를 선택하세요",
+        list(PROCESS_PDF_URLS.keys()),
+        key="step_select"
+    )
+
+    # 2) 세부 절차(소단계) 선택
     idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
-    substep  = st.selectbox("⚙️ 세부 절차를 하나 선택해 주세요", [d.metadata["title"] for d in idx_docs])
-    query    = st.text_input("💬 질문을 입력하세요", key=f"query_{step}")
+    substep = st.selectbox(
+        "⚙️ 세부 절차를 선택하세요",
+        [d.metadata["title"] for d in idx_docs],
+        key="substep_select"
+    )
+
+    # 3) 질문 입력
+    query = st.text_input("💬 질문을 입력하세요", key=f"query_{step}")
     if not query:
         st.stop()
 
+    # 4) 질문 요청 버튼
     if st.button("질문 요청", key=f"btn_{step}"):
-        # 2) 질문 유형 분류
+        # 4-1) 질문 유형 분류
         qtype = classify_question_type(query)
-        st.info(f"📌 사용자의 질문은 ‘{substep}’ 단계의 “{qtype}” 입니다.")
+        st.info(f"📌 질문 유형: ‘{qtype}’")
 
-        # 3) 프로세스 문서 Top-3 청크 검색
+        # 4-2) 프로세스 문서 Top-3 검색
         proc_scores = proc_vdbs[step].similarity_search_with_score(query, k=3)
         st.subheader("🔍 프로세스 유사도 Top-3")
         for i, (doc, score) in enumerate(proc_scores, start=1):
             meta = doc.metadata
-            location = f"page {meta.get('page','?')}, {meta.get('sentence_id','?')}"
+            location = f"page {meta.get('page','?')}, sentence {meta.get('sentence_id','?')}"
             snippet  = doc.page_content.replace("\n", " ")[:200] + "…"
-            st.write(f"{i}. Score {score:.2f} — “{snippet}”")
+            st.write(f"{i}. Score {score:.2f} — {snippet}")
             st.write(f"   • 위치: {location}")
 
-        # 4) Q&A 문서 Top-3 검색
-        qna_scores = qna_vdbs["제안/계약"].similarity_search_with_score(query, k=3)
+        # 4-3) QnA 문서 Top-3 검색
+        qna_scores = qna_vdbs[step].similarity_search_with_score(query, k=3)
         st.subheader("🔍 사례 응답 유사도 Top-3")
         for i, (doc, score) in enumerate(qna_scores, start=1):
-            lines = doc.page_content.splitlines()
-            q_line = next((l for l in lines if l.startswith("[질문")), lines[0])
+            lines  = doc.page_content.splitlines()
+            q_line = next((l for l in lines if l.startswith("[질문]")), lines[0])
             a_line = next((l for l in lines if l.startswith("[[[답변]")), lines[-1])
             st.write(f"{i}. Score {score:.2f} — {q_line}")
             st.write(f"   {a_line}")
 
+        # 5) 최우선 QnA 결과 활용 여부 결정
         top_doc, top_score = qna_scores[0]
         if top_score >= 0.5:
             st.subheader("💡 QnA 우선 응답")
@@ -311,7 +325,8 @@ with qa_tab:
                 (l for l in top_doc.page_content.splitlines() if l.startswith("[[[답변]")),
                 ""
             )
-            st.write(answer_text.strip("[[[답변] ").rstrip("]"))
+            st.write(answer_text.replace("[[[답변]", "").rstrip("]"))
+
         else:
             st.subheader("💡 프로세스 응답")
             retriever = substep_vdbs[step].get(substep) or proc_vdbs[step].as_retriever()
@@ -326,6 +341,5 @@ with qa_tab:
                 retriever=retriever,
                 chain_type_kwargs={"prompt": prompt},
             )
-            # .run()은 여기서 한 번만!
             answer = qa_chain.run({"query": query})
             st.write(answer)
