@@ -248,8 +248,15 @@ def build_vectordbs(
 # ─────────────────────────────────────────────────────
 st.set_page_config(page_title="AX SI 방법론 이행봇", layout="wide")
 
+st.set_page_config(page_title="AX SI 방법론 이행봇", layout="wide")
+
+# 문서 맵 및 벡터 DB 생성 호출
 proc_docs_map, qna_docs_map, wordpool_docs_map = load_all_docs()
-proc_vdbs, qna_vdbs, wp_vdbs           = build_vectordbs(proc_docs_map, qna_docs_map, wordpool_docs_map)
+proc_vdbs, qna_vdbs, wp_vdbs           = build_vectordbs(
+    proc_docs_map,
+    qna_docs_map,
+    wordpool_docs_map
+)
 
 
 # ─────────────────────────────────────────────────────
@@ -259,64 +266,60 @@ with qa_tab:
     st.header("AX SI 방법론 이행봇")
 
     # 1) 절차 단계 + 세부절차 + 질문 입력
-    step = st.selectbox("📂 절차 단계를 하나 선택해 주세요", list(PROCESS_PDF_URLS.keys()))
+    step   = st.selectbox("📂 절차 단계를 하나 선택해 주세요", list(PROCESS_PDF_URLS.keys()))
     idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
-    substep = st.selectbox("⚙️ 세부 절차를 하나 선택해 주세요", [d.metadata["title"] for d in idx_docs])
-    query = st.text_input("💬 질문을 입력하세요", key=f"query_{step}")
+    substep  = st.selectbox("⚙️ 세부 절차를 하나 선택해 주세요", [d.metadata["title"] for d in idx_docs])
+    query    = st.text_input("💬 질문을 입력하세요", key=f"query_{step}")
     if not query:
         st.stop()
 
     if st.button("질문 요청", key=f"btn_{step}"):
-        # 2) 질문 유형 분류 (키워드 기반만 남김, 필요시 LLM 기반도 추가)
+        # 2) 질문 유형 분류
         qtype = classify_question_type(query)
         st.info(f"📌 사용자의 질문은 ‘{substep}’ 단계의 “{qtype}” 입니다.")
 
         # 3) 프로세스 문서 Top-3 청크 검색
-        proc_scores = proc_vectordbs[step].similarity_search_with_score(query, k=3)
+        proc_scores = proc_vdbs[step].similarity_search_with_score(query, k=3)
         st.subheader("🔍 프로세스 유사도 Top-3")
         for i, (doc, score) in enumerate(proc_scores, start=1):
             meta = doc.metadata
-            # 가정: metadata에 'page'와 'sentence_id'가 포함되어 있음
             location = f"page {meta.get('page','?')}, {meta.get('sentence_id','?')}"
-            text = doc.page_content.replace("\n", " ")[:200] + "…"
-            st.write(f"{i}. Score {score:.2f} — “{text}”")
+            snippet  = doc.page_content.replace("\n", " ")[:200] + "…"
+            st.write(f"{i}. Score {score:.2f} — “{snippet}”")
             st.write(f"   • 위치: {location}")
 
         # 4) Q&A 문서 Top-3 검색
-        qna_scores = global_qna_vectordb.similarity_search_with_score(query, k=3)
+        qna_scores = qna_vdbs["제안/계약"].similarity_search_with_score(query, k=3)
         st.subheader("🔍 사례 응답 유사도 Top-3")
         for i, (doc, score) in enumerate(qna_scores, start=1):
             lines = doc.page_content.splitlines()
-            # 질문 태그와 답변 블럭 파싱
-            question_line = next((l for l in lines if l.startswith("[질문")), lines[0])
-            answer_line   = next((l for l in lines if l.startswith("[[[답변]")), lines[-1])
-            st.write(f"{i}. Score {score:.2f} — {question_line}")
-            st.write(f"   {answer_line}")
+            q_line = next((l for l in lines if l.startswith("[질문")), lines[0])
+            a_line = next((l for l in lines if l.startswith("[[[답변]")), lines[-1])
+            st.write(f"{i}. Score {score:.2f} — {q_line}")
+            st.write(f"   {a_line}")
 
-        top_qna_doc, top_qna_score = qna_scores[0]
-        # 5) 0.5 이상이면 QnA 우선
-        if top_qna_score >= 0.5:
-            st.subheader("💡 qna 응답")
-            # 답변 원문만 그대로 출력
-            answer_line = next((l for l in top_qna_doc.page_content.splitlines()
-                                if l.startswith("[[[답변]")), "").lstrip("[[[답변] ").rstrip("]")
-            st.write(answer_line)
+        top_doc, top_score = qna_scores[0]
+        if top_score >= 0.5:
+            st.subheader("💡 QnA 우선 응답")
+            answer_text = next(
+                (l for l in top_doc.page_content.splitlines() if l.startswith("[[[답변]")),
+                ""
+            )
+            st.write(answer_text.strip("[[[답변] ").rstrip("]"))
         else:
-            # 6) RetrievalQA (프로세스 기반)
             st.subheader("💡 프로세스 응답")
-            retriever = substep_vectordbs[step].get(substep) or proc_vectordbs[step].as_retriever()
-            prompt = make_prompt_for_type(qtype)  # 앞서 만든 dynamic prompt 함수
-            qa_chain = RetrievalQA.from_chain_type(
+            retriever = substep_vdbs[step].get(substep) or proc_vdbs[step].as_retriever()
+            prompt    = make_prompt_for_type(qtype)
+            qa_chain  = RetrievalQA.from_chain_type(
                 llm=ChatOpenAI(
-                    model="gpt-4o-mini", temperature=0,
+                    model="gpt-4o-mini",
+                    temperature=0,
                     openai_api_key=os.environ["OPENAI_API_KEY"]
                 ),
                 chain_type="stuff",
                 retriever=retriever,
                 chain_type_kwargs={"prompt": prompt},
             )
+            # .run()은 여기서 한 번만!
             answer = qa_chain.run({"query": query})
             st.write(answer)
-            retriever=retr
-        ).run(query)
-        st.write(answer)
