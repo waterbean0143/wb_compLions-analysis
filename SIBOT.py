@@ -383,17 +383,20 @@ def build_bm25(_proc_docs_map: Dict[str, List[Document]]):    # ← 언더스코
 # ─────────────────────────────────────────────────────
 # Ensemble Retriever 생성
 # ─────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────
+# BM25 + FAISS 앙상블 생성
+# ─────────────────────────────────────────────────────
 @st.cache_resource(ttl=86400)
 def build_ensemble(_proc_vdbs, _bm25_retrs):
-    weights = [0.7, 0.3]
+    faiss_weight, bm25_weight = 0.7, 0.3
     ers = {}
     for step in _proc_vdbs:
-        ers[step] = EnsembleRetriever.from_retrievers(
+        ers[step] = EnsembleRetriever(
             retrievers=[
                 _proc_vdbs[step].as_retriever(),
-                _bm25_retrs[step]
+                _bm25_retrs[step],
             ],
-            weights=weights
+            weights=[faiss_weight, bm25_weight]
         )
     return ers
 
