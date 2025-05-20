@@ -507,7 +507,8 @@ with qa_tab:
         st.info(f"📌 사용자의 질문은 ‘{step}’ 단계의 “{substep_option}”에 대한 “{qtype}”입니다.")
 
         # 6) Top-3 서브스텝 추천 및 각 서브스텝 내 청크 Top-3
-        substep_scores = idx_vectordbs[step].similarity_search_with_score(query, k=3)
+        # 변수명을 index_vectordbs로 통일
+        substep_scores = index_vectordbs[step].similarity_search_with_score(query, k=3)
         with st.expander("1) TOP3 - 절차 서브스텝 및 청크"):
             for i, (sub_doc, sub_score) in enumerate(substep_scores, start=1):
                 sub = sub_doc.page_content
@@ -519,7 +520,7 @@ with qa_tab:
                     continue
                 chunk_scores = vdb.similarity_search_with_score(query, k=3)
                 for j, (c_doc, c_score) in enumerate(chunk_scores, start=1):
-                    snippet = c_doc.page_content.replace("\n", " ")[:200] + "…"
+                    snippet = c_doc.page_content.replace("\n"," ")[:200] + "…"
                     st.write(f"  {j}. {snippet} (Score {c_score:.2f})")
                 st.write("---")
 
