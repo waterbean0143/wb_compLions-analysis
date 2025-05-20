@@ -159,6 +159,15 @@ WORDPOOL_PDF_URLS = {
 }
 
 # ─────────────────────────────────────────────────────
+# 0) Streamlit 페이지 설정 — 반드시 첫 번째 Streamlit 호출
+# ─────────────────────────────────────────────────────
+import streamlit as st
+st.set_page_config(
+    page_title="AX SI 방법론 이행봇",
+    layout="wide",
+)
+
+# ─────────────────────────────────────────────────────
 # 4) 문서 로드 및 벡터 DB 생성
 # ─────────────────────────────────────────────────────
 @st.cache_data(ttl=86400)
@@ -246,9 +255,6 @@ def build_vectordbs(
 # ─────────────────────────────────────────────────────
 # 5) 앱 시작 및 전역 구축
 # ─────────────────────────────────────────────────────
-st.set_page_config(page_title="AX SI 방법론 이행봇", layout="wide")
-
-st.set_page_config(page_title="AX SI 방법론 이행봇", layout="wide")
 
 # 문서 맵 및 벡터 DB 생성 호출
 proc_docs_map, qna_docs_map, wordpool_docs_map = load_all_docs()
