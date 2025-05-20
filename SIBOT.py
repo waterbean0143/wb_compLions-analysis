@@ -238,6 +238,10 @@ QNA_PDF_URLS = {
     "제안/계약": "https://drive.google.com/uc?export=download&id=17M1mnMZVl29EahbSVqzcyZEX8LYsx5ER",
 }
 
+WORDPOOL_PDF_URLS = {
+    "SI_용어집": "https://drive.google.com/uc?export=download&id=1aD4QYP1OBXRP7PbXYrlXHn5LlLyFzDtx"
+}
+
 # ─────────────────────────────────────────────────────
 # 5) UI 설정
 # ─────────────────────────────────────────────────────
@@ -258,7 +262,11 @@ def preprocess(text: str) -> str:
 # 7) 문서 로드 & vectordb 생성
 # ─────────────────────────────────────────────────────
 @st.cache_data(ttl=3600*24)
-def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]]]:
+def load_all_docs() -> Tuple[
+    Dict[str, List[Document]],  # proc_map
+    Dict[str, List[Document]],  # qna_map
+    Dict[str, List[Document]],  # wordpool_map  <-- 추가
+]:
     # 첫 페이지 전용: 빈 줄(2번 연속 개행) 또는 “.␣”을 경계로 분할
     first_page_splitter = CharacterTextSplitter(
         separator=r"\n{2,}|\.(?:\s|$)",
@@ -275,25 +283,22 @@ def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]
     proc_map: Dict[str, List[Document]] = {}
     qna_map:  Dict[str, List[Document]] = {}
 
-    def dl_and_chunk(url: str) -> List[Document]:
+       def dl_and_chunk(url: str) -> List[Document]:
         pages = download_and_load(url)
         if not pages:
             return []
-
-        # 첫 페이지만 regex 스타일로 쪼개고
         first, *rest = pages
         first_texts = first_page_splitter.split_text(first.page_content)
         first_docs = [
             Document(page_content=text, metadata={**first.metadata})
-            for text in first_texts
-            if text.strip()
+            for text in first_texts if text.strip()
         ]
-
-        # 나머지는 CharacterTextSplitter로
         rest_docs = body_splitter.split_documents(rest) if rest else []
         return first_docs + rest_docs
 
-    # STEP 문서 로드
+    proc_map, qna_map, wordpool_map = {}, {}, {}
+
+    # 기존 프로세스 PDF 로드
     for step, url in PROCESS_PDF_URLS.items():
         docs = dl_and_chunk(url)
         for d in docs:
@@ -301,7 +306,7 @@ def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]
             d.metadata["step"] = step
         proc_map[step] = docs
 
-    # Q&A 문서 로드
+    # 기존 Q&A PDF 로드
     for step, url in QNA_PDF_URLS.items():
         docs = dl_and_chunk(url)
         for d in docs:
@@ -309,7 +314,15 @@ def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]
             d.metadata["step"] = step
         qna_map[step] = docs
 
-    return proc_map, qna_map
+    # **새로 추가**: 용어집 PDF 로드
+    for name, url in WORDPOOL_PDF_URLS.items():
+        docs = dl_and_chunk(url)
+        for d in docs:
+            d.page_content = preprocess(d.page_content)
+            d.metadata["step"] = name
+        wordpool_map[name] = docs
+
+    return proc_map, qna_map, wordpool_map
     
     def download_and_split(url: str) -> List[Document]:
         # PDF 다운로드
@@ -425,9 +438,9 @@ def build_substep_vectordbs(
 
 # 앱 시작 시 한 번만 로드·벡터화
 with st.spinner("📦 데이터 로드 중…"):
-    proc_docs_map, qna_docs_map   = load_all_docs()
+    proc_docs_map, qna_docs_map, wordpool_docs_map = load_all_docs()
     proc_vectordbs, qna_vectordbs = build_vectordbs(proc_docs_map, qna_docs_map)
-    global_qna_vectordb           = build_global_qna_vectordb(qna_docs_map)
+    wordpool_vectordbs            = build_vectordbs(wordpool_docs_map, {})[0]  # 단일 map→vector
     index_retrievers              = build_index_retrievers()
     substep_vectordbs             = build_substep_vectordbs(proc_docs_map)
 
