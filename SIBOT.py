@@ -399,14 +399,12 @@ def build_ensemble(_proc_vdbs, _bm25_retrs):
 
 
 with st.spinner("📦 데이터 로드 중…"):
+    # 1) 문서·벡터 DB 로드
     proc_docs_map, qna_docs_map, wp_map, original_pages = load_all_docs()
-
-    # 기존: proc_vdbs, qna_vdbs = build_vectordbs(...)
-    # 수정:
-    proc_vdbs, qna_vdbs = build_vectordbs(proc_docs_map, qna_docs_map)
-
-    bm25_retrs     = build_bm25(proc_docs_map)
-    ensemble_retrs = build_ensemble(proc_vdbs, bm25_retrs)
+    proc_vdbs, qna_vdbs    = build_vectordbs(proc_docs_map, qna_docs_map)
+    bm25_retrs             = build_bm25(proc_docs_map)
+    ensemble_retrs         = build_ensemble(proc_vdbs, bm25_retrs)
+    index_vectordbs        = build_index_vectordbs()
 
 # ─────────────────────────────────────────────────────
 # 8) Q&A 탭 (STEP → Substep 자동 추론 → 유형 분기 → 답변 + TOP3 + 원문/청크)
