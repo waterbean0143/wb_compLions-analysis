@@ -444,25 +444,27 @@ with st.spinner("📦 데이터 로드 중…"):
 with qa_tab:
     st.header("AX SI 방법론 이행봇 - Q&A")
 
-    # 1) STEP 선택
+    # STEP 선택
     step = st.selectbox(
         "📂 절차 단계를 선택해 주세요",
-        list(PROCESS_PDF_URLS.keys()), key="sel_step"
+        list(PROCESS_PDF_URLS.keys()),
+        key="sel_step"
     )
 
-    # 2) 질문 유형 선택
+    # 질문 유형 선택
     qtype = st.selectbox(
         "❓ 질문 유형을 선택해 주세요",
-        QUESTION_TYPES, key="sel_qtype"
+        QUESTION_TYPES,
+        key="sel_qtype"
     )
 
-    # 3) 질문 입력
+    # 질문 입력
     query = st.text_input("💬 질문을 입력하세요", key="input_query")
 
-    # 4) 질문 요청
-     if st.button("질문 요청", key="btn_query"):
+    # 질문 요청 버튼 (if 블록도 스페이스 4칸)
+    if st.button("질문 요청", key="btn_query"):
         if not query:
-            st.warning("질문을 입력해 주세요.")
+            st.warning("❗️ 질문을 입력해 주세요.")
             st.stop()
 
         # 5) Substep 자동 추론
