@@ -423,14 +423,17 @@ def build_substep_vectordbs(
     return sub_vdbs
 
 
-# 앱 시작 시 한 번만 로드·벡터화
-with st.spinner("📦 데이터 로드 중…"):
+with st.spinner("📦 문서·인덱스 로드 중…"):
+    # 1) 문서 로드
     proc_docs_map, qna_docs_map, wordpool_map = load_all_docs()
 
-    proc_vectordbs, qna_vectordbs    = build_vectordbs(proc_docs_map, qna_docs_map)
-    global_qna_vectordb              = build_global_qna_vectordb(qna_docs_map)
-    index_vectordbs                  = build_index_vectordbs()            
-    substep_vectordbs                = build_substep_vectordbs(proc_docs_map)
+    # 2) 전체 QnA 합본 FAISS (글로벌 자유 질의용)
+    global_qna_vectordb = build_global_qna_vectordb(qna_docs_map)
+
+    # 3) STEP별 Substep 인덱스용 FAISS
+    index_vectordbs = build_index_vectordbs()
+
+    # 4) (버튼 클릭 시점으로 지연) 프로세스·QnA·Substep vectordb는 생성하지 않음
 
 
 # ─────────────────────────────────────────────────────
