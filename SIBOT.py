@@ -246,69 +246,82 @@ def preprocess(text: str) -> str:
 # ─────────────────────────────────────────────────────
 # 7) 문서 로드 & vectordb 생성
 # ─────────────────────────────────────────────────────
-@st.cache_data(ttl=3600*24)
+@st.cache_data(ttl=86400)
 def load_all_docs() -> Tuple[
-    Dict[str, List[Document]],  # proc_map
-    Dict[str, List[Document]],  # qna_map
-    Dict[str, List[Document]]   # wordpool_map
+    Dict[str, List[Document]],  # proc chunks
+    Dict[str, List[Document]],  # qna chunks
+    Dict[str, List[Document]],  # wordpool chunks
+    Dict[str, List[Document]]   # 원본 페이지 맵
 ]:
-    # 첫 페이지 전용: 빈 줄(2번 연속 개행) 또는 “.␣”을 경계로 분할
-    first_page_splitter = CharacterTextSplitter(
+    splitter_first = CharacterTextSplitter(
         separator=r"\n{2,}|\.(?:\s|$)",
+        is_separator_regex=True,
         chunk_size=800,
         chunk_overlap=0,
-        is_separator_regex=True,
     )
-    # 나머지 페이지 전용: 고정 길이 청크
-    body_splitter = CharacterTextSplitter(
-        chunk_size=800,
-        chunk_overlap=100,
-    )
+    splitter_body = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
 
     proc_map: Dict[str, List[Document]] = {}
-    qna_map:  Dict[str, List[Document]] = {}
-    wordpool_map: Dict[str, List[Document]] = {}
-
-    def dl_and_chunk(url: str) -> List[Document]:
+    original_proc_pages: Dict[str, List[Document]] = {}
+    for name, url in PROCESS_PDF_URLS.items():
         pages = download_and_load(url)
-        if not pages:
-            return []
-        # 첫 페이지만 regex 스타일로 분할
-        first, *rest = pages
-        first_texts = first_page_splitter.split_text(first.page_content)
-        first_docs = [
-            Document(page_content=text, metadata={**first.metadata})
-            for text in first_texts if text.strip()
-        ]
-        # 나머지는 고정 길이 분할
-        rest_docs = body_splitter.split_documents(rest) if rest else []
-        return first_docs + rest_docs
+        original_proc_pages[name] = pages.copy()
+        docs: List[Document] = []
+        if pages:
+            first, *rest = pages
+            # 첫 페이지를 문단/문장 단위로 분할
+            for txt in splitter_first.split_text(first.page_content):
+                docs.append(Document(page_content=txt, metadata={**first.metadata}))
+            # 이후 페이지를 고정 크기로 분할
+            docs += splitter_body.split_documents(rest)
+        proc_map[name] = docs
 
-    # STEP 문서 로드
-    for step, url in PROCESS_PDF_URLS.items():
-        docs = dl_and_chunk(url)
-        for d in docs:
-            d.page_content = preprocess(d.page_content)
-            d.metadata["step"] = step
-        proc_map[step] = docs
+    qna_map: Dict[str, List[Document]] = {}
+    original_qna_pages: Dict[str, List[Document]] = {}
+    for name, url in QNA_PDF_URLS.items():
+        pages = download_and_load(url)
+        original_qna_pages[name] = pages.copy()
+        docs: List[Document] = []
+        if pages:
+            first, *rest = pages
+            for txt in splitter_first.split_text(first.page_content):
+                docs.append(Document(page_content=txt, metadata={**first.metadata}))
+            docs += splitter_body.split_documents(rest)
+        qna_map[name] = docs
 
-    # Q&A 문서 로드
-    for step, url in QNA_PDF_URLS.items():
-        docs = dl_and_chunk(url)
-        for d in docs:
-            d.page_content = preprocess(d.page_content)
-            d.metadata["step"] = step
-        qna_map[step] = docs
-
-    # 용어집(Wordpool) 문서 로드
+    wordpool_map: Dict[str, List[Document]] = {}
+    original_wp_pages: Dict[str, List[Document]] = {}
     for name, url in WORDPOOL_PDF_URLS.items():
-        docs = dl_and_chunk(url)
-        for d in docs:
-            d.page_content = preprocess(d.page_content)
-            d.metadata["step"] = name
+        pages = download_and_load(url)
+        original_wp_pages[name] = pages.copy()
+        full_text = "\n".join(p.page_content for p in pages) if pages else ""
+        docs: List[Document] = []
+        for line in full_text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if ":" in line:
+                word, rest = [s.strip() for s in line.split(":", 1)]
+                definitions = [d.strip() for d in rest.split(",") if d.strip()]
+                content = f"{word}: {', '.join(definitions)}"
+                docs.append(Document(
+                    page_content=content,
+                    metadata={"source": name, "wp_word": word, "wp_definitions": definitions}
+                ))
+            else:
+                docs.append(Document(page_content=line, metadata={"source": name}))
         wordpool_map[name] = docs
 
-    return proc_map, qna_map, wordpool_map
+    # 원본 페이지 맵
+    original_pages: Dict[str, List[Document]] = {}
+    for k, v in original_proc_pages.items():
+        original_pages[f"proc:{k}"] = v
+    for k, v in original_qna_pages.items():
+        original_pages[f"qna:{k}"] = v
+    for k, v in original_wp_pages.items():
+        original_pages[f"wp:{k}"] = v
+
+    return proc_map, qna_map, wordpool_map, original_pages
     
     def download_and_split(url: str) -> List[Document]:
         # PDF 다운로드
