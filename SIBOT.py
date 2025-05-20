@@ -200,7 +200,7 @@ with st.tabs(["Q&A"])[0]:
     classify_method = st.radio("🔍 분류 방식", ("키워드 기반","LLM 기반","비교 보기"))
     query = st.text_input("💬 질문을 입력하세요")
     if st.button("질문 요청"):
-        # determine question type
+        # 1) 질문 유형 분류
         if classify_method == "키워드 기반":
             qtype = classify_question_type(query)
         elif classify_method == "LLM 기반":
@@ -212,13 +212,13 @@ with st.tabs(["Q&A"])[0]:
             qtype = kw
         st.info(f"📌 사용자의 질문은 ‘{substep}’ 단계의 “{qtype}”입니다.")
 
-        # Q&A 벡터 매핑
+        # 2) Q&A 벡터 매핑
         qscores = global_qna_vdb.similarity_search_with_score(query, k=3)
         top_doc, score = qscores[0]
         if score >= 0.5:
             st.subheader("💡 qna 응답")
             st.write(top_doc.page_content)
-            return
+            st.stop()  # ← 여기서 강제 종료
         
         # 프로세스 기반
         retr = substep_vdbs[step].get(substep) or proc_vdbs[step].as_retriever()
