@@ -531,12 +531,17 @@ QnA 문서 청크:
         st.markdown(f"## {substep_option}")
         st.write(answer)
 
-        # 9) Expander: TOP3 - 절차 CHUNK (원문 + 청크)
+        # 9) Expander: TOP3 - 절차 CHUNK (원문 + chunking)
         with st.expander("1) TOP3 - 절차 CHUNK"):
             for i, (doc, score) in enumerate(proc_scores, start=1):
-                st.markdown(f"**{i}. {substep_option} — Score {score:.2f}**")
+                # 제목: [TOP_i]. substep_option
+                st.markdown(f"**[TOP_{i}]. {substep_option} — Score {score:.2f}**")
+                
+                # 원문
                 st.markdown("**— 원문 —**")
                 st.write(doc.page_content)
+                
+                # chunking (문장 단위)
                 st.markdown("**— chunking (문장별) —**")
                 for j, sentence in enumerate(doc.page_content.split('. '), start=1):
                     sent = sentence.strip()
@@ -549,12 +554,20 @@ QnA 문서 청크:
         # 10) Expander: TOP3 - QNA CHUNK (원문 + chunking)
         with st.expander("2) TOP3 - QNA CHUNK"):
             for i, (doc, score) in enumerate(qna_scores, start=1):
-                tag = doc.metadata.get("tag", substep_option)
-                st.markdown(f"**{i}. {tag} — Score {score:.2f}**")
+                # QnA에서 “[질문…” 으로 시작하는 줄을 찾아 제목으로 사용
+                lines = doc.page_content.splitlines()
+                q_line = next((l for l in lines if l.startswith("[질문")), f"QnA 청크 {i}")
+                
+                # 제목: [TOP_i]. q_line
+                st.markdown(f"**[TOP_{i}]. {q_line} — Score {score:.2f}**")
+                
+                # 원문
                 st.markdown("**— 원문 —**")
                 st.write(doc.page_content)
+                
+                # chunking (줄 단위)
                 st.markdown("**— chunking (줄 단위) —**")
-                for j, line in enumerate(doc.page_content.splitlines(), start=1):
+                for j, line in enumerate(lines, start=1):
                     st.write(f"{j}. {line}")
                 st.write("---")
 
