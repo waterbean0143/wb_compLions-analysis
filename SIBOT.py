@@ -108,7 +108,8 @@ def classify_question_type(q: str) -> str:
     return "일반 질문"
 
 def classify_with_llm(query: str) -> str:
-    system = SystemMessagePromptTemplate.from_template(
+    # 1) 
+    system_tm = SystemMessagePromptTemplate.from_template(
         """당신은 AX SI 방법론 이행봇의 질문 유형 분류기입니다.
 주어진 질문을 보고 아래 카테고리 중 하나로 분류해 주세요:
 - 정의 요청
@@ -118,21 +119,24 @@ def classify_with_llm(query: str) -> str:
 - 일반 질문
 """
     )
-    user_tm = HumanMessagePromptTemplate.from_template("질문: {query}\n분류:")
-     prompt = ChatPromptTemplate.from_messages([
+    # 2) 
+    user_tm = HumanMessagePromptTemplate.from_template(
+        "질문: {query}\n분류:"
+    )
+    # 3)
+    prompt = ChatPromptTemplate.from_messages([
         system_tm,
         user_tm,
     ])
-
+    # 4) 
     llm = ChatOpenAI(
         model="gpt-4o-mini",
         temperature=0,
         openai_api_key=os.environ["OPENAI_API_KEY"],
     )
     chain = LLMChain(llm=llm, prompt=prompt)
-
-    result = chain.predict(query=query)
-    return result.strip()
+    # 5) 
+    return chain.predict(query=query).strip()
 
 # ─────────────────────────────────────────────────────
 # 0-3) Base persona 및 질문유형별 시스템 메시지 정의
