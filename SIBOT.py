@@ -370,18 +370,29 @@ def build_substep_vectordbs(
     return sub_vdbs
 
 
+# ─────────────────────────────────────────────────────
+# BM25 Retriever 생성
+# ─────────────────────────────────────────────────────
 @st.cache_resource(ttl=86400)
-def build_bm25(proc_docs_map):
-    return {step: BM25Retriever.from_documents(docs)
-            for step, docs in proc_docs_map.items()}
+def build_bm25(_proc_docs_map: Dict[str, List[Document]]):    # ← 언더스코어 추가
+    return {
+        step: BM25Retriever.from_documents(docs)
+        for step, docs in _proc_docs_map.items()
+    }
 
+# ─────────────────────────────────────────────────────
+# Ensemble Retriever 생성
+# ─────────────────────────────────────────────────────
 @st.cache_resource(ttl=86400)
-def build_ensemble(proc_vdbs, bm25_retrs):
-    weights = [0.7, 0.3]
+def build_ensemble(_proc_vdbs, _bm25_retrs):                  # ← 언더스코어 추가
+    weights = [faiss_weight, bm25_weight]
     ers = {}
-    for step in proc_vdbs:
+    for step in _proc_vdbs:
         ers[step] = EnsembleRetriever.from_retrievers(
-            retrievers=[proc_vdbs[step].as_retriever(), bm25_retrs[step]],
+            retrievers=[
+                _proc_vdbs[step].as_retriever(),
+                _bm25_retrs[step]
+            ],
             weights=weights
         )
     return ers
