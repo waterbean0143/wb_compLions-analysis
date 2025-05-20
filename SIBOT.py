@@ -369,6 +369,27 @@ def build_substep_vectordbs(
         sub_vdbs[step] = sub_db
     return sub_vdbs
 
+# ─────────────────────────────────────────────────────
+# SUBSTEP 매핑 QNA vectorDB 생성
+# ─────────────────────────────────────────────────────
+@st.cache_resource(ttl=86400)
+def build_qna_substep_vectordbs(proc_docs_map, qna_docs_map):
+    emb = OpenAIEmbeddings(model="text-embedding-ada-002", openai_api_key=...)
+    result = {}
+    for step, qna_docs in qna_docs_map.items():
+        # metadata["tag"] 에 "[질문2] 6. RFP 분석" 같은 문자열이 저장되어 있다고 가정
+        groups: Dict[str, List[Document]] = {}
+        for doc in qna_docs:
+            tag = doc.metadata.get("tag", "")
+            # 태그에서 “6. RFP 분석” 추출
+            sub = re.sub(r"^\[질문\d+\]\s*", "", tag)
+            groups.setdefault(sub, []).append(doc)
+        result[step] = {
+            sub: FAISS.from_documents(dlist, emb)
+            for sub, dlist in groups.items()
+        }
+    return result
+
 
 # ─────────────────────────────────────────────────────
 # BM25 Retriever 생성
@@ -405,6 +426,7 @@ with st.spinner("📦 데이터 로드 중…"):
     bm25_retrs             = build_bm25(proc_docs_map)
     ensemble_retrs         = build_ensemble(proc_vdbs, bm25_retrs)
     index_vectordbs        = build_index_vectordbs()
+    qna_substep_vectordbs = build_qna_substep_vectordbs(proc_docs_map, qna_docs_map)
 
 # ─────────────────────────────────────────────────────
 # 8) Q&A 탭 (STEP → Substep 자동 추론 → 유형 분기 → 답변 + TOP3 + 원문/청크)
@@ -441,14 +463,17 @@ with qa_tab:
 
 
         # 5) Substep 자동 추론
-        idx_scores = index_vectordbs[step].similarity_search_with_score(query, k=1)
+        idx_scores     = index_vectordbs[step].similarity_search_with_score(query, k=1)
         substep_option = idx_scores[0][0].page_content
         st.info(f"📌 사용자의 질문은 ‘{step}’ 단계의 “{substep_option}”에 대한 “{qtype}”입니다.")
 
-        # 6) 절차,QnA Top-3 검색 (FAISS 유사도 + score)
-        proc_scores = proc_vdbs[step].similarity_search_with_score(query, k=3)
-        qna_scores  = qna_vdbs[step].similarity_search_with_score(query, k=3)
-        
+        # 6) 절차 Top-3 검색 (“자동 추론한 substep”에서만 뽑아 옵니다)
+        sub_vdb      = substep_vectordbs[step][substep_option]
+        proc_scores  = sub_vdb.similarity_search_with_score(query, k=3)
+        # QnA Top-3 검색 (자동 추론 substep 태그와 일치하는 QnA에서만)
+        qna_sub_vdb  = qna_substep_vectordbs[step][substep_option]
+        qna_scores   = qna_sub_vdb.similarity_search_with_score(query, k=3)
+
         # 7) 답변 생성 (유사도 기준 QnA ≥ 0.7)
         if qna_scores[0][1] >= 0.7:
             top_doc, top_score = qna_scores[0]
