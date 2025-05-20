@@ -438,64 +438,53 @@ with st.spinner("📦 데이터 로드 중…"):
     # 5) 세부절차별 벡터 DB 생성
     substep_vectordbs             = build_substep_vectordbs(proc_docs_map)
 
-# ─────────────────────────────────────────────────────
-# 8) Q&A 탭 (STEP → Substep 자동 추론 → 유형 분기 → 답변 + TOP3)
-# ─────────────────────────────────────────────────────
-qa_tab = st.container()   # 또는 st.tabs(...)으로 탭을 만들었다면 해당 탭 변수 사용
 with qa_tab:
     st.header("AX SI 방법론 이행봇 - Q&A")
 
     # 1) STEP 선택
-    step = st.selectbox(
-        "📂 절차 단계를 선택해 주세요",
-        list(PROCESS_PDF_URLS.keys()),
-        key="sel_step"
-    )
+    step = st.selectbox("📂 절차 단계를 선택해 주세요",
+                        list(PROCESS_PDF_URLS.keys()), key="sel_step")
 
     # 2) 질문 유형 선택
-    qtype = st.selectbox(
-        "❓ 질문 유형을 선택해 주세요",
-        QUESTION_TYPES,
-        key="sel_qtype"
-    )
+    qtype = st.selectbox("❓ 질문 유형을 선택해 주세요",
+                         QUESTION_TYPES, key="sel_qtype")
 
     # 3) 질문 입력
     query = st.text_input("💬 질문을 입력하세요", key="input_query")
 
-    # 4) 질문 요청 버튼 (항상 표시)
+    # 4) 질문 요청
     if st.button("질문 요청", key="btn_query"):
         if not query:
             st.warning("❗️ 질문을 입력한 후 버튼을 눌러 주세요.")
             st.stop()
 
-         # 5) Substep 자동 추론
+        # 5) Substep 자동 추론 (Index FAISS)
         idx_scores = index_vectordbs[step].similarity_search_with_score(query, k=3)
-        top_idx_doc, idx_score = idx_scores[0]
-        substep_option = top_idx_doc.page_content
-        sub_title      = top_idx_doc.metadata["title"]
+        top_idx_doc, _ = idx_scores[0]
+        substep_option = top_idx_doc.page_content  # ex. "2. VDC-A 심의 준비"
         st.info(f"📌 사용자의 질문은 ‘{step}’ 단계의 “{substep_option}”에 대한 “{qtype}”입니다.")
 
-        # 6) 절차/ QnA Top-3 청크 검색
-        proc_vdb     = substep_vectordbs[step][sub_title]
-        proc_scores  = proc_vdb.similarity_search_with_score(query, k=3)
-        qna_vdb      = qna_vectordbs[step]
-        qna_scores   = qna_vdb.similarity_search_with_score(query, k=3)
+        # 6) 절차(전체 STEP) / QnA Top-3 검색
+        proc_db     = proc_vectordbs[step]
+        proc_scores = proc_db.similarity_search_with_score(query, k=3)
+        qna_db      = qna_vectordbs[step]
+        qna_scores  = qna_db.similarity_search_with_score(query, k=3)
 
-        # 7) 경로 분기: QnA 유사도 ≥ 0.7 → QnA, else 절차
+        # 7) 경로 분기 (QnA 최우선 유사도 >=0.7 ?)
         top_qna_score = qna_scores[0][1]
         if top_qna_score >= 0.7:
-            # QnA 문서 기반 답변
+            # QnA 경로
             top_doc = qna_scores[0][0]
             prompt = ChatPromptTemplate.from_messages([
                 SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
                 HumanMessagePromptTemplate.from_template(
                     """세부절차: {substep}
-QnA 문서 청크:
+QnA 청크:
 {chunk}
 
 사용자 질문: {question}
 
-위 정보를 바탕으로, 문장형으로 답변해 주세요."""
+위 정보를 바탕으로 문장형으로 답변해 주세요."""
                 )
             ])
             chain  = LLMChain(
@@ -508,7 +497,7 @@ QnA 문서 청크:
                 question=query
             )
         else:
-            # 절차 문서 기반 답변
+            # 절차 경로
             top_doc = proc_scores[0][0]
             prompt = ChatPromptTemplate.from_messages([
                 SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
@@ -519,7 +508,7 @@ QnA 문서 청크:
 
 사용자 질문: {question}
 
-위 정보를 바탕으로, 문장형으로 답변해 주세요."""
+위 정보를 바탕으로 문장형으로 답변해 주세요."""
                 )
             ])
             chain  = LLMChain(
@@ -540,12 +529,11 @@ QnA 문서 청크:
         with st.expander("1) TOP3 - 절차 CHUNK"):
             for i, (doc, score) in enumerate(proc_scores, start=1):
                 st.write(f"**{i}. Score {score:.2f}** — {doc.page_content[:200]}…")
-                st.write(f"• 서브절차: {doc.metadata.get('title','')}")
+                st.write("---")
 
         # 10) Expander: TOP3 - QnA CHUNK
         with st.expander("2) TOP3 - QNA CHUNK"):
             for i, (doc, score) in enumerate(qna_scores, start=1):
                 snippet = doc.page_content.replace("\n", " ")
                 st.write(f"**{i}. Score {score:.2f}** — {snippet[:200]}…")
-
 
