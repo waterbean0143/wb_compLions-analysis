@@ -36,6 +36,8 @@ from langchain.schema import Document
 from langchain.chains import RetrievalQA, ConversationalRetrievalChain
 
 from langchain_core.prompts import SystemMessagePromptTemplate, HumanMessagePromptTemplate, ChatPromptTemplate
+from langchain.schema import SystemMessage, HumanMessage
+from langchain import LLMChain
 
 # ─────────────────────────────────────────────────────
 # 0-1) PDF 첫페이지 인덱스 자동추출 유틸
@@ -112,10 +114,25 @@ def classify_question_type(q: str) -> str:
 
 def classify_with_llm(question: str) -> str:
     """
-    TODO: 나중에 LLMChain 기반 분류로 업그레이드할 부분입니다.
-    당장은 키워드 함수로 폴백합니다.
+    LLM을 이용해 질문 유형("정의 요청" 등)으로 분류합니다.
     """
-    return classify_question_type(question)
+    system = SystemMessage(content=(
+        "당신은 AX SI 방법론 이행봇의 질문 유형 분류기입니다. "
+        "아래 질문을 다음 유형 중 하나로 분류하고, 오직 분류명만 응답하세요:\n"
+        "- 정의 요청\n"
+        "- 수행 절차 안내\n"
+        "- 산출물·문서 요구 사항\n"
+        "- 책임·역할 분담\n"
+        "- 일정·마일스톤 확인\n"
+        "- 일반 질문\n"
+    ))
+    user = HumanMessage(content=f"질문: {question}")
+    chain = LLMChain(
+        llm=ChatOpenAI(model="gpt-4o-mini", temperature=0, openai_api_key=os.environ["OPENAI_API_KEY"]),
+        prompt=[system, user]
+    )
+    # LLM이 내놓는 문자열 양쪽 공백·개행을 제거하고 리턴
+    return chain.run().strip()
 
 # ─────────────────────────────────────────────────────
 # 0-3) Base persona 및 질문유형별 시스템 메시지 정의
@@ -543,7 +560,7 @@ with st.spinner("📦 데이터 로드 중…"):
 
 
 # ─────────────────────────────────────────────────────
-# 8) Q&A 탭 (업데이트 버전)
+# 8) Q&A 탭
 # ─────────────────────────────────────────────────────
 with qa_tab:
     st.header("AX SI 방법론 이행봇")
@@ -551,7 +568,7 @@ with qa_tab:
     # 1) 절차 단계 선택
     step = st.selectbox("📂 절차 단계를 하나 선택해 주세요", list(PROCESS_PDF_URLS.keys()))
     if not step:
-        st.info("먼저 절차 단계를 선택하세요.")
+        st.info("모든 단계를 선택 후 질문해주세요.")
         st.stop()
 
     # 2) SUBSTEP 선택
@@ -559,79 +576,71 @@ with qa_tab:
     sub_choices = [d.metadata["title"] for d in idx_docs]
     substep     = st.selectbox("⚙️ 세부 절차를 하나 선택해 주세요", sub_choices)
     if not substep:
-        st.info("먼저 세부 절차를 선택하세요.")
+        st.info("세부 절차를 선택해주세요.")
         st.stop()
 
-    # 3) 질문 입력
+    # 3) 분류 방식 선택 (NEW)
+    classify_method = st.radio(
+        "🔍 질문 유형 분류 방식",
+        ("키워드 기반", "LLM 기반", "비교 보기")
+    )
+
+    # 4) 절차 개요
+    st.subheader(f"[{step}] 프로세스 개요")
+    with st.expander("목록 펼치기", expanded=False):
+        for d in idx_docs:
+            st.markdown(f"- {d.page_content}")
+
+    # 5) 질문 입력
     query = st.text_input("💬 질문을 입력하세요", key=f"query_{step}")
     if st.button("질문 요청", key=f"btn_{step}"):
         if not query.strip():
             st.warning("질문을 입력해주세요.")
             st.stop()
 
-        # ─────────── 디버그: 전체 청크 확인 ───────────
+        # (디버그) 전체 청크 확인
         with st.expander("🔍 전체 청크 확인", expanded=False):
             docs = proc_docs_map[step]
             st.write(f"• 총 청크 개수: {len(docs)}")
             for i, d in enumerate(docs[:3]):
-                st.markdown(
-                    f"**Chunk {i+1} (메타: {d.metadata}):**\n```\n{d.page_content[:200]}...\n```"
-                )
+                st.markdown(f"**Chunk {i+1}**: `{d.page_content[:100]}…`")
 
-        # 4) LLM으로 질문 의도 분류 (정의/수행/산출물/책임/일정/일반)
-        qtype = classify_with_llm(query)
-        st.info(f"📌 사용자의 질문 의도는 “{qtype}” 입니다.")
+        # 6) 질문 유형 분류
+        if classify_method == "키워드 기반":
+            qtype = classify_question_type(query)
+        elif classify_method == "LLM 기반":
+            qtype = classify_with_llm(query)
+        else:  # 비교 보기
+            kw = classify_question_type(query)
+            llm = classify_with_llm(query)
+            st.info(f"🔎 **키워드 기반**: {kw}  
+                    🔍 **LLM 기반**: {llm}")
+            # 대표 하나만 뽑고 싶으면, 예를 들어 KW 우선:
+            qtype = kw
 
-        # 5) 글로벌 Q&A 사례 매핑 (Top-3, threshold=0.5)
+        st.info(f"📌 사용자의 질문은 ‘{substep}’ 단계의 “{qtype}” 입니다.")
+
+        # 7) 글로벌 Q&A 매핑 (Top-3, threshold=0.5)
         docs_and_scores = global_qna_vectordb.similarity_search_with_score(query, k=3)
         with st.expander("🔍 Q&A 유사도 Top 3", expanded=False):
             for doc, score in docs_and_scores:
                 first_line = doc.page_content.splitlines()[0]
-                st.write(f"- **{score:.3f}**: {first_line}…")
+                st.write(f"- **{score:.3f}** {first_line}…")
         top_doc, top_score = docs_and_scores[0]
         if top_score >= 0.5:
             st.subheader("💡 사례 응답")
             st.write(top_doc.page_content)
             st.stop()
 
-        # 6) SUBSTEP용 Retriever 선택 (없으면 STEP 전체)
+        # 8) SUBSTEP RetrievalQA
         retriever = substep_vectordbs[step].get(substep) or proc_vectordbs[step].as_retriever()
-
-        # 7) 동적 프롬프트 조립
-        #    BASE_PERSONA, STEP_SYSTEM_PROMPTS, QUESTION_TYPE_SYSTEM, USER_TMPL 은
-        #    이미 0-3, 0-6 섹션에서 선언되어 있어야 합니다.
-        prompt = ChatPromptTemplate.from_messages([
-            SystemMessagePromptTemplate.from_template(BASE_PERSONA),
-            # STEP별 시스템메시지에 start/end 동적으로 주입
-            SystemMessagePromptTemplate.from_template(
-                STEP_SYSTEM_PROMPTS[step].format(
-                    start_title=idx_docs[0].metadata["title"],
-                    end_title=idx_docs[-1].metadata["title"],
-                )
-            ),
-            # 질문유형별 시스템메시지에 substep 주입
-            SystemMessagePromptTemplate.from_template(
-                QUESTION_TYPE_SYSTEM[qtype].format(sub_title=substep)
-            ),
-            USER_TMPL  # "질문: {question}\n\n절차 요약:\n{context}..."
-        ])
-
-        # 8) RetrievalQA 체인에 연결 (LangSmith 콜백도 옵션으로 추가 가능)
         qa_chain = RetrievalQA.from_chain_type(
-            llm=ChatOpenAI(
-                model="gpt-4o-mini",
-                temperature=0,
-                openai_api_key=os.environ["OPENAI_API_KEY"],
-            ),
+            llm=ChatOpenAI(model="gpt-4o-mini", temperature=0,
+                           openai_api_key=os.environ["OPENAI_API_KEY"]),
             chain_type="stuff",
             retriever=retriever,
-            chain_type_kwargs={"prompt": prompt},
-            # callbacks=[LangSmithCallbackHandler(tracer)]  # LangSmith 사용 시
         )
-
-        # 9) 답변 생성
         with st.spinner("답변 생성 중…"):
-            # .run()에 직접 query 문자열 넘기면 내부 입력키(query)로 맵핑됩니다.
             answer = qa_chain.run(query)
 
         st.subheader("💡 답변")
