@@ -436,16 +436,10 @@ def build_substep_vectordbs(
 
 
 with st.spinner("📦 데이터 로드 중…"):
-    # 1) PDF 로드
-    proc_docs_map, qna_docs_map, wordpool_map = load_all_docs()
+    proc_docs_map, qna_docs_map, wordpool_map, original_pages = load_all_docs()
 
-    # 2) 프로세스·QnA 벡터 DB 생성
     proc_vectordbs, qna_vectordbs = build_vectordbs(proc_docs_map, qna_docs_map)
-
-    # 3) 전체 QnA 합본 벡터 DB (자유 질의용)
     global_qna_vectordb           = build_global_qna_vectordb(qna_docs_map)
-
-    # 4) STEP별 Substep 인덱스용 FAISS 생성
     index_vectordbs               = build_index_vectordbs()
 
     # 5) 세부절차별 벡터 DB 생성
