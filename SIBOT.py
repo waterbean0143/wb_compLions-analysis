@@ -1,7 +1,8 @@
 # ─────────────────────────────────────────────────────
-# 0) 라이브러리 및 선언 영역
+# 0) Streamlit 페이지 설정 — 반드시 최상단에
 # ─────────────────────────────────────────────────────
 import streamlit as st
+st.set_page_config(page_title="AX SI 방법론 이행봇", layout="wide")
 import requests
 import tempfile
 import os
@@ -159,15 +160,6 @@ WORDPOOL_PDF_URLS = {
 }
 
 # ─────────────────────────────────────────────────────
-# 0) Streamlit 페이지 설정 — 반드시 첫 번째 Streamlit 호출
-# ─────────────────────────────────────────────────────
-import streamlit as st
-st.set_page_config(
-    page_title="AX SI 방법론 이행봇",
-    layout="wide",
-)
-
-# ─────────────────────────────────────────────────────
 # 4) 문서 로드 및 벡터 DB 생성
 # ─────────────────────────────────────────────────────
 @st.cache_data(ttl=86400)
@@ -252,18 +244,24 @@ def build_vectordbs(
     wp_vdbs     = {k: FAISS.from_documents(v, emb) for k, v in wordpool_docs_map.items()}
     return proc_vdbs, qna_vdbs, wp_vdbs
 
-# ─────────────────────────────────────────────────────
-# 5) 앱 시작 및 전역 구축
-# ─────────────────────────────────────────────────────
+@st.cache_resource(ttl=86400)
+def build_substep_vectordbs(proc_docs_map):
+    emb = OpenAIEmbeddings(…)
+    substep_map = {}
+    for step, docs in proc_docs_map.items():
+        buckets = {}
+        for d in docs:
+            t = d.metadata.get("title","Unknown")
+            buckets.setdefault(t,[]).append(d)
+        substep_map[step] = { t: FAISS.from_documents(docs,emb) for t,docs in buckets.items() }
+    return substep_map
 
-# 문서 맵 및 벡터 DB 생성 호출
-proc_docs_map, qna_docs_map, wordpool_docs_map = load_all_docs()
-proc_vdbs, qna_vdbs, wp_vdbs           = build_vectordbs(
-    proc_docs_map,
-    qna_docs_map,
-    wordpool_docs_map
-)
-
+# ─────────────────────────────────────────────────────
+# 5) 벡터 DB 생성 호출
+# ─────────────────────────────────────────────────────
+proc_docs_map, qna_docs_map, wp_docs_map = load_all_docs()
+proc_vdbs, qna_vdbs, wp_vdbs           = build_vectordbs(proc_docs_map, qna_docs_map, wp_docs_map)
+substep_vdbs                           = build_substep_vectordbs(proc_docs_map)
 
 # ─────────────────────────────────────────────────────
 # 6) Q&A 탭 (프로세스 Top-3 & QnA Top-3 → 우선순위 결정 → 원문 응답)
