@@ -445,13 +445,14 @@ with qa_tab:
         substep_option = idx_scores[0][0].page_content
         st.info(f"📌 사용자의 질문은 ‘{step}’ 단계의 “{substep_option}”에 대한 “{qtype}”입니다.")
 
-        # 6) TOP-3 검색
-        proc_scores = ensemble_retrs[step].get_relevant_documents(query)[:3]
-        qna_scores  = qna_vdbs[step].similarity_search_with_score(query, k=3)
+        # 6) 절차 Top-3 검색 (FAISS 유사도 + score)
+        proc_scores = proc_vectordbs[step].similarity_search_with_score(query, k=3)
+        # QnA Top-3 검색
+        qna_scores  = qna_vectordbs[step].similarity_search_with_score(query, k=3)
 
-        # 7) 답변 생성 (유사도 기준 QnA >=0.7)
+        # 7) 답변 생성 (유사도 기준 QnA ≥ 0.7)
         if qna_scores[0][1] >= 0.7:
-            top_doc = qna_scores[0][0]
+            top_doc, top_score = qna_scores[0]
             prompt = ChatPromptTemplate.from_messages([
                 SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
                 HumanMessagePromptTemplate.from_template(
@@ -474,7 +475,7 @@ QnA 문서 청크:
                 question=query
             )
         else:
-            top_doc = proc_scores[0][0]
+            top_doc, top_score = proc_scores[0]
             prompt = ChatPromptTemplate.from_messages([
                 SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
                 HumanMessagePromptTemplate.from_template(
@@ -501,7 +502,7 @@ QnA 문서 청크:
         st.markdown(f"## {substep_option}")
         st.write(answer)
 
-        # 8) Expander: TOP3 - 절차 CHUNK
+        # 9) Expander: TOP3 - 절차 CHUNK
         with st.expander("1) TOP3 - 절차 CHUNK"):
             for i, (doc, score) in enumerate(proc_scores, start=1):
                 st.markdown(f"**[TOP_{i}]. {doc.page_content[:30]}… — Score {score:.2f}**")
@@ -519,7 +520,7 @@ QnA 문서 청크:
                     st.write(f"{j}. {line}")
                 st.write("---")
 
-        # 9) Expander: TOP3 - QNA CHUNK
+        # 10) Expander: TOP3 - QNA CHUNK
         with st.expander("2) TOP3 - QNA CHUNK"):
             for i, (doc, score) in enumerate(qna_scores, start=1):
                 tag = doc.metadata.get("tag", "질문 없음")
