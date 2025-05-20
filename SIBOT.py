@@ -33,7 +33,6 @@ from langchain.retrievers import EnsembleRetriever
 from langchain_community.retrievers import BM25Retriever
 from langchain.memory import ConversationBufferMemory
 from langchain.schema import Document
-
 from langchain.chains import RetrievalQA, ConversationalRetrievalChain
 
 # ─────────────────────────────────────────────────────
@@ -265,7 +264,7 @@ def preprocess(text: str) -> str:
 def load_all_docs() -> Tuple[
     Dict[str, List[Document]],  # proc_map
     Dict[str, List[Document]],  # qna_map
-    Dict[str, List[Document]],  # wordpool_map  <-- 추가
+    Dict[str, List[Document]]   # wordpool_map
 ]:
     # 첫 페이지 전용: 빈 줄(2번 연속 개행) 또는 “.␣”을 경계로 분할
     first_page_splitter = CharacterTextSplitter(
@@ -282,23 +281,24 @@ def load_all_docs() -> Tuple[
 
     proc_map: Dict[str, List[Document]] = {}
     qna_map:  Dict[str, List[Document]] = {}
+    wordpool_map: Dict[str, List[Document]] = {}
 
-       def dl_and_chunk(url: str) -> List[Document]:
+    def dl_and_chunk(url: str) -> List[Document]:
         pages = download_and_load(url)
         if not pages:
             return []
+        # 첫 페이지만 regex 스타일로 분할
         first, *rest = pages
         first_texts = first_page_splitter.split_text(first.page_content)
         first_docs = [
             Document(page_content=text, metadata={**first.metadata})
             for text in first_texts if text.strip()
         ]
+        # 나머지는 고정 길이 분할
         rest_docs = body_splitter.split_documents(rest) if rest else []
         return first_docs + rest_docs
 
-    proc_map, qna_map, wordpool_map = {}, {}, {}
-
-    # 기존 프로세스 PDF 로드
+    # STEP 문서 로드
     for step, url in PROCESS_PDF_URLS.items():
         docs = dl_and_chunk(url)
         for d in docs:
@@ -306,7 +306,7 @@ def load_all_docs() -> Tuple[
             d.metadata["step"] = step
         proc_map[step] = docs
 
-    # 기존 Q&A PDF 로드
+    # Q&A 문서 로드
     for step, url in QNA_PDF_URLS.items():
         docs = dl_and_chunk(url)
         for d in docs:
@@ -314,7 +314,7 @@ def load_all_docs() -> Tuple[
             d.metadata["step"] = step
         qna_map[step] = docs
 
-    # **새로 추가**: 용어집 PDF 로드
+    # 용어집(Wordpool) 문서 로드
     for name, url in WORDPOOL_PDF_URLS.items():
         docs = dl_and_chunk(url)
         for d in docs:
