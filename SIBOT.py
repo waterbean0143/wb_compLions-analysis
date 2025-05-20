@@ -108,7 +108,7 @@ def classify_question_type(q: str) -> str:
     return "일반 질문"
 
 def classify_with_llm(query: str) -> str:
-    # 시스템 메시지 템플릿
+    # 1) 시스템 메시지 템플릿
     sys_tm = SystemMessagePromptTemplate.from_template(
         """당신은 AX SI 방법론 이행봇의 질문 분류기입니다.
 주어진 질문을 보고 아래 카테고리 중 하나로 분류해 주세요:
@@ -119,22 +119,24 @@ def classify_with_llm(query: str) -> str:
 - 일반 질문
 """
     )
-    # 사용자 메시지 템플릿
+    # 2) 사용자 메시지 템플릿
     usr_tm = HumanMessagePromptTemplate.from_template(
         "질문: {query}\n\n분류:"
     )
-    # 최종 ChatPromptTemplate 조립
+    # 3) ChatPromptTemplate 조립
     prompt = ChatPromptTemplate.from_messages([sys_tm, usr_tm])
 
+    # 4) 빈문자열 방지
+    if not query.strip():
+        return "일반 질문"
+
+    # 5) LLM 체인 실행
     llm = ChatOpenAI(
         model="gpt-4o-mini",
         temperature=0,
         openai_api_key=os.environ["OPENAI_API_KEY"],
     )
     chain = LLMChain(llm=llm, prompt=prompt)
-    # 빈 query 방지
-    if not query.strip():
-        return "일반 질문"
     return chain.predict(query=query).strip()
 
 # ─────────────────────────────────────────────────────
@@ -582,7 +584,7 @@ with qa_tab:
         st.info("세부 절차를 선택해주세요.")
         st.stop()
 
-    # 3) 분류 방식 선택
+     # 3) 분류 방식 선택 (키워드 vs. LLM vs. 비교)
     classify_method = st.radio(
         "🔍 질문 유형 분류 방식",
         ("키워드 기반", "LLM 기반", "비교 보기")
@@ -599,7 +601,7 @@ with qa_tab:
     if not query:
         st.stop()
 
-      # 6) 질문 요청 버튼
+    # 6) 질문 요청
     if st.button("질문 요청", key=f"btn_{step}"):
         if not query.strip():
             st.warning("질문을 입력해주세요.")
@@ -613,9 +615,12 @@ with qa_tab:
         else:  # 비교 보기
             kw = classify_question_type(query)
             llm = classify_with_llm(query)
-            st.write(f"- **키워드 기반** 분류: {kw}")
-            st.write(f"- **LLM 기반** 분류: {llm}")
+            st.markdown("**분류 비교 결과**")
+            st.write(f"- 키워드 기반: `{kw}`")
+            st.write(f"- LLM 기반: `{llm}`")
+            # 기본적으로 키워드 기반 결과를 사용
             qtype = kw
+
         st.info(f"📌 사용자의 질문은 ‘{substep}’ 단계의 “{qtype}” 입니다.")
         # ────────────────────────────────────────────────────────
 
