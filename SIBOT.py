@@ -388,7 +388,6 @@ def build_global_qna_vectordb(
 
 
 @st.cache_resource(ttl=3600*24)
-@st.cache_resource(ttl=3600 * 24)
 def build_index_vectordbs() -> Dict[str, FAISS]:
     emb = OpenAIEmbeddings(
         model="text-embedding-ada-002",
