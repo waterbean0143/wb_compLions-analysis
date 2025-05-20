@@ -23,6 +23,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.express as px
 
+import difflib    #추
+
 from kiwipiepy import Kiwi
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
@@ -479,17 +481,16 @@ with qa_tab:
     if st.button("질문 요청", key="btn_query"):
         # ... (생략: substep 추론, 검색, 답변 생성) ...
 
-
         # 5) Substep 자동 추론
         idx_scores     = index_vectordbs[step].similarity_search_with_score(query, k=1)
         substep_option = idx_scores[0][0].page_content
         st.info(f"📌 사용자의 질문은 ‘{step}’ 단계의 “{substep_option}”에 대한 “{qtype}”입니다.")
 
         # 6) 절차 Top-3 검색 (“자동 추론한 substep”에서만 뽑아 옵니다)
-        sub_vdb      = substep_vectordbs[step][substep_option]
+        sub_vdb      = substep_vectordbs[step].get(substep_option) or proc_vdbs[step]
         proc_scores  = sub_vdb.similarity_search_with_score(query, k=3)
         # QnA Top-3 검색 (자동 추론 substep 태그와 일치하는 QnA에서만)
-        qna_sub_vdb  = qna_substep_vectordbs[step][substep_option]
+        qna_sub_vdb  = qna_substep_vectordbs[step].get(substep_option) or qna_vdbs[step]
         qna_scores   = qna_sub_vdb.similarity_search_with_score(query, k=3)
 
         # 7) 답변 생성 (유사도 기준 QnA ≥ 0.7)
@@ -547,17 +548,16 @@ QnA 문서 청크:
         # 9) Expander: TOP3 - 절차 CHUNK
         with st.expander("1) TOP3 - 절차 CHUNK"):
             for i, (doc, score) in enumerate(proc_scores, start=1):
-                st.markdown(f"**[TOP_{i}]. {doc.page_content[:30]}… — Score {score:.2f}**")
                 st.markdown(f"**[TOP_{i}]. {substep_option} — Score {score:.2f}**")
                 # 원본 블록 발췌
-                page_no = doc.metadata.get("page", 1)
-                pages  = original_pages[f"proc:{step}"][1:]  # 첫페이지 제외
-                orig_page = pages[max(page_no-2, 0)].page_content
-                lines = orig_page.splitlines()
-                start_idx = next((j for j,l in enumerate(lines) if substep_option in l), 0)
-                end_idx = next((j for j,l in enumerate(lines[start_idx+1:], start_idx+1)
-                                if re.match(r"^##\d+", l)), len(lines))
-                block = lines[start_idx:end_idx]
+                page_no    = doc.metadata.get("page", 1)
+                pages      = original_pages[f"proc:{step}"][1:]  # 첫페이지 제외
+                orig_page  = pages[max(page_no-2, 0)].page_content
+                lines      = orig_page.splitlines()
+                start_idx  = next((j for j, l in enumerate(lines) if substep_option in l), 0)
+                end_idx    = next((j for j, l in enumerate(lines[start_idx+1:], start_idx+1)
+                                   if re.match(r"^##\d+", l)), len(lines))
+                block      = lines[start_idx:end_idx]
                 for j, line in enumerate(block, start=1):
                     st.write(f"{j}. {line}")
                 st.write("---")
@@ -569,7 +569,6 @@ QnA 문서 청크:
                 st.markdown(f"**[TOP_{i}]. {tag} — Score {score:.2f}**")
                 qc  = doc.metadata.get("question_context", "")
                 ac  = doc.metadata.get("answer_context", "")
-                st.markdown(f"**[TOP_{i}]. {tag} — Score {score:.2f}**")
                 st.markdown("**— 원본 (질문+답변) —**")
                 if qc: st.write(qc)
                 if ac: st.write(ac)
