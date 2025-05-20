@@ -427,13 +427,24 @@ def build_ensemble(_proc_vdbs, _bm25_retrs):
 
 
 with st.spinner("📦 데이터 로드 중…"):
-    # 1) 문서·벡터 DB 로드
+    # 1) 문서 로드
     proc_docs_map, qna_docs_map, wp_map, original_pages = load_all_docs()
-    proc_vdbs, qna_vdbs    = build_vectordbs(proc_docs_map, qna_docs_map)
-    bm25_retrs             = build_bm25(proc_docs_map)
-    ensemble_retrs         = build_ensemble(proc_vdbs, bm25_retrs)
+
+    # 2) FAISS 벡터 DB 생성
+    proc_vdbs, qna_vdbs = build_vectordbs(proc_docs_map, qna_docs_map)
+
+    # 3) BM25 + Ensemble Retriever
+    bm25_retrs     = build_bm25(proc_docs_map)
+    ensemble_retrs = build_ensemble(proc_vdbs, bm25_retrs)
+
+    # 4) 인덱스용 FAISS (Substep 자동 추론용)
     index_vectordbs        = build_index_vectordbs()
-    qna_substep_vectordbs = build_qna_substep_vectordbs(proc_docs_map, qna_docs_map)
+
+    # ★ 추가할 한 줄: Substep별 FAISS DB 생성 ★
+    substep_vectordbs      = build_substep_vectordbs(proc_docs_map)
+
+    # 5) QnA Substep별 FAISS DB 생성
+    qna_substep_vectordbs  = build_qna_substep_vectordbs(proc_docs_map, qna_docs_map)
 
 # ─────────────────────────────────────────────────────
 # 8) Q&A 탭 (STEP → Substep 자동 추론 → 유형 분기 → 답변 + TOP3 + 원문/청크)
