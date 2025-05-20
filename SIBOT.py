@@ -529,28 +529,40 @@ QnA 문서 청크:
         st.markdown(f"## {substep_option}")
         st.write(answer)
 
-        # 9) Expander: TOP3 - 절차 CHUNK (원문 + chunking)
-        with st.expander("1) TOP3 - 절차 CHUNK"):
-            for i, (doc, score) in enumerate(proc_scores, start=1):
-                # 제목 추출: 첫 '##' 라인 혹은 'Chunk {i}'
-                heading = next((l for l in doc.page_content.splitlines() if l.startswith("##")), f"Chunk {i}")
-                with st.expander(f"{i}. {heading} — Score {score:.2f}"):
-                    # 9-1) 원문
-                    with st.expander("1-1) 원문"):
-                        st.write(doc.page_content)
-                    # 9-2) 청크 단위 분할 (문장별)
-                    with st.expander("1-2) chunking"):
-                        for j, line in enumerate(doc.page_content.splitlines(), start=1):
-                            st.write(f"{j}. {line}")
+        # ─────────────────────────────────────────────────────
+# Expander: TOP3 - 절차 CHUNK (원문 + 청크)
+# ─────────────────────────────────────────────────────
+with st.expander("1) TOP3 - 절차 CHUNK"):
+    for i, (doc, score) in enumerate(proc_scores, start=1):
+        # 1) 제목 및 점수
+        title = next((l for l in doc.page_content.splitlines() if l.startswith("##")), f"절차 청크 {i}")
+        st.markdown(f"**{i}. {title} — Score {score:.2f}**")
+        
+        # 2) 원문
+        st.markdown("**— 원문 —**")
+        for line in doc.page_content.splitlines():
+            st.write(line)
 
-        # 10) Expander: TOP3 - QNA CHUNK (원문 + chunking)
-        with st.expander("2) TOP3 - QNA CHUNK"):
-            for i, (doc, score) in enumerate(qna_scores, start=1):
-                heading = f"QnA Chunk {i}"
-                with st.expander(f"{i}. {heading} — Score {score:.2f}"):
-                    with st.expander("2-1) 원문"):
-                        st.write(doc.page_content)
-                    with st.expander("2-2) chunking"):
-                        for j, line in enumerate(doc.page_content.splitlines(), start=1):
-                            st.write(f"{j}. {line}")
+        # 3) 청크 (문장 단위)
+        st.markdown("**— chunking (문장별) —**")
+        for j, sentence in enumerate(doc.page_content.split(". "), start=1):
+            st.write(f"{j}. {sentence.strip()}.")
 
+        st.write("---")  # 구분선
+
+# ─────────────────────────────────────────────────────
+# Expander: TOP3 - QNA CHUNK (원문 + 청크)
+# ─────────────────────────────────────────────────────
+with st.expander("2) TOP3 - QNA CHUNK"):
+    for i, (doc, score) in enumerate(qna_scores, start=1):
+        st.markdown(f"**{i}. QnA 청크 — Score {score:.2f}**")
+        
+        st.markdown("**— 원문 —**")
+        for line in doc.page_content.splitlines():
+            st.write(line)
+
+        st.markdown("**— chunking (줄 단위) —**")
+        for j, chunk in enumerate(doc.page_content.splitlines(), start=1):
+            st.write(f"{j}. {chunk}")
+
+        st.write("---")
