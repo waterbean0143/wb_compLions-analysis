@@ -438,16 +438,23 @@ with st.spinner("📦 데이터 로드 중…"):
     # 5) 세부절차별 벡터 DB 생성
     substep_vectordbs             = build_substep_vectordbs(proc_docs_map)
 
+# ─────────────────────────────────────────────────────
+# 8) Q&A 탭 (STEP → Substep 자동 추론 → 유형 분기 → 답변 + TOP3 + 원문/청크)
+# ─────────────────────────────────────────────────────
 with qa_tab:
     st.header("AX SI 방법론 이행봇 - Q&A")
 
     # 1) STEP 선택
-    step = st.selectbox("📂 절차 단계를 선택해 주세요",
-                        list(PROCESS_PDF_URLS.keys()), key="sel_step")
+    step = st.selectbox(
+        "📂 절차 단계를 선택해 주세요",
+        list(PROCESS_PDF_URLS.keys()), key="sel_step"
+    )
 
     # 2) 질문 유형 선택
-    qtype = st.selectbox("❓ 질문 유형을 선택해 주세요",
-                         QUESTION_TYPES, key="sel_qtype")
+    qtype = st.selectbox(
+        "❓ 질문 유형을 선택해 주세요",
+        QUESTION_TYPES, key="sel_qtype"
+    )
 
     # 3) 질문 입력
     query = st.text_input("💬 질문을 입력하세요", key="input_query")
@@ -458,28 +465,26 @@ with qa_tab:
             st.warning("❗️ 질문을 입력한 후 버튼을 눌러 주세요.")
             st.stop()
 
-        # 5) Substep 자동 추론 (Index FAISS)
+        # 5) Substep 자동 추론
         idx_scores = index_vectordbs[step].similarity_search_with_score(query, k=3)
         top_idx_doc, _ = idx_scores[0]
         substep_option = top_idx_doc.page_content  # ex. "2. VDC-A 심의 준비"
         st.info(f"📌 사용자의 질문은 ‘{step}’ 단계의 “{substep_option}”에 대한 “{qtype}”입니다.")
 
-        # 6) 절차(전체 STEP) / QnA Top-3 검색
-        proc_db     = proc_vectordbs[step]
+        # 6) 절차/ QnA Top-3 검색
+        proc_db    = proc_vectordbs[step]
         proc_scores = proc_db.similarity_search_with_score(query, k=3)
-        qna_db      = qna_vectordbs[step]
-        qna_scores  = qna_db.similarity_search_with_score(query, k=3)
+        qna_db     = qna_vectordbs[step]
+        qna_scores = qna_db.similarity_search_with_score(query, k=3)
 
-        # 7) 경로 분기 (QnA 최우선 유사도 >=0.7 ?)
-        top_qna_score = qna_scores[0][1]
-        if top_qna_score >= 0.7:
-            # QnA 경로
+        # 7) 답변 생성 (유사도 기준 QnA >=0.7)
+        if qna_scores[0][1] >= 0.7:
             top_doc = qna_scores[0][0]
             prompt = ChatPromptTemplate.from_messages([
                 SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
                 HumanMessagePromptTemplate.from_template(
                     """세부절차: {substep}
-QnA 청크:
+QnA 문서 청크:
 {chunk}
 
 사용자 질문: {question}
@@ -487,7 +492,7 @@ QnA 청크:
 위 정보를 바탕으로 문장형으로 답변해 주세요."""
                 )
             ])
-            chain  = LLMChain(
+            chain = LLMChain(
                 llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
                 prompt=prompt
             )
@@ -497,7 +502,6 @@ QnA 청크:
                 question=query
             )
         else:
-            # 절차 경로
             top_doc = proc_scores[0][0]
             prompt = ChatPromptTemplate.from_messages([
                 SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
@@ -511,7 +515,7 @@ QnA 청크:
 위 정보를 바탕으로 문장형으로 답변해 주세요."""
                 )
             ])
-            chain  = LLMChain(
+            chain = LLMChain(
                 llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
                 prompt=prompt
             )
@@ -522,18 +526,31 @@ QnA 청크:
             )
 
         # 8) 본문 응답
-        st.markdown(f"### {substep_option}")
+        st.markdown(f"## {substep_option}")
         st.write(answer)
 
-        # 9) Expander: TOP3 - 절차 CHUNK
+        # 9) Expander: TOP3 - 절차 CHUNK (원문 + chunking)
         with st.expander("1) TOP3 - 절차 CHUNK"):
             for i, (doc, score) in enumerate(proc_scores, start=1):
-                st.write(f"**{i}. Score {score:.2f}** — {doc.page_content[:200]}…")
-                st.write("---")
+                # 제목 추출: 첫 '##' 라인 혹은 'Chunk {i}'
+                heading = next((l for l in doc.page_content.splitlines() if l.startswith("##")), f"Chunk {i}")
+                with st.expander(f"{i}. {heading} — Score {score:.2f}"):
+                    # 9-1) 원문
+                    with st.expander("1-1) 원문"):
+                        st.write(doc.page_content)
+                    # 9-2) 청크 단위 분할 (문장별)
+                    with st.expander("1-2) chunking"):
+                        for j, line in enumerate(doc.page_content.splitlines(), start=1):
+                            st.write(f"{j}. {line}")
 
-        # 10) Expander: TOP3 - QnA CHUNK
+        # 10) Expander: TOP3 - QNA CHUNK (원문 + chunking)
         with st.expander("2) TOP3 - QNA CHUNK"):
             for i, (doc, score) in enumerate(qna_scores, start=1):
-                snippet = doc.page_content.replace("\n", " ")
-                st.write(f"**{i}. Score {score:.2f}** — {snippet[:200]}…")
+                heading = f"QnA Chunk {i}"
+                with st.expander(f"{i}. {heading} — Score {score:.2f}"):
+                    with st.expander("2-1) 원문"):
+                        st.write(doc.page_content)
+                    with st.expander("2-2) chunking"):
+                        for j, line in enumerate(doc.page_content.splitlines(), start=1):
+                            st.write(f"{j}. {line}")
 
