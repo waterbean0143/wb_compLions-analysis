@@ -438,6 +438,9 @@ with st.spinner("📦 데이터 로드 중…"):
 # ─────────────────────────────────────────────────────
 qa_tab = st.container()   # 또는 st.tabs(...)으로 탭을 만들었다면 해당 탭 변수 사용
 
+# ─────────────────────────────────────────────────────
+# 8) Q&A 탭
+# ─────────────────────────────────────────────────────
 with qa_tab:
     st.header("AX SI 방법론 이행봇 - Q&A")
 
@@ -448,49 +451,50 @@ with qa_tab:
         key="select_step"
     )
 
-    # 2) 질문 유형 선택 (맨 앞에 '자유 질의' 포함)
+    # 2) 질문 유형 선택
     qtype = st.selectbox(
         "❓ 질문 유형을 하나 선택해 주세요",
         QUESTION_TYPES,
         key="select_qtype"
     )
 
-    # 3) 사용자 질문 입력
+    # 3) 질문 입력
     query = st.text_input("💬 질문을 입력하세요", key="input_query")
-    if not query:
-        st.stop()
 
-    # 4) 질문 요청 버튼
+    # 4) 질문 요청 버튼 (항상 표시)
     if st.button("질문 요청", key="btn_query"):
-        # (A) 의도 안내
+
+        # 4-1) 빈 질문 검증
+        if not query:
+            st.warning("❗️ 질문을 입력한 후 버튼을 눌러 주세요.")
+            st.stop()
+
+        # 4-2) 사용자 의도 안내
         st.info(f"📌 사용자의 질문은 ‘{step}’ 단계의 “{qtype}” 입니다.")
 
-        # (B) 자유 질의인 경우 → 전체 문서(Global) 기반 검색/QA
+        # 4-3) 자유 질의 처리 (전체 QnA 문서 기반 벡터 DB)
         if qtype == "자유 질의":
             st.subheader("💡 자유 질의 응답 (전체 문서 기반)")
-            # 예: global_vectordb = FAISS.from_documents(sum_all_docs, emb)
-            retriever = global_vectordb.as_retriever()
+            retriever = global_qna_vectordb.as_retriever()  # 글로벌 QnA 벡터 DB :contentReference[oaicite:0]{index=0}:contentReference[oaicite:1]{index=1}
             qa_chain = RetrievalQA.from_chain_type(
-                llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
+                llm=ChatOpenAI(model="gpt-4o-mini", temperature=0, openai_api_key=os.getenv("OPENAI_API_KEY")),
                 chain_type="stuff",
                 retriever=retriever,
-                chain_type_kwargs={"prompt": select_persona_prompt(qtype)}
+                chain_type_kwargs={"prompt": select_persona_prompt(qtype)},
             )
             answer = qa_chain.run({"query": query})
             st.write(answer)
 
-        # (C) 그 외 정의 요청 등 유형별 처리
+        # 4-4) 그 외 유형별 처리 (단계별 프로세스 문서 기반 벡터 DB)
         else:
             st.subheader(f"💡 ‘{qtype}’ 유형 응답")
-            # (C1) Persona 프롬프트
-            system_prompt = select_persona_prompt(qtype)
-            # (C2) 해당 단계 문서에서 검색
-            proc_retriever = proc_vdbs[step].as_retriever()
+            retriever = proc_vectordbs[step].as_retriever()
             qa_chain = RetrievalQA.from_chain_type(
-                llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
+                llm=ChatOpenAI(model="gpt-4o-mini", temperature=0, openai_api_key=os.getenv("OPENAI_API_KEY")),
                 chain_type="stuff",
-                retriever=proc_retriever,
-                chain_type_kwargs={"prompt": system_prompt}
+                retriever=retriever,
+                chain_type_kwargs={"prompt": select_persona_prompt(qtype)},
             )
             answer = qa_chain.run({"query": query})
             st.write(answer)
+
