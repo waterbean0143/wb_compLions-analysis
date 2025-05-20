@@ -118,10 +118,10 @@ def classify_with_llm(query: str) -> str:
 - 일반 질문
 """
     )
-    user = HumanMessagePromptTemplate.from_template("질문: {query}\n분류:")
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", system),
-        ("user", user),
+    user_tm = HumanMessagePromptTemplate.from_template("질문: {query}\n분류:")
+     prompt = ChatPromptTemplate.from_messages([
+        system_tm,
+        user_tm,
     ])
 
     llm = ChatOpenAI(
@@ -131,7 +131,7 @@ def classify_with_llm(query: str) -> str:
     )
     chain = LLMChain(llm=llm, prompt=prompt)
 
-    result = chain.run(query)
+    result = chain.predict(query=query)
     return result.strip()
 
 # ─────────────────────────────────────────────────────
