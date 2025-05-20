@@ -460,22 +460,22 @@ with qa_tab:
     query = st.text_input("💬 질문을 입력하세요", key="input_query")
 
     # 4) 질문 요청
-    if st.button("질문 요청", key="btn_query"):
+     if st.button("질문 요청", key="btn_query"):
         if not query:
-            st.warning("❗️ 질문을 입력한 후 버튼을 눌러 주세요.")
+            st.warning("질문을 입력해 주세요.")
             st.stop()
 
         # 5) Substep 자동 추론
         idx_scores = index_vectordbs[step].similarity_search_with_score(query, k=3)
         top_idx_doc, _ = idx_scores[0]
-        substep_option = top_idx_doc.page_content  # ex. "2. VDC-A 심의 준비"
+        substep_option = top_idx_doc.page_content
         st.info(f"📌 사용자의 질문은 ‘{step}’ 단계의 “{substep_option}”에 대한 “{qtype}”입니다.")
 
         # 6) 절차/ QnA Top-3 검색
-        proc_db    = proc_vectordbs[step]
+        proc_db     = proc_vectordbs[step]
         proc_scores = proc_db.similarity_search_with_score(query, k=3)
-        qna_db     = qna_vectordbs[step]
-        qna_scores = qna_db.similarity_search_with_score(query, k=3)
+        qna_db      = qna_vectordbs[step]
+        qna_scores  = qna_db.similarity_search_with_score(query, k=3)
 
         # 7) 답변 생성 (유사도 기준 QnA >=0.7)
         if qna_scores[0][1] >= 0.7:
@@ -529,40 +529,27 @@ QnA 문서 청크:
         st.markdown(f"## {substep_option}")
         st.write(answer)
 
-        # ─────────────────────────────────────────────────────
-# Expander: TOP3 - 절차 CHUNK (원문 + 청크)
-# ─────────────────────────────────────────────────────
-with st.expander("1) TOP3 - 절차 CHUNK"):
-    for i, (doc, score) in enumerate(proc_scores, start=1):
-        # 1) 제목 및 점수
-        title = next((l for l in doc.page_content.splitlines() if l.startswith("##")), f"절차 청크 {i}")
-        st.markdown(f"**{i}. {title} — Score {score:.2f}**")
-        
-        # 2) 원문
-        st.markdown("**— 원문 —**")
-        for line in doc.page_content.splitlines():
-            st.write(line)
+       # 9) Expander: TOP3 - 절차 CHUNK (원문 + 청크)
+        with st.expander("1) TOP3 - 절차 CHUNK"):
+            for i, (doc, score) in enumerate(proc_scores, start=1):
+                title = next((l for l in doc.page_content.splitlines() if l.startswith("##")), f"절차 청크 {i}")
+                st.markdown(f"**{i}. {title} — Score {score:.2f}**")
+                st.markdown("**— 원문 —**")
+                for line in doc.page_content.splitlines():
+                    st.write(line)
+                st.markdown("**— chunking (문장별) —**")
+                for j, sentence in enumerate(doc.page_content.split(". "), start=1):
+                    st.write(f"{j}. {sentence.strip()}.")
+                st.write("---")
 
-        # 3) 청크 (문장 단위)
-        st.markdown("**— chunking (문장별) —**")
-        for j, sentence in enumerate(doc.page_content.split(". "), start=1):
-            st.write(f"{j}. {sentence.strip()}.")
-
-        st.write("---")  # 구분선
-
-# ─────────────────────────────────────────────────────
-# Expander: TOP3 - QNA CHUNK (원문 + 청크)
-# ─────────────────────────────────────────────────────
-with st.expander("2) TOP3 - QNA CHUNK"):
-    for i, (doc, score) in enumerate(qna_scores, start=1):
-        st.markdown(f"**{i}. QnA 청크 — Score {score:.2f}**")
-        
-        st.markdown("**— 원문 —**")
-        for line in doc.page_content.splitlines():
-            st.write(line)
-
-        st.markdown("**— chunking (줄 단위) —**")
-        for j, chunk in enumerate(doc.page_content.splitlines(), start=1):
-            st.write(f"{j}. {chunk}")
-
-        st.write("---")
+        # 10) Expander: TOP3 - QNA CHUNK (원문 + 청크)
+        with st.expander("2) TOP3 - QNA CHUNK"):
+            for i, (doc, score) in enumerate(qna_scores, start=1):
+                st.markdown(f"**{i}. QnA 청크 — Score {score:.2f}**")
+                st.markdown("**— 원문 —**")
+                for line in doc.page_content.splitlines():
+                    st.write(line)
+                st.markdown("**— chunking (줄 단위) —**")
+                for j, chunk in enumerate(doc.page_content.splitlines(), start=1):
+                    st.write(f"{j}. {chunk}")
+                st.write("---")
