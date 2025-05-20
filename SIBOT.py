@@ -147,14 +147,33 @@ INTENT_CLASSIFICATION_PROMPT = ChatPromptTemplate.from_messages([
     )
 ])
 
+# ─────────────────────────────────────────────────────
+# 0-2') classify_with_llm 를 LLMChain 버전으로 대체
+# ─────────────────────────────────────────────────────
 def classify_with_llm(question: str) -> str:
-    chain = LLMChain(
-        llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
-        prompt=INTENT_CLASSIFICATION_PROMPT
+    # 1) 분류하도록 지시할 시스템 메시지
+    system_prompt = SystemMessage(
+        content=(
+            "아래 질문을 다음 유형 중 하나로 분류하세요:\n"
+            "- 정의 요청\n"
+            "- 수행 절차 안내\n"
+            "- 산출물·문서 요구 사항\n"
+            "- 책임·역할 분담\n"
+            "- 일정·마일스톤 확인\n"
+            "- 일반 질문\n"
+            "질문만 받고, 꼭 해당 분류 이름만 한 줄로 출력해주세요."
+        )
     )
-    output = chain.predict(question=question)
-    # 예시: "질문유형: 정의 요청"
-    return output.split("：")[-1].strip()
+    # 2) 실제 사용자 질문
+    user_prompt = HumanMessage(content=f"질문: {question}")
+    # 3) 체인 생성 및 실행
+    chain = LLMChain(
+        llm=ChatOpenAI(model="gpt-4o-mini", temperature=0,
+                       openai_api_key=os.environ["OPENAI_API_KEY"]),
+        prompt=[system_prompt, user_prompt]
+    )
+    classification = chain.run()
+    return classification.strip()
 
 # ─────────────────────────────────────────────────────
 # 0-5) 질문유형별 Persona + SystemPrompt
