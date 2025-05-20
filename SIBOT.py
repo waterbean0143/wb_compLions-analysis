@@ -287,13 +287,21 @@ def load_all_docs() -> Tuple[
             lines = blk.splitlines()
             # 질문 헤더(tag)
             tag = next((l for l in lines if l.startswith("[질문")), "")
+
             # 질문 컨텍스트
-            question_context = tag + "\n" + "\n".join(
-                l for l in lines if not (l.startswith("[[") or l.startswith("[[["))
+            question_context = tag + "\n" + "\n".join([
+                l for l in lines
+                if not (
+                    l.startswith("[질문") 
+                    or l.startswith("[[[답변]") 
+                    or l.startswith("[[답변]")
+                )
+            ])
             # 답변 컨텍스트(answer)
-            answer_context = "\n".join(
-                l for l in lines if l.startswith("[[[답변]") or l.startswith("[[답변]")
-            )
+            answer_context = "\n".join([
+                l for l in lines
+                if l.startswith("[[[답변]") or l.startswith("[[답변]")
+            ])
             docs.append(Document(
                 page_content=blk,
                 metadata={
