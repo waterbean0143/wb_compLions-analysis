@@ -143,48 +143,8 @@ QUESTION_TYPE_SYSTEM: Dict[str,str] = {
 }
 
 # ─────────────────────────────────────────────────────
-# 4) 문서 로드 및 벡터 DB 생성
+# 0) 문서 URL 정의 (반드시 함수 정의 위에 위치)
 # ─────────────────────────────────────────────────────
-@st.cache_data(ttl=86400)
-def load_all_docs() -> Tuple[Dict[str,List[Document]],Dict[str,List[Document]]]:
-    splitter_first = CharacterTextSplitter(separator=r"\n{2,}|\.(?:\s|$)", is_separator_regex=True, chunk_size=800, chunk_overlap=0)
-    splitter_body = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
-
-    proc_map, qna_map = {}, {}
-    for name, url in PROCESS_PDF_URLS.items():
-        pages = download_and_load(url)
-        docs = []
-        if pages:
-            first, *rest = pages
-            for txt in splitter_first.split_text(first.page_content):
-                docs.append(Document(page_content=txt, metadata={**first.metadata}))
-            docs += splitter_body.split_documents(rest)
-        proc_map[name] = docs
-    for name, url in QNA_PDF_URLS.items():
-        pages = download_and_load(url)
-        docs = []
-        if pages:
-            first, *rest = pages
-            for txt in splitter_first.split_text(first.page_content):
-                docs.append(Document(page_content=txt, metadata={**first.metadata}))
-            docs += splitter_body.split_documents(rest)
-        qna_map[name] = docs
-    return proc_map, qna_map
-
-@st.cache_resource(ttl=86400)
-def build_vectordbs(proc_docs_map, qna_docs_map):
-    emb = OpenAIEmbeddings(model="text-embedding-ada-002", openai_api_key=os.getenv("OPENAI_API_KEY"))
-    return (
-        {k: FAISS.from_documents(v, emb) for k,v in proc_docs_map.items()},
-        {k: FAISS.from_documents(v, emb) for k,v in qna_docs_map.items()}
-    )
-
-# ─────────────────────────────────────────────────────
-# 5) 앱 시작 및 전역 구축
-# ─────────────────────────────────────────────────────
-st.set_page_config(page_title="AX SI 방법론 이행봇", layout="wide")
-
-# 0) 문서 URL 정의
 PROCESS_PDF_URLS = {
     "제안/계약": "https://drive.google.com/uc?export=download&id=1TNOhmUds7hMpwz3NO4QD-mO-J1sUJoEa",
     "착수/계획": "https://drive.google.com/uc?export=download&id=16j9ypXkWD7oi477ylSXWhVVe7jLtRuI7",
@@ -194,13 +154,103 @@ QNA_PDF_URLS = {
     "제안/계약": "https://drive.google.com/uc?export=download&id=17M1mnMZVl29EahbSVqzcyZEX8LYsx5ER",
 }
 
-# 추가된 SI 용어집을 벡터/의도 추론에 활용하기 위한 워드풀
 WORDPOOL_PDF_URLS = {
     "SI_용어집": "https://drive.google.com/uc?export=download&id=1aD4QYP1OBXRP7PbXYrlXHn5LlLyFzDtx"
 }
 
-# 기존 load_all_docs 호출 이전에 반드시 위 세 가지가 정의되어 있어야 합니다.
-proc_docs_map, qna_docs_map = load_all_docs()
+# ─────────────────────────────────────────────────────
+# 4) 문서 로드 및 벡터 DB 생성
+# ─────────────────────────────────────────────────────
+@st.cache_data(ttl=86400)
+def load_all_docs() -> Tuple[
+        Dict[str, List[Document]],
+        Dict[str, List[Document]],
+        Dict[str, List[Document]]
+    ]:
+    splitter_first = CharacterTextSplitter(
+        separator=r"\n{2,}|\.(?:\s|$)",
+        is_separator_regex=True,
+        chunk_size=800,
+        chunk_overlap=0,
+    )
+    splitter_body = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
+
+    # 1) 프로세스 문서
+    proc_map: Dict[str, List[Document]] = {}
+    for name, url in PROCESS_PDF_URLS.items():
+        pages = download_and_load(url)
+        docs: List[Document] = []
+        if pages:
+            first, *rest = pages
+            for txt in splitter_first.split_text(first.page_content):
+                docs.append(Document(page_content=txt, metadata={**first.metadata}))
+            docs += splitter_body.split_documents(rest)
+        proc_map[name] = docs
+
+    # 2) 대표 QnA 문서
+    qna_map: Dict[str, List[Document]] = {}
+    for name, url in QNA_PDF_URLS.items():
+        pages = download_and_load(url)
+        docs: List[Document] = []
+        if pages:
+            first, *rest = pages
+            for txt in splitter_first.split_text(first.page_content):
+                docs.append(Document(page_content=txt, metadata={**first.metadata}))
+            docs += splitter_body.split_documents(rest)
+        qna_map[name] = docs
+
+    # 3) SI 용어집 워드풀
+    wordpool_map: Dict[str, List[Document]] = {}
+    for name, url in WORDPOOL_PDF_URLS.items():
+        pages = download_and_load(url)
+        full_text = "\n".join(p.page_content for p in pages) if pages else ""
+        docs: List[Document] = []
+        for line in full_text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if ":" in line:
+                word, rest = [s.strip() for s in line.split(":", 1)]
+                definitions = [d.strip() for d in rest.split(",") if d.strip()]
+                content = f"{word}: {', '.join(definitions)}"
+                docs.append(Document(
+                    page_content=content,
+                    metadata={"source": name, "wp_word": word, "wp_definitions": definitions}
+                ))
+            else:
+                docs.append(Document(page_content=line, metadata={"source": name}))
+        wordpool_map[name] = docs
+
+    return proc_map, qna_map, wordpool_map
+
+
+@st.cache_resource(ttl=86400)
+def build_vectordbs(
+    proc_docs_map: Dict[str, List[Document]],
+    qna_docs_map:  Dict[str, List[Document]],
+    wordpool_docs_map: Dict[str, List[Document]]
+) -> Tuple[
+        Dict[str, FAISS],
+        Dict[str, FAISS],
+        Dict[str, FAISS]
+    ]:
+    emb = OpenAIEmbeddings(
+        model="text-embedding-ada-002",
+        openai_api_key=os.getenv("OPENAI_API_KEY")
+    )
+    proc_vdbs   = {k: FAISS.from_documents(v, emb) for k, v in proc_docs_map.items()}
+    qna_vdbs    = {k: FAISS.from_documents(v, emb) for k, v in qna_docs_map.items()}
+    wp_vdbs     = {k: FAISS.from_documents(v, emb) for k, v in wordpool_docs_map.items()}
+    return proc_vdbs, qna_vdbs, wp_vdbs
+
+# ─────────────────────────────────────────────────────
+# 5) 앱 시작 및 전역 구축
+# ─────────────────────────────────────────────────────
+st.set_page_config(page_title="AX SI 방법론 이행봇", layout="wide")
+
+proc_docs_map, qna_docs_map, wordpool_docs_map = load_all_docs()
+proc_vdbs, qna_vdbs, wp_vdbs           = build_vectordbs(proc_docs_map, qna_docs_map, wordpool_docs_map)
+
 
 # ─────────────────────────────────────────────────────
 # 6) Q&A 탭 (프로세스 Top-3 & QnA Top-3 → 우선순위 결정 → 원문 응답)
