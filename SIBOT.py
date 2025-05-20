@@ -108,8 +108,8 @@ def classify_question_type(q: str) -> str:
     return "일반 질문"
 
 def classify_with_llm(query: str) -> str:
-    # 1) 
-    system_tm = SystemMessagePromptTemplate.from_template(
+    # 1) 시스템 메시지 (분류 지침)
+    sys_tm = SystemMessagePromptTemplate.from_template(
         """당신은 AX SI 방법론 이행봇의 질문 유형 분류기입니다.
 주어진 질문을 보고 아래 카테고리 중 하나로 분류해 주세요:
 - 정의 요청
@@ -119,23 +119,20 @@ def classify_with_llm(query: str) -> str:
 - 일반 질문
 """
     )
-    # 2) 
-    user_tm = HumanMessagePromptTemplate.from_template(
+    # 2) 사용자 메시지 템플릿
+    usr_tm = HumanMessagePromptTemplate.from_template(
         "질문: {query}\n분류:"
     )
-    # 3)
-    prompt = ChatPromptTemplate.from_messages([
-        system_tm,
-        user_tm,
-    ])
-    # 4) 
+    # 3) 프롬프트 조립
+    prompt = ChatPromptTemplate.from_messages([sys_tm, usr_tm])
+    # 4) LLMChain 생성
     llm = ChatOpenAI(
         model="gpt-4o-mini",
         temperature=0,
         openai_api_key=os.environ["OPENAI_API_KEY"],
     )
     chain = LLMChain(llm=llm, prompt=prompt)
-    # 5) 
+    # 5) 예측 실행
     return chain.predict(query=query).strip()
 
 # ─────────────────────────────────────────────────────
@@ -583,7 +580,7 @@ with qa_tab:
         st.info("세부 절차를 선택해주세요.")
         st.stop()
 
-    # 3) 분류 방식 선택 (NEW)
+    # 3) 분류 방식 선택
     classify_method = st.radio(
         "🔍 질문 유형 분류 방식",
         ("키워드 기반", "LLM 기반", "비교 보기")
@@ -595,51 +592,29 @@ with qa_tab:
         for d in idx_docs:
             st.markdown(f"- {d.page_content}")
 
-     # 5) 질문 입력
+    # 5) 질문 입력
     query = st.text_input("💬 질문을 입력하세요", key=f"query_{step}")
+    if not query:
+        st.stop()
+
+    # 6) 질문 요청 버튼
     if st.button("질문 요청", key=f"btn_{step}"):
-        if not query.strip():
-            st.warning("질문을 입력해주세요.")
-            st.stop()
 
-        # ─────────────────────────────────────────────────────
-        # 5.1) 질문 유형 분류 (키워드 vs LLM vs 비교)
-        # ─────────────────────────────────────────────────────
-        if classify_method == "키워드 기반":
-            qtype_kw = classify_question_type(query)
-            qtype    = qtype_kw
-            st.info(f"🔎 키워드 기반 분류: “{qtype}”")
-        elif classify_method == "LLM 기반":
-            qtype_llm = classify_with_llm(query)   # ← 여기가 에러 발생 지점
-            qtype     = qtype_llm
-            st.info(f"🔎 LLM 기반 분류: “{qtype}”")
-        else:  # 비교 보기
-            qtype_kw  = classify_question_type(query)
-            qtype_llm = classify_with_llm(query)
-            st.write(f"- **키워드 기반**: {qtype_kw}")
-            st.write(f"- **LLM 기반**: {qtype_llm}")
-            # 기본 qtype은 키워드 기반 결과로 설정
-            qtype = qtype_kw
-            st.info(f"📌 두 방식을 비교 후, 기본은 키워드 기반 결과인 “{qtype}” 로 사용합니다.")
+        # (디버그) 전체 청크 확인...
+        # …
 
-        # (디버그) 전체 청크 확인
-        with st.expander("🔍 전체 청크 확인", expanded=False):
-            docs = proc_docs_map[step]
-            st.write(f"• 총 청크 개수: {len(docs)}")
-            for i, d in enumerate(docs[:3]):
-                st.markdown(f"**Chunk {i+1}**: `{d.page_content[:100]}…`")      
-
-        # 6) 질문 유형 분류
+        # 7) qtype 결정
         if classify_method == "키워드 기반":
             qtype = classify_question_type(query)
         elif classify_method == "LLM 기반":
             qtype = classify_with_llm(query)
         else:  # 비교 보기
-            kw = classify_question_type(query)
-            llm = classify_with_llm(query)
-            st.info(f"🔎 **키워드 기반**: {kw}\n🔍 **LLM 기반**: {llm}")
-            # 대표 하나만 뽑고 싶으면, 예를 들어 KW 우선:
-            qtype = kw
+            q_kw  = classify_question_type(query)
+            q_llm = classify_with_llm(query)
+            st.write(f"**키워드 기반** 분류: {q_kw}")
+            st.write(f"**LLM 기반** 분류: {q_llm}")
+            # 여기선 일단 키워드 기반 결과를 사용
+            qtype = q_kw
 
         st.info(f"📌 사용자의 질문은 ‘{substep}’ 단계의 “{qtype}” 입니다.")
 
