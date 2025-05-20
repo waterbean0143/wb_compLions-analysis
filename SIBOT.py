@@ -388,18 +388,19 @@ def build_global_qna_vectordb(
 
 
 @st.cache_resource(ttl=3600*24)
-def build_index_retrievers() -> Dict[str, any]:
+@st.cache_resource(ttl=3600 * 24)
+def build_index_vectordbs() -> Dict[str, FAISS]:
     emb = OpenAIEmbeddings(
         model="text-embedding-ada-002",
-        openai_api_key=os.environ["OPENAI_API_KEY"],
+        openai_api_key=os.getenv("OPENAI_API_KEY"),
     )
-    idx_retrs = {}
+    idx_vdbs: Dict[str, FAISS] = {}
     for step, url in PROCESS_PDF_URLS.items():
         idx_docs = extract_index_chunks(url)
         if idx_docs:
-            idx_retrs[step] = FAISS.from_documents(idx_docs, emb).as_retriever()
-    return idx_retrs
-
+            idx_vdbs[step] = FAISS.from_documents(idx_docs, emb)
+    return idx_vdbs
+    
 
 @st.cache_resource(ttl=3600*24)
 def build_substep_vectordbs(
