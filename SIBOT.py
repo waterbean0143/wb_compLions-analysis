@@ -438,9 +438,11 @@ def build_substep_vectordbs(
 
 # 앱 시작 시 한 번만 로드·벡터화
 with st.spinner("📦 데이터 로드 중…"):
-    proc_docs_map, qna_docs_map, wordpool_docs_map = load_all_docs()
+    # unpack all three
+    proc_docs_map, qna_docs_map, wordpool_map = load_all_docs()
+
     proc_vectordbs, qna_vectordbs = build_vectordbs(proc_docs_map, qna_docs_map)
-    wordpool_vectordbs            = build_vectordbs(wordpool_docs_map, {})[0]  # 단일 map→vector
+    global_qna_vectordb           = build_global_qna_vectordb(qna_docs_map)
     index_retrievers              = build_index_retrievers()
     substep_vectordbs             = build_substep_vectordbs(proc_docs_map)
 
