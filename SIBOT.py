@@ -499,15 +499,13 @@ with qa_tab:
 
     # 4) 질문 요청
     if st.button("질문 요청", key="btn_query"):
-        # ... (생략: substep 추론, 검색, 답변 생성) ...
-
-        # 5) Substep 자동 추론 (Top-1만 사용, 추천은 아래에서 별도 처리)
+        # 5) Substep 자동 추론 (Top-1만 사용)
         idx_scores     = index_vectordbs[step].similarity_search_with_score(query, k=1)
         substep_option = idx_scores[0][0].page_content
         st.info(f"📌 사용자의 질문은 ‘{step}’ 단계의 “{substep_option}”에 대한 “{qtype}”입니다.")
 
         # 6) Top-3 서브스텝 추천 및 각 서브스텝 내 청크 Top-3
-        substep_scores = index_vectordbs[step].similarity_search_with_score(query, k=3)
+        substep_scores = idx_vectordbs[step].similarity_search_with_score(query, k=3)
         with st.expander("1) TOP3 - 절차 서브스텝 및 청크"):
             for i, (sub_doc, sub_score) in enumerate(substep_scores, start=1):
                 sub = sub_doc.page_content
@@ -519,7 +517,7 @@ with qa_tab:
                     continue
                 chunk_scores = vdb.similarity_search_with_score(query, k=3)
                 for j, (c_doc, c_score) in enumerate(chunk_scores, start=1):
-                    snippet = c_doc.page_content.replace("\n"," ")[:200] + "…"
+                    snippet = c_doc.page_content.replace("\n", " ")[:200] + "…"
                     st.write(f"  {j}. {snippet} (Score {c_score:.2f})")
                 st.write("---")
 
@@ -533,19 +531,72 @@ with qa_tab:
                 qc = doc.metadata.get("question_context", "").strip()
                 ac = doc.metadata.get("answer_context", "").strip()
                 st.markdown("**— 원본 (질문+답변) —**")
-                if qc: st.write(qc)
-                if ac: st.write(ac)
+                if qc:
+                    st.write(qc)
+                if ac:
+                    st.write(ac)
                 st.markdown("**— chunking (줄 단위) —**")
                 for idx, line in enumerate((qc + "\n" + ac).splitlines(), start=1):
                     st.write(f"{idx}. {line}")
                 st.write("---")
 
-        # 8) 본문 응답
+        # 8) 답변 생성 (유사도 기준 QnA ≥ 0.7)
+        if qna_scores and qna_scores[0][1] >= 0.7:
+            top_doc, top_score = qna_scores[0]
+            prompt = ChatPromptTemplate.from_messages([
+                SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
+                HumanMessagePromptTemplate.from_template(
+                    """세부절차: {substep}
+QnA 문서 청크:
+{chunk}
+
+사용자 질문: {question}
+
+위 정보를 바탕으로 문장형으로 답변해 주세요."""
+                )
+            ])
+            chain = LLMChain(
+                llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
+                prompt=prompt
+            )
+            answer = chain.predict(
+                substep=substep_option,
+                chunk=top_doc.page_content,
+                question=query
+            )
+        else:
+            # QnA 점수가 없거나 낮을 때 절차 문서 기반으로 답변
+            proc_scores = proc_vectordbs[step].similarity_search_with_score(query, k=3)
+            top_doc, top_score = proc_scores[0]
+            prompt = ChatPromptTemplate.from_messages([
+                SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
+                HumanMessagePromptTemplate.from_template(
+                    """세부절차: {substep}
+절차 문서 청크:
+{chunk}
+
+사용자 질문: {question}
+
+위 정보를 바탕으로 문장형으로 답변해 주세요."""
+                )
+            ])
+            chain = LLMChain(
+                llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
+                prompt=prompt
+            )
+            answer = chain.predict(
+                substep=substep_option,
+                chunk=top_doc.page_content,
+                question=query
+            )
+
+        # 9) 본문 응답
         st.markdown(f"## {substep_option}")
         st.write(answer)
 
-        # 9) Expander: TOP3 - 절차 CHUNK
-        with st.expander("1) TOP3 - 절차 CHUNK"):
+        # 10) Expander: TOP3 - 절차 CHUNK
+        with st.expander("3) TOP3 - 절차 CHUNK"):
+            proc_scores = proc_vectordbs[step].similarity_search_with_score(query, k=3)
             for i, (doc, score) in enumerate(proc_scores, start=1):
                 st.markdown(f"**[TOP_{i}]. {substep_option} — Score {score:.2f}**")
                 # 원본 블록 발췌
@@ -561,16 +612,18 @@ with qa_tab:
                     st.write(f"{j}. {line}")
                 st.write("---")
 
-        # 10) Expander: TOP3 - QNA CHUNK
-        with st.expander("2) TOP3 - QNA CHUNK"):
+        # 11) Expander: TOP3 - QNA CHUNK
+        with st.expander("4) TOP3 - QNA CHUNK"):
             for i, (doc, score) in enumerate(qna_scores, start=1):
                 tag = doc.metadata.get("tag", "질문 없음")
                 st.markdown(f"**[TOP_{i}]. {tag} — Score {score:.2f}**")
                 qc  = doc.metadata.get("question_context", "")
                 ac  = doc.metadata.get("answer_context", "")
                 st.markdown("**— 원본 (질문+답변) —**")
-                if qc: st.write(qc)
-                if ac: st.write(ac)
+                if qc:
+                    st.write(qc)
+                if ac:
+                    st.write(ac)
                 st.markdown("**— chunking (줄 단위) —**")
                 for j, line in enumerate([qc, ac], start=1):
                     st.write(f"{j}. {line}")
