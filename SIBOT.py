@@ -436,88 +436,61 @@ with st.spinner("📦 데이터 로드 중…"):
 # ─────────────────────────────────────────────────────
 # 8) Q&A 탭
 # ─────────────────────────────────────────────────────
+qa_tab = st.container()   # 또는 st.tabs(...)으로 탭을 만들었다면 해당 탭 변수 사용
+
 with qa_tab:
-    st.header("AX SI 방법론 이행봇")
+    st.header("AX SI 방법론 이행봇 - Q&A")
 
     # 1) 절차 단계 선택
-    step = st.selectbox("📂 절차 단계를 하나 선택해 주세요", list(PROCESS_PDF_URLS.keys()))
-    if step is None:
-        st.info("모든 단계를 선택 후, 질문을 입력하고 '질문 요청' 버튼을 눌러주세요.")
+    step = st.selectbox(
+        "📂 절차 단계를 하나 선택해 주세요",
+        list(PROCESS_PDF_URLS.keys()),
+        key="select_step"
+    )
+
+    # 2) 질문 유형 선택 (맨 앞에 '자유 질의' 포함)
+    qtype = st.selectbox(
+        "❓ 질문 유형을 하나 선택해 주세요",
+        QUESTION_TYPES,
+        key="select_qtype"
+    )
+
+    # 3) 사용자 질문 입력
+    query = st.text_input("💬 질문을 입력하세요", key="input_query")
+    if not query:
         st.stop()
 
-    # 2) SUBSTEP 선택
-    idx_docs    = extract_index_chunks(PROCESS_PDF_URLS[step])
-    sub_choices = [d.metadata["title"] for d in idx_docs]
-    substep     = st.selectbox("⚙️ 세부 절차를 하나 선택해 주세요", sub_choices)
-    if not substep:
-        st.info("모든 단계를 선택 후, 질문을 입력하고 '질문 요청' 버튼을 눌러주세요.")
-        st.stop()
+    # 4) 질문 요청 버튼
+    if st.button("질문 요청", key="btn_query"):
+        # (A) 의도 안내
+        st.info(f"📌 사용자의 질문은 ‘{step}’ 단계의 “{qtype}” 입니다.")
 
-    # 3) 질문 유형 선택
-    qtype = st.selectbox("❓ 질문 유형을 하나 선택해 주세요", ["정의 요청", "일반 질문"])
-    if not qtype:
-        st.info("모든 단계를 선택 후, 질문을 입력하고 '질문 요청' 버튼을 눌러주세요.")
-        st.stop()
+        # (B) 자유 질의인 경우 → 전체 문서(Global) 기반 검색/QA
+        if qtype == "자유 질의":
+            st.subheader("💡 자유 질의 응답 (전체 문서 기반)")
+            # 예: global_vectordb = FAISS.from_documents(sum_all_docs, emb)
+            retriever = global_vectordb.as_retriever()
+            qa_chain = RetrievalQA.from_chain_type(
+                llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
+                chain_type="stuff",
+                retriever=retriever,
+                chain_type_kwargs={"prompt": select_persona_prompt(qtype)}
+            )
+            answer = qa_chain.run({"query": query})
+            st.write(answer)
 
-    # 4) 절차 개요
-    st.subheader(f"[{step}] 프로세스 개요")
-    with st.expander("목록 펼치기", expanded=False):
-        for d in idx_docs:
-            st.markdown(f"- {d.page_content}")
-
-    # 5) 질문 입력
-    query = st.text_input("💬 질문을 입력하세요", key=f"query_{step}")
-
-    # 6) 질문 요청 버튼 — 여기서만 분석/API 호출 수행
-    if st.button("질문 요청", key=f"btn_{step}"):
-        if not query.strip():
-            st.warning("질문을 입력해주세요.")
-            st.stop()
-
-        # (디버그) 전체 청크 확인
-        with st.expander("🔍 전체 청크 확인", expanded=False):
-            docs = proc_docs_map[step]
-            st.write(f"• 총 청크 개수: {len(docs)}")
-            for i, d in enumerate(docs[:3]):
-                st.markdown(
-                    f"**Chunk {i+1} (메타: {d.metadata}):**\n```\n{d.page_content[:200]}...\n```"
-                )
-
-        # 7) 질문 유형·SUBSTEP 매핑
-        st.info(f"📌 사용자의 질문은 ‘{substep}’ 단계의 “{qtype}” 입니다.")
-
-       # 8) 글로벌 Q&A 매핑 (Top-3, threshold=0.5) => qna 응답 분기
-        docs_and_scores = global_qna_vectordb.similarity_search_with_score(query, k=3)
-        with st.expander("🔍 Q&A 유사도 Top 3", expanded=False):
-            for doc, score in docs_and_scores:
-                first_line = doc.page_content.splitlines()[0]
-                st.write(f"- **{score:.3f}**: {first_line}…")
-        top_doc, top_score = docs_and_scores[0]
-        if top_score >= 0.5:
-            st.subheader("💡 qna 응답")
-            # 원문 (preprocess 되기 전) 이 필요하면, qna_docs_map[step]에서 metadata 비교 후 꺼내 쓰세요.
-            st.write(top_doc.page_content)
-            st.stop()
-
-         # 9) 프로세스 기반 RetrievalQA
-        retriever = substep_vectordbs[step].get(substep) or proc_vectordbs[step].as_retriever()
-
-        # (선택) 실제 참조한 청크 원문 보여주기
-        proc_docs = retriever.get_relevant_documents(query)
-        with st.expander("🔍 참조된 프로세스 내용", expanded=False):
-            for d in proc_docs[:3]:
-                st.markdown(f"- {d.page_content}")
-
-        st.subheader("💡 프로세스 응답")
-        qa_chain = RetrievalQA.from_chain_type(
-            llm=ChatOpenAI(
-                model="gpt-4o-mini",
-                temperature=0,
-                openai_api_key=os.environ["OPENAI_API_KEY"],
-            ),
-            chain_type="stuff",
-            retriever=retriever,
-        )
-        with st.spinner("답변 생성 중…"):
-            answer = qa_chain.run(query)
-        st.write(answer)
+        # (C) 그 외 정의 요청 등 유형별 처리
+        else:
+            st.subheader(f"💡 ‘{qtype}’ 유형 응답")
+            # (C1) Persona 프롬프트
+            system_prompt = select_persona_prompt(qtype)
+            # (C2) 해당 단계 문서에서 검색
+            proc_retriever = proc_vdbs[step].as_retriever()
+            qa_chain = RetrievalQA.from_chain_type(
+                llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
+                chain_type="stuff",
+                retriever=proc_retriever,
+                chain_type_kwargs={"prompt": system_prompt}
+            )
+            answer = qa_chain.run({"query": query})
+            st.write(answer)
