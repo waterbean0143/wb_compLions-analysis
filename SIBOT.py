@@ -83,6 +83,9 @@ def extract_index_chunks(url: str) -> List[Document]:
 # ─────────────────────────────────────────────────────
 # 0-2) GraphState 정의 & 질문 유형 분류
 # ─────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────
+# 0-2) GraphState 정의 & 질문 유형 분류
+# ─────────────────────────────────────────────────────
 class GraphState(TypedDict):
     question: str
     step_name: str
@@ -91,6 +94,28 @@ class GraphState(TypedDict):
     context: str
     response: str
     attempts: int
+
+def classify_question_type(q: str) -> str:
+    # (이미 작성하신 키워드 기반 분류)
+    q_lower = q.lower()
+    if any(k in q_lower for k in ["정의", "이란"]):
+        return "정의 요청"
+    if any(k in q_lower for k in ["어떻게", "절차", "방법"]):
+        return "수행 절차 안내"
+    if any(k in q_lower for k in ["산출물", "문서", "준비"]):
+        return "산출물·문서 요구 사항"
+    if any(k in q_lower for k in ["누가", "책임", "역할"]):
+        return "책임·역할 분담"
+    if any(k in q_lower for k in ["언제", "기한", "마감"]) or re.search(r"\d+일", q_lower):
+        return "일정·마일스톤 확인"
+    return "일반 질문"
+
+def classify_with_llm(question: str) -> str:
+    """
+    TODO: 나중에 LLMChain 기반 분류로 업그레이드할 부분입니다.
+    당장은 키워드 함수로 폴백합니다.
+    """
+    return classify_question_type(question)
 
 # ─────────────────────────────────────────────────────
 # 0-3) Base persona 및 질문유형별 시스템 메시지 정의
