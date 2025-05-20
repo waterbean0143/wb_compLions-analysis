@@ -373,20 +373,27 @@ def build_substep_vectordbs(
 # SUBSTEP 매핑 QNA vectorDB 생성
 # ─────────────────────────────────────────────────────
 @st.cache_resource(ttl=86400)
-def build_qna_substep_vectordbs(proc_docs_map, qna_docs_map):
-    emb = OpenAIEmbeddings(model="text-embedding-ada-002", openai_api_key=...)
-    result = {}
-    for step, qna_docs in qna_docs_map.items():
-        # metadata["tag"] 에 "[질문2] 6. RFP 분석" 같은 문자열이 저장되어 있다고 가정
+def build_qna_substep_vectordbs(
+    _proc_docs_map: Dict[str, List[Document]],
+    _qna_docs_map: Dict[str, List[Document]]
+) -> Dict[str, Dict[str, FAISS]]:
+    emb = OpenAIEmbeddings(
+        model="text-embedding-ada-002",
+        openai_api_key=os.environ["OPENAI_API_KEY"],
+    )
+    result: Dict[str, Dict[str, FAISS]] = {}
+    for step, qna_docs in _qna_docs_map.items():
         groups: Dict[str, List[Document]] = {}
         for doc in qna_docs:
             tag = doc.metadata.get("tag", "")
-            # 태그에서 “6. RFP 분석” 추출
+            # “[질문2] 6. RFP 분석” 같은 메타에서 “6. RFP 분석”만 추출
             sub = re.sub(r"^\[질문\d+\]\s*", "", tag)
             groups.setdefault(sub, []).append(doc)
+        # 각 substep별로 FAISS 인덱스 생성
         result[step] = {
-            sub: FAISS.from_documents(dlist, emb)
-            for sub, dlist in groups.items()
+            sub: FAISS.from_documents(docs, emb)
+            for sub, docs in groups.items()
+            if docs
         }
     return result
 
