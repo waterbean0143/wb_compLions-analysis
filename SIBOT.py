@@ -445,13 +445,10 @@ with qa_tab:
         substep_option = idx_scores[0][0].page_content
         st.info(f"📌 사용자의 질문은 ‘{step}’ 단계의 “{substep_option}”에 대한 “{qtype}”입니다.")
 
-       # 6) 절차 Top-3 검색 (FAISS 유사도 + score)
--        proc_scores = proc_vectordbs[step].similarity_search_with_score(query, k=3)
-+        proc_scores = proc_vdbs[step].similarity_search_with_score(query, k=3)
-
-        # QnA Top-3 검색 (FAISS 유사도 + score)
--        qna_scores  = qna_vectordbs[step].similarity_search_with_score(query, k=3)
-+        qna_scores  = qna_vdbs[step].similarity_search_with_score(query, k=3)
+        # 6) 절차,QnA Top-3 검색 (FAISS 유사도 + score)
+        proc_scores = proc_vdbs[step].similarity_search_with_score(query, k=3)
+        qna_scores  = qna_vdbs[step].similarity_search_with_score(query, k=3)
+        
         # 7) 답변 생성 (유사도 기준 QnA ≥ 0.7)
         if qna_scores[0][1] >= 0.7:
             top_doc, top_score = qna_scores[0]
