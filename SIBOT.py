@@ -32,7 +32,7 @@ from langchain_community.vectorstores import FAISS
 from langchain.retrievers import EnsembleRetriever
 from langchain_community.retrievers import BM25Retriever
 from langchain.memory import ConversationBufferMemory
-from langchain.schema import Document
+from langchain.schema import Document, SystemMessage, HumanMessage
 from langchain.chains import RetrievalQA, ConversationalRetrievalChain
 
 from langchain.chains import LLMChain
@@ -108,36 +108,23 @@ def classify_question_type(q: str) -> str:
     return "일반 질문"
 
 def classify_with_llm(query: str) -> str:
-    # 1) 시스템 메시지 템플릿
-    sys_tm = SystemMessagePromptTemplate.from_template(
-        """당신은 AX SI 방법론 이행봇의 질문 분류기입니다.
-주어진 질문을 보고 아래 카테고리 중 하나로 분류해 주세요:
-- 정의 요청
-- 수행 절차 안내
-- 산출물·문서 요구 사항
-- 책임·역할 분담
-- 일반 질문
-"""
-    )
-    # 2) 사용자 메시지 템플릿
-    usr_tm = HumanMessagePromptTemplate.from_template(
-        "질문: {query}\n\n분류:"
-    )
-    # 3) ChatPromptTemplate 조립
-    prompt = ChatPromptTemplate.from_messages([sys_tm, usr_tm])
-
-    # 4) 빈문자열 방지
-    if not query.strip():
-        return "일반 질문"
-
-    # 5) LLM 체인 실행
     llm = ChatOpenAI(
         model="gpt-4o-mini",
         temperature=0,
         openai_api_key=os.environ["OPENAI_API_KEY"],
     )
-    chain = LLMChain(llm=llm, prompt=prompt)
-    return chain.predict(query=query).strip()
+    # 시스템 메시지: 전체 페르소나 + 분류 지침
+    system_msg = SystemMessage(
+        content=BASE_PERSONA + "\n\n"
+                "아래 유형 중 하나로 질문을 분류해 주세요:\n" +
+                "\n".join(f"- {k}: {v.splitlines()[0]}" for k, v in QUESTION_TYPE_SYSTEM.items())
+    )
+    # 사용자 메시지: 실제 질문
+    human_msg = HumanMessage(content=f"질문: {query}\n\n분류된 유형만 단어 하나로 출력해주세요.")
+    # LLM 호출
+    resp = llm([system_msg, human_msg])
+    # 반환된 content 에서 앞뒤 공백·줄바꿈 제거
+    return resp.content.strip()
 
 # ─────────────────────────────────────────────────────
 # 0-3) Base persona 및 질문유형별 시스템 메시지 정의
