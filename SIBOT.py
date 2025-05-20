@@ -35,6 +35,8 @@ from langchain.memory import ConversationBufferMemory
 from langchain.schema import Document
 from langchain.chains import RetrievalQA, ConversationalRetrievalChain
 
+from langchain_core.prompts import SystemMessagePromptTemplate, HumanMessagePromptTemplate, ChatPromptTemplate
+
 # ─────────────────────────────────────────────────────
 # 0-1) PDF 첫페이지 인덱스 자동추출 유틸
 # ─────────────────────────────────────────────────────
@@ -91,7 +93,41 @@ class GraphState(TypedDict):
     attempts: int
 
 # ─────────────────────────────────────────────────────
-# 0-1) 질문 의도·맥락 분류용 시스템 메시지
+# 0-3) Base persona 및 질문유형별 시스템 메시지 정의
+# ─────────────────────────────────────────────────────
+BASE_PERSONA = """\
+당신은 대기업 KT의 SI(Project Management) 전문 PM입니다.
+KT 내부 프로세스, 조직·역할, 산출물 요건까지 정확히 파악하고 있으며,
+질문자는 KT 직원이므로 너무 법률·학술적 용어 대신 실무에 바로 쓸 수 있는 언어로 답변하세요.
+"""
+
+QUESTION_TYPE_SYSTEM: Dict[str, str] = {
+    "정의 요청": """\
+주어진 세부절차의 개념과 목적을 명확히 정의해주세요.
+– 무엇(What): 이 절차가 무엇인지
+– 왜(Why): 이 절차가 필요한 이유
+– 언제(When): 이 절차가 실시되는 시점
+""",
+    "일반 질문": """\
+주어진 절차 컨텍스트를 참고하여, 사용자 질문의 의도에 맞게 간결하게 답변해주세요.
+""",
+    # 나중에 “수행 절차 안내” 등 더 늘리셔도 됩니다.
+}
+
+# 사용자 메시지 템플릿 (모든 유형 공통)
+USER_TMPL = HumanMessagePromptTemplate.from_template(
+    "질문: {question}\n\n절차 요약:\n{context}\n\n간결하게 답변해주세요."
+)
+
+def make_prompt_for_type(question_type: str) -> ChatPromptTemplate:
+    return ChatPromptTemplate.from_messages([
+        SystemMessagePromptTemplate.from_template(BASE_PERSONA),
+        SystemMessagePromptTemplate.from_template(QUESTION_TYPE_SYSTEM[question_type]),
+        USER_TMPL,
+    ])
+
+# ─────────────────────────────────────────────────────
+# 0-4) 질문 의도·맥락 분류용 시스템 메시지
 # ─────────────────────────────────────────────────────
 INTENT_CLASSIFICATION_PROMPT = ChatPromptTemplate.from_messages([
     SystemMessagePromptTemplate.from_template(
@@ -121,7 +157,7 @@ def classify_with_llm(question: str) -> str:
     return output.split("：")[-1].strip()
 
 # ─────────────────────────────────────────────────────
-# 0-3) 질문유형별 Persona + SystemPrompt
+# 0-5) 질문유형별 Persona + SystemPrompt
 # ─────────────────────────────────────────────────────
 QUESTION_TYPE_SYSTEM: Dict[str,str] = {
     "정의 요청": """당신은 대기업 KT의 SI 이행론 전문 PM입니다.
@@ -151,7 +187,7 @@ RACI 형식으로 역할과 책임을 정리하세요.
 }
 
 # ─────────────────────────────────────────────────────
-# 0-4) STEP별 시스템 메시지 정의 (start/end 동적 반영)
+# 0-6) STEP별 시스템 메시지 정의 (start/end 동적 반영)
 # ─────────────────────────────────────────────────────
 STEP_SYSTEM_PROMPTS = {
     "제안/계약": """당신은 AX SI 방법론의 ‘제안/계약’ 단계 전문가입니다.
@@ -182,7 +218,7 @@ PMS 구축, 조직·역할 정의, 관리정책 수립 등의 절차를 설명�
 }
 
 # ─────────────────────────────────────────────────────
-# 0-5) STEP별 ChatPromptTemplate 생성
+# 0-7) STEP별 ChatPromptTemplate 생성
 # ─────────────────────────────────────────────────────
 STEP_PROMPTS = {
     step: ChatPromptTemplate.from_messages([
@@ -560,21 +596,22 @@ with qa_tab:
         ])
 
         # retriever 선택
-        retriever = substep_vectordbs[step].get(substep) or proc_vectordbs[step].as_retriever()
+       # 9) SUBSTEP RetrievalQA
+retriever = substep_vectordbs[step].get(substep) or proc_vectordbs[step].as_retriever()
 
-        # chain 생성 시 chain_type_kwargs 에 prompt 전달
-        qa_chain = RetrievalQA.from_chain_type(
-            llm=ChatOpenAI(
-                model="gpt-4o-mini",
-                temperature=0,
-                openai_api_key=os.environ["OPENAI_API_KEY"],
-            ),
-            chain_type="stuff",
-            retriever=retriever,
-            chain_type_kwargs={"prompt": prompt},
-        )
-        with st.spinner("답변 생성 중…"):
-            answer = qa_chain.run(query)
+# -- 여기서 동적으로 프롬프트 생성 --
+prompt = make_prompt_for_type(qtype)
 
-        st.subheader("💡 답변")
-        st.write(answer)
+qa_chain = RetrievalQA.from_chain_type(
+    llm=ChatOpenAI(
+        model="gpt-4o-mini",
+        temperature=0,
+        openai_api_key=os.environ["OPENAI_API_KEY"],
+    ),
+    chain_type="stuff",
+    retriever=retriever,
+    chain_type_kwargs={"prompt": prompt},   # ← 새로 추가된 인자
+)
+
+with st.spinner("답변 생성 중…"):
+    answer = qa_chain.run({"query": query})
