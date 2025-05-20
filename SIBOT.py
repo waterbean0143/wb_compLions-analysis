@@ -90,20 +90,35 @@ class GraphState(TypedDict):
     response: str
     attempts: int
 
-def classify_question_type(q: str) -> str:
-    q_lower = q.lower()                    # q_lower 정의
-    if any(k in q_lower for k in ["정의", "이란"]):
-        return "정의 요청"
-    if any(k in q_lower for k in ["어떻게", "절차", "방법"]):
-        return "수행 절차 안내"
-    if any(k in q_lower for k in ["산출물", "문서", "준비"]):
-        return "산출물·문서 요구 사항"
-    if any(k in q_lower for k in ["누가", "책임", "역할"]):
-        return "책임·역할 분담"
-    # q_lower를 사용해서 숫자+일 패턴도 감지
-    if re.search(r"\d+일", q_lower) or any(k in q_lower for k in ["언제", "기한", "마감"]):
-        return "일정·마일스톤 확인"
-    return "일반 질문"
+# ─────────────────────────────────────────────────────
+# 0-1) 질문 의도·맥락 분류용 시스템 메시지
+# ─────────────────────────────────────────────────────
+INTENT_CLASSIFICATION_PROMPT = ChatPromptTemplate.from_messages([
+    SystemMessagePromptTemplate.from_template(
+        """당신은 AX SI 방법론 이행봇의 질문 의도 분류기입니다.
+아래 6가지 유형 중 하나로 이 질문의 **의도**를 분류하세요.
+- 정의 요청: 절차의 개념과 목적을 물음  
+- 수행 절차 안내: 절차를 단계별로 물음  
+- 산출물·문서 요구 사항: 준비해야 할 산출물·문서 물음  
+- 책임·역할 분담: 누가 무엇을 담당하는지 물음  
+- 일정·마일스톤 확인: 기한·마감·N일 이내 처리 여부 물음  
+- 일반 질문: 위에 해당하지 않는 기타 문의  
+
+질문: “{question}”
+
+**출력 형식** (한 줄):
+질문유형: <위 6가지 중 하나>"""
+    )
+])
+
+def classify_with_llm(question: str) -> str:
+    chain = LLMChain(
+        llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
+        prompt=INTENT_CLASSIFICATION_PROMPT
+    )
+    output = chain.predict(question=question)
+    # 예시: "질문유형: 정의 요청"
+    return output.split("：")[-1].strip()
 
 # ─────────────────────────────────────────────────────
 # 0-3) 질문유형별 Persona + SystemPrompt
