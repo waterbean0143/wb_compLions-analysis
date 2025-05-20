@@ -127,13 +127,24 @@ CLASSIFY_PROMPT = ChatPromptTemplate.from_messages([
 ])
 
 def classify_with_llm(query: str) -> str:
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0,
-                     openai_api_key=os.environ["OPENAI_API_KEY"])
-    chain = LLMChain(llm=llm, prompt=CLASSIFY_PROMPT)
-    # **템플릿**에선 {query}를 쓰므로, run에 query 키로 값을 넘겨야 합니다.
-    label = chain.run({"query": query}).strip()
-    # 혹시 출력에 부가 텍스트가 붙어 있을 수 있으니, 정확한 레이블만 리턴
-    return next((l for l in LABELS if l in label), "일반 질문")
+    # 1) 분류용 Prompt 정의
+    system = SystemMessagePromptTemplate.from_template(
+        """당신은 AX SI 방법론 이행봇의 질문 유형 분류기입니다.
+        질문을 보고 카테고리 하나를 다음 중에서 골라주세요:
+        - 정의 요청
+        - 수행 절차 안내
+        - 산출물·문서 요구 사항
+        - 책임·역할 분담
+        - 일반 질문
+        """
+    )
+    user = HumanMessagePromptTemplate.from_template("질문: {query}\n분류:")
+    prompt = ChatPromptTemplate.from_messages([("system", system), ("user", user)])
+    
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, openai_api_key=os.environ["OPENAI_API_KEY"])
+    chain = LLMChain(llm=llm, prompt=prompt)   # Core v0.2.x 용 생성자
+    result = chain.run({"query": query})
+    return result.strip()
 
 # ─────────────────────────────────────────────────────
 # 0-3) Base persona 및 질문유형별 시스템 메시지 정의
@@ -604,11 +615,11 @@ with qa_tab:
         # ─────────────────────────────────────────────────────
         if classify_method == "키워드 기반":
             qtype_kw = classify_question_type(query)
-            qtype = qtype_kw
+            qtype    = qtype_kw
             st.info(f"🔎 키워드 기반 분류: “{qtype}”")
         elif classify_method == "LLM 기반":
-            qtype_llm = classify_with_llm(query)
-            qtype = qtype_llm
+            qtype_llm = classify_with_llm(query)   # ← 여기가 에러 발생 지점
+            qtype     = qtype_llm
             st.info(f"🔎 LLM 기반 분류: “{qtype}”")
         else:  # 비교 보기
             qtype_kw  = classify_question_type(query)
@@ -624,9 +635,7 @@ with qa_tab:
             docs = proc_docs_map[step]
             st.write(f"• 총 청크 개수: {len(docs)}")
             for i, d in enumerate(docs[:3]):
-                st.markdown(f"**Chunk {i+1}**: `{d.page_content[:100]}…`")
-
-        
+                st.markdown(f"**Chunk {i+1}**: `{d.page_content[:100]}…`")      
 
         # 6) 질문 유형 분류
         if classify_method == "키워드 기반":
