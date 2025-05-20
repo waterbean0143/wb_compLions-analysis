@@ -183,12 +183,24 @@ def build_vectordbs(proc_docs_map, qna_docs_map):
 # 5) 앱 시작 및 전역 구축
 # ─────────────────────────────────────────────────────
 st.set_page_config(page_title="AX SI 방법론 이행봇", layout="wide")
-PROCESS_PDF_URLS = {...}
-QNA_PDF_URLS = {...}
+
+# 0) 문서 URL 정의
+PROCESS_PDF_URLS = {
+    "제안/계약": "https://drive.google.com/uc?export=download&id=1TNOhmUds7hMpwz3NO4QD-mO-J1sUJoEa",
+    "착수/계획": "https://drive.google.com/uc?export=download&id=16j9ypXkWD7oi477ylSXWhVVe7jLtRuI7",
+}
+
+QNA_PDF_URLS = {
+    "제안/계약": "https://drive.google.com/uc?export=download&id=17M1mnMZVl29EahbSVqzcyZEX8LYsx5ER",
+}
+
+# 추가된 SI 용어집을 벡터/의도 추론에 활용하기 위한 워드풀
+WORDPOOL_PDF_URLS = {
+    "SI_용어집": "https://drive.google.com/uc?export=download&id=1aD4QYP1OBXRP7PbXYrlXHn5LlLyFzDtx"
+}
+
+# 기존 load_all_docs 호출 이전에 반드시 위 세 가지가 정의되어 있어야 합니다.
 proc_docs_map, qna_docs_map = load_all_docs()
-proc_vdbs, qna_vdbs = build_vectordbs(proc_docs_map, qna_docs_map)
-global_qna_vdb = FAISS.from_documents(sum(qna_docs_map.values(), []), OpenAIEmbeddings(...))
-substep_vdbs = build_substep_vectordbs(proc_docs_map)
 
 # ─────────────────────────────────────────────────────
 # 6) Q&A 탭 (프로세스 Top-3 & QnA Top-3 → 우선순위 결정 → 원문 응답)
