@@ -107,29 +107,33 @@ def classify_question_type(q: str) -> str:
         return "일정·마일스톤 확인"
     return "일반 질문"
 
+# 분류 가능한 라벨 목록
+LABELS = [
+    "정의 요청",
+    "수행 절차 안내",
+    "산출물·문서 요구 사항",
+    "책임·역할 분담",
+    "일정·마일스톤 확인",
+    "일반 질문",
+]
+
+# 분류용 prompt 생성
 CLASSIFY_PROMPT = ChatPromptTemplate.from_messages([
     SystemMessagePromptTemplate.from_template(
-        "당신은 AX SI 방법론 이행봇의 분류 전문가입니다."
+        "다음 사용자 질문을 아래 항목 중 하나로 분류하고, **레이블만** 출력하세요:\n"
+        f"{', '.join(LABELS)}"
     ),
-    HumanMessagePromptTemplate.from_template(
-        "질문: {question}\n\n"
-        "다음 카테고리 중 하나로 분류해주세요:\n"
-        "- 정의 요청\n"
-        "- 수행 절차 안내\n"
-        "- 산출물·문서 요구 사항\n"
-        "- 책임·역할 분담\n"
-        "- 일정·마일스톤 확인\n"
-        "- 일반 질문\n\n"
-        "출력은 오직 위 키워드 중 하나만 간단히 작성하세요."
-    ),
+    HumanMessagePromptTemplate.from_template("질문: {query}\n분류:"),
 ])
 
-def classify_with_llm(question: str) -> str:
+def classify_with_llm(query: str) -> str:
     llm = ChatOpenAI(model="gpt-4o-mini", temperature=0,
                      openai_api_key=os.environ["OPENAI_API_KEY"])
     chain = LLMChain(llm=llm, prompt=CLASSIFY_PROMPT)
-    result = chain.run(question=question)
-    return result.strip()
+    # **템플릿**에선 {query}를 쓰므로, run에 query 키로 값을 넘겨야 합니다.
+    label = chain.run({"query": query}).strip()
+    # 혹시 출력에 부가 텍스트가 붙어 있을 수 있으니, 정확한 레이블만 리턴
+    return next((l for l in LABELS if l in label), "일반 질문")
 
 # ─────────────────────────────────────────────────────
 # 0-3) Base persona 및 질문유형별 시스템 메시지 정의
@@ -588,12 +592,32 @@ with qa_tab:
         for d in idx_docs:
             st.markdown(f"- {d.page_content}")
 
-    # 5) 질문 입력
+     # 5) 질문 입력
     query = st.text_input("💬 질문을 입력하세요", key=f"query_{step}")
     if st.button("질문 요청", key=f"btn_{step}"):
         if not query.strip():
             st.warning("질문을 입력해주세요.")
             st.stop()
+
+        # ─────────────────────────────────────────────────────
+        # 5.1) 질문 유형 분류 (키워드 vs LLM vs 비교)
+        # ─────────────────────────────────────────────────────
+        if classify_method == "키워드 기반":
+            qtype_kw = classify_question_type(query)
+            qtype = qtype_kw
+            st.info(f"🔎 키워드 기반 분류: “{qtype}”")
+        elif classify_method == "LLM 기반":
+            qtype_llm = classify_with_llm(query)
+            qtype = qtype_llm
+            st.info(f"🔎 LLM 기반 분류: “{qtype}”")
+        else:  # 비교 보기
+            qtype_kw  = classify_question_type(query)
+            qtype_llm = classify_with_llm(query)
+            st.write(f"- **키워드 기반**: {qtype_kw}")
+            st.write(f"- **LLM 기반**: {qtype_llm}")
+            # 기본 qtype은 키워드 기반 결과로 설정
+            qtype = qtype_kw
+            st.info(f"📌 두 방식을 비교 후, 기본은 키워드 기반 결과인 “{qtype}” 로 사용합니다.")
 
         # (디버그) 전체 청크 확인
         with st.expander("🔍 전체 청크 확인", expanded=False):
@@ -601,6 +625,8 @@ with qa_tab:
             st.write(f"• 총 청크 개수: {len(docs)}")
             for i, d in enumerate(docs[:3]):
                 st.markdown(f"**Chunk {i+1}**: `{d.page_content[:100]}…`")
+
+        
 
         # 6) 질문 유형 분류
         if classify_method == "키워드 기반":
