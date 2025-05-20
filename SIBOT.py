@@ -443,8 +443,8 @@ with qa_tab:
 
 
         # 5) Substep 자동 추론
-        idx_scores = ensemble_retrs[step].get_relevant_documents(query)  # BM25+FAISS 앙상블
-        substep_option = idx_scores[0].metadata.get("source", idx_scores[0].page_content)
+        idx_scores = index_vectordbs[step].similarity_search_with_score(query, k=1)
+        substep_option = idx_scores[0][0].page_content
         st.info(f"📌 사용자의 질문은 ‘{step}’ 단계의 “{substep_option}”에 대한 “{qtype}”입니다.")
 
         # 6) TOP-3 검색
@@ -505,8 +505,8 @@ QnA 문서 청크:
 
         # 8) Expander: TOP3 - 절차 CHUNK
         with st.expander("1) TOP3 - 절차 CHUNK"):
-            for i, doc in enumerate(proc_scores, start=1):
-                score = doc.metadata.get("score", 0)
+            for i, (doc, score) in enumerate(proc_scores, start=1):
+                st.markdown(f"**[TOP_{i}]. {doc.page_content[:30]}… — Score {score:.2f}**")
                 st.markdown(f"**[TOP_{i}]. {substep_option} — Score {score:.2f}**")
                 # 원본 블록 발췌
                 page_no = doc.metadata.get("page", 1)
@@ -524,7 +524,8 @@ QnA 문서 청크:
         # 9) Expander: TOP3 - QNA CHUNK
         with st.expander("2) TOP3 - QNA CHUNK"):
             for i, (doc, score) in enumerate(qna_scores, start=1):
-                tag = doc.metadata.get("tag", doc.metadata.get("source", "질문 없음"))
+                tag = doc.metadata.get("tag", "질문 없음")
+                st.markdown(f"**[TOP_{i}]. {tag} — Score {score:.2f}**")
                 qc  = doc.metadata.get("question_context", "")
                 ac  = doc.metadata.get("answer_context", "")
                 st.markdown(f"**[TOP_{i}]. {tag} — Score {score:.2f}**")
