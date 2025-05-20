@@ -432,69 +432,94 @@ with st.spinner("📦 데이터 로드 중…"):
     index_retrievers              = build_index_retrievers()
     substep_vectordbs             = build_substep_vectordbs(proc_docs_map)
 
-
 # ─────────────────────────────────────────────────────
-# 8) Q&A 탭
+# 8) Q&A 탭 (STEP + SUBSTEP + 질문유형 → 답변 + TOP3 절차/QnA CHUNK)
 # ─────────────────────────────────────────────────────
 qa_tab = st.container()   # 또는 st.tabs(...)으로 탭을 만들었다면 해당 탭 변수 사용
-
-# ─────────────────────────────────────────────────────
-# 8) Q&A 탭
-# ─────────────────────────────────────────────────────
 with qa_tab:
     st.header("AX SI 방법론 이행봇 - Q&A")
 
-    # 1) 절차 단계 선택
-    step = st.selectbox(
-        "📂 절차 단계를 하나 선택해 주세요",
-        list(PROCESS_PDF_URLS.keys()),
-        key="select_step"
-    )
+    # 1) STEP 선택
+    step = st.selectbox("📂 절차 단계를 선택해 주세요", list(PROCESS_PDF_URLS.keys()), key="sel_step")
 
-    # 2) 질문 유형 선택
-    qtype = st.selectbox(
-        "❓ 질문 유형을 하나 선택해 주세요",
-        QUESTION_TYPES,
-        key="select_qtype"
-    )
+    # 2) SUBSTEP 선택
+    idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
+    substep_opts = [f"{d.metadata['step']}. {d.metadata['title']}" for d in idx_docs]
+    substep = st.selectbox("⚙️ 세부 절차를 선택해 주세요", substep_opts, key="sel_substep")
+    _, sub_title = substep.split(". ", 1)
 
-    # 3) 질문 입력
+    # 3) 질문 유형 선택
+    qtype = st.selectbox("❓ 질문 유형을 선택해 주세요", QUESTION_TYPES, key="sel_qtype")
+
+    # 4) 질문 입력
     query = st.text_input("💬 질문을 입력하세요", key="input_query")
 
-    # 4) 질문 요청 버튼 (항상 표시)
+    # 5) 질문 요청 버튼
     if st.button("질문 요청", key="btn_query"):
-
-        # 4-1) 빈 질문 검증
         if not query:
             st.warning("❗️ 질문을 입력한 후 버튼을 눌러 주세요.")
             st.stop()
 
-        # 4-2) 사용자 의도 안내
-        st.info(f"📌 사용자의 질문은 ‘{step}’ 단계의 “{qtype}” 입니다.")
+        # 6) 의도 안내
+        st.info(f"📌 사용자의 질문은 ‘{step}’ 단계의 “{substep}”에 대한 “{qtype}” 입니다.")
 
-        # 4-3) 자유 질의 처리 (전체 QnA 문서 기반 벡터 DB)
+        # 7) Top-3 검색
+        proc_vdb    = substep_vectordbs[step][sub_title]
+        proc_scores = proc_vdb.similarity_search_with_score(query, k=3)
+        qna_vdb     = qna_vectordbs[step]
+        qna_scores  = qna_vdb.similarity_search_with_score(query, k=3)
+
+        # 8) 답변 생성 (최우선 청크 + LLMChain)
         if qtype == "자유 질의":
-            st.subheader("💡 자유 질의 응답 (전체 문서 기반)")
-            retriever = global_qna_vectordb.as_retriever()  # 글로벌 QnA 벡터 DB :contentReference[oaicite:0]{index=0}:contentReference[oaicite:1]{index=1}
-            qa_chain = RetrievalQA.from_chain_type(
-                llm=ChatOpenAI(model="gpt-4o-mini", temperature=0, openai_api_key=os.getenv("OPENAI_API_KEY")),
-                chain_type="stuff",
-                retriever=retriever,
-                chain_type_kwargs={"prompt": select_persona_prompt(qtype)},
-            )
-            answer = qa_chain.run({"query": query})
-            st.write(answer)
+            top_doc = qna_scores[0][0]
+            prompt = ChatPromptTemplate.from_messages([
+                SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
+                HumanMessagePromptTemplate.from_template(
+                    """QnA 청크:
+{chunk}
 
-        # 4-4) 그 외 유형별 처리 (단계별 프로세스 문서 기반 벡터 DB)
+사용자 질문: {question}
+
+위 청크와 질문을 바탕으로 문장형으로 답변해 주세요."""
+                )
+            ])
+            chain  = LLMChain(llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
+                              prompt=prompt)
+            answer = chain.predict(chunk=top_doc.page_content, question=query)
         else:
-            st.subheader(f"💡 ‘{qtype}’ 유형 응답")
-            retriever = proc_vectordbs[step].as_retriever()
-            qa_chain = RetrievalQA.from_chain_type(
-                llm=ChatOpenAI(model="gpt-4o-mini", temperature=0, openai_api_key=os.getenv("OPENAI_API_KEY")),
-                chain_type="stuff",
-                retriever=retriever,
-                chain_type_kwargs={"prompt": select_persona_prompt(qtype)},
-            )
+            top_doc = proc_scores[0][0]
+            prompt  = ChatPromptTemplate.from_messages([
+                SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
+                HumanMessagePromptTemplate.from_template(
+                    """절차 청크:
+{chunk}
+
+사용자 질문: {question}
+
+위 청크와 질문을 바탕으로 문장형으로 답변해 주세요."""
+                )
+            ])
+            chain  = LLMChain(llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
+                              prompt=prompt)
+            answer = chain.predict(chunk=top_doc.page_content, question=query)
+
+        # 9) 본문 답변
+        st.markdown(f"### {substep}")
+        st.write(answer)
+
+        # 10) Expander: TOP3 절차 CHUNK
+        with st.expander("1) TOP3 - 절차 CHUNK"):
+            for i, (doc, score) in enumerate(proc_scores, start=1):
+                st.write(f"**{i}. Score {score:.2f}** — {doc.page_content[:200]}…")
+                st.write(f"• 서브절차: {doc.metadata.get('title','')}")
+                st.write("---")
+
+        # 11) Expander: TOP3 QnA CHUNK
+        with st.expander("2) TOP3 - QNA CHUNK"):
+            for i, (doc, score) in enumerate(qna_scores, start=1):
+                snippet = doc.page_content.replace("\n", " ")
+                st.write(f"**{i}. Score {score:.2f}** — {snippet[:200]}…")
+                st.write("---")
             answer = qa_chain.run({"query": query})
             st.write(answer)
 
