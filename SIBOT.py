@@ -515,27 +515,38 @@ with qa_tab:
         # 7) 질문 유형·SUBSTEP 매핑
         st.info(f"📌 사용자의 질문은 ‘{substep}’ 단계의 “{qtype}” 입니다.")
 
-        # 8) 글로벌 Q&A 매핑 (Top-3, threshold=0.5)
-        docs_and_scores = global_qna_vectordb.similarity_search_with_score(query, k=3)
-        with st.expander("🔍 Q&A 유사도 Top 3", expanded=False):
-            for doc, score in docs_and_scores:
-                st.write(f"- **{score:.3f}**: {doc.page_content.splitlines()[0]}…")
-        top_doc, top_score = docs_and_scores[0]
-        if top_score >= 0.5:
-            st.subheader("💡 사례 응답")
-            st.write(top_doc.page_content)
-            st.stop()
+        # 8) 글로벌 Q&A 매핑 (Top-3, threshold=0.5) => qna 응답 분기
++        docs_and_scores = global_qna_vectordb.similarity_search_with_score(query, k=3)
++        with st.expander("🔍 Q&A 유사도 Top 3", expanded=False):
++            for doc, score in docs_and_scores:
++                first_line = doc.page_content.splitlines()[0]
++                st.write(f"- **{score:.3f}**: {first_line}…")
++        top_doc, top_score = docs_and_scores[0]
++        if top_score >= 0.5:
++            st.subheader("💡 qna 응답")
++            # 원문 (preprocess 되기 전) 이 필요하면, qna_docs_map[step]에서 metadata 비교 후 꺼내 쓰세요.
++            st.write(top_doc.page_content)
++            st.stop()
 
-        # 9) SUBSTEP RetrievalQA
-        retriever = substep_vectordbs[step].get(substep) or proc_vectordbs[step].as_retriever()
-        qa_chain = RetrievalQA.from_chain_type(
-            llm=ChatOpenAI(model="gpt-4o-mini", temperature=0,
-                           openai_api_key=os.environ["OPENAI_API_KEY"]),
-            chain_type="stuff",
-            retriever=retriever,
-        )
-        with st.spinner("답변 생성 중…"):
-            answer = qa_chain.run(query)
-
-        st.subheader("💡 답변")
-        st.write(answer)
+         # 9) 프로세스 기반 RetrievalQA
++        retriever = substep_vectordbs[step].get(substep) or proc_vectordbs[step].as_retriever()
++
++        # (선택) 실제 참조한 청크 원문 보여주기
++        proc_docs = retriever.get_relevant_documents(query)
++        with st.expander("🔍 참조된 프로세스 내용", expanded=False):
++            for d in proc_docs[:3]:
++                st.markdown(f"- {d.page_content}")
++
++        st.subheader("💡 프로세스 응답")
++        qa_chain = RetrievalQA.from_chain_type(
++            llm=ChatOpenAI(
++                model="gpt-4o-mini",
++                temperature=0,
++                openai_api_key=os.environ["OPENAI_API_KEY"],
++            ),
++            chain_type="stuff",
++            retriever=retriever,
++        )
++        with st.spinner("답변 생성 중…"):
++            answer = qa_chain.run(query)
++        st.write(answer)
