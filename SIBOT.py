@@ -248,31 +248,23 @@ def preprocess(text: str) -> str:
 # ─────────────────────────────────────────────────────
 @st.cache_data(ttl=86400)
 def load_all_docs() -> Tuple[
-    Dict[str, List[Document]],  # proc_map (청크)
-    Dict[str, List[Document]],  # qna_map  (청크)
-    Dict[str, List[Document]],  # wordpool_map (청크)
-    Dict[str, List[Document]]   # original_pages_map
+    Dict[str, List[Document]],
+    Dict[str, List[Document]],
+    Dict[str, List[Document]],
+    Dict[str, List[Document]]
 ]:
-    splitter_first = CharacterTextSplitter(
-        separator=r"\n{2,}|\.(?:\s|$)",
-        is_separator_regex=True,
-        chunk_size=800,
-        chunk_overlap=0,
-    )
+    splitter_first = CharacterTextSplitter(separator=r"\n{2,}|\.(?:\s|$)",
+                                           is_separator_regex=True,
+                                           chunk_size=800, chunk_overlap=0)
     splitter_body = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
 
-    proc_map: Dict[str, List[Document]] = {}
-    qna_map: Dict[str, List[Document]] = {}
-    wordpool_map: Dict[str, List[Document]] = {}
+    proc_map, qna_map, wordpool_map = {}, {}, {}
+    original_proc, original_qna, original_wp = {}, {}, {}
 
-    original_proc: Dict[str, List[Document]] = {}
-    original_qna:  Dict[str, List[Document]] = {}
-    original_wp:   Dict[str, List[Document]] = {}
-
-    # 프로세스 PDF 로드 & 청크 생성
+    # 프로세스
     for name, url in PROCESS_PDF_URLS.items():
         pages = download_and_load(url)
-        original_proc[name] = pages[1:]       # 첫 페이지(목차) 제외
+        original_proc[name] = pages  # 목차 포함 전체 보관
         docs: List[Document] = []
         if pages:
             first, *rest = pages
@@ -281,7 +273,7 @@ def load_all_docs() -> Tuple[
             docs += splitter_body.split_documents(rest)
         proc_map[name] = docs
 
-    # QnA PDF 로드 & 메타정보 추출
+    # QnA
     for name, url in QNA_PDF_URLS.items():
         pages = download_and_load(url)
         original_qna[name] = pages
@@ -293,13 +285,17 @@ def load_all_docs() -> Tuple[
             acont = next((l for l in lines if l.startswith("[[[답변]") or l.startswith("[[답변]")), "")
             docs.append(Document(
                 page_content=page.page_content,
-                metadata={"tag": tag, "question_context": qcont, "answer_context": acont}
+                metadata={"tag": tag, "question_context": qcont, "answer_context": acont,
+                          **page.metadata}
             ))
         qna_map[name] = docs
 
-    # 워드풀 PDF 로드 (생략 가능)
+    # 워드풀 (생략 가능)
+    for name, url in WORDPOOL_PDF_URLS.items():
+        # ...기존 로직...
+        wordpool_map[name] = []
 
-    # 원본 페이지 맵 통합
+    # original_pages 통합
     original_pages: Dict[str, List[Document]] = {}
     for k, v in original_proc.items():
         original_pages[f"proc:{k}"] = v
@@ -309,55 +305,6 @@ def load_all_docs() -> Tuple[
         original_pages[f"wp:{k}"] = v
 
     return proc_map, qna_map, wordpool_map, original_pages
-    
-    
-    def download_and_split(url: str) -> List[Document]:
-        # PDF 다운로드
-        resp = requests.get(url)
-        resp.raise_for_status()
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tf:
-            tf.write(resp.content)
-            tmp_path = tf.name
-
-        try:
-            pages = PyMuPDFLoader(tmp_path).load()
-        finally:
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
-
-        docs: List[Document] = []
-        if pages:
-            # 첫 페이지는 인덱스(chunk_size=1)로, 나머지는 body_splitter
-            first = pages[0]
-            idx_chunks = index_splitter.split_text(first.page_content)
-            for txt in idx_chunks:
-                docs.append(Document(page_content=txt, metadata=first.metadata.copy()))
-            # 2페이지부터
-            rest = pages[1:]
-            if rest:
-                rest_docs = body_splitter.split_documents(rest)
-                docs.extend(rest_docs)
-        return docs
-
-    # STEP 문서 로드
-    for step, url in PROCESS_PDF_URLS.items():
-        docs = download_and_split(url)
-        for d in docs:
-            d.page_content = preprocess(d.page_content)
-            d.metadata["step"] = step
-        proc_map[step] = docs
-
-    # Q&A 문서 로드
-    for step, url in QNA_PDF_URLS.items():
-        docs = download_and_split(url)
-        for d in docs:
-            d.page_content = preprocess(d.page_content)
-            d.metadata["step"] = step
-        qna_map[step] = docs
-
-    return proc_map, qna_map
 
 
 @st.cache_resource(ttl=3600 * 24)
@@ -423,6 +370,23 @@ def build_substep_vectordbs(
     return sub_vdbs
 
 
+@st.cache_resource(ttl=86400)
+def build_bm25(proc_docs_map):
+    return {step: BM25Retriever.from_documents(docs)
+            for step, docs in proc_docs_map.items()}
+
+@st.cache_resource(ttl=86400)
+def build_ensemble(proc_vdbs, bm25_retrs):
+    weights = [0.7, 0.3]
+    ers = {}
+    for step in proc_vdbs:
+        ers[step] = EnsembleRetriever.from_retrievers(
+            retrievers=[proc_vdbs[step].as_retriever(), bm25_retrs[step]],
+            weights=weights
+        )
+    return ers
+
+
 with st.spinner("📦 데이터 로드 중…"):
     # 1) 문서 로드
     proc_docs_map, qna_docs_map, wordpool_map, original_pages = load_all_docs()
@@ -437,25 +401,29 @@ with st.spinner("📦 데이터 로드 중…"):
     # 3) (선택) substep_vectordbs 생성
     substep_vectordbs             = build_substep_vectordbs(proc_docs_map)
 
+    bm25_retrs              = build_bm25(proc_docs_map)
+    ensemble_retrs          = build_ensemble(proc_vdbs, bm25_retrs)
+
 # ─────────────────────────────────────────────────────
 # 8) Q&A 탭 (STEP → Substep 자동 추론 → 유형 분기 → 답변 + TOP3 + 원문/청크)
 # ─────────────────────────────────────────────────────
+qa_tab = st.tabs(["Q&A"])[0]
 with qa_tab:
     st.header("AX SI 방법론 이행봇 - Q&A")
 
     # 1) STEP 선택
-    step = st.selectbox(
-        "📂 절차 단계를 선택해 주세요",
-        list(PROCESS_PDF_URLS.keys()),
-        key="sel_step"
-    )
+    step = st.selectbox("📂 절차 단계를 선택해 주세요",
+                        list(PROCESS_PDF_URLS.keys()), key="sel_step")
+
+    # 1-1) 전체 INDEX(서브절차) 보여주기
+    idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
+    st.markdown("**🔖 전체 세부절차 목록**")
+    for doc in idx_docs:
+        st.write(f"- {doc.metadata['title']}")
 
     # 2) 질문 유형 선택
-    qtype = st.selectbox(
-        "❓ 질문 유형을 선택해 주세요",
-        QUESTION_TYPES,
-        key="sel_qtype"
-    )
+    qtype = st.selectbox("❓ 질문 유형을 선택해 주세요",
+                         QUESTION_TYPES, key="sel_qtype")
 
     # 3) 질문 입력
     query = st.text_input("💬 질문을 입력하세요", key="input_query")
@@ -467,109 +435,41 @@ with qa_tab:
             st.stop()
 
         # 5) Substep 자동 추론
-        idx_scores = index_vectordbs[step].similarity_search_with_score(query, k=3)
-        top_idx_doc, _ = idx_scores[0]
-        substep_option = top_idx_doc.page_content
+        idx_scores = ensemble_retrs[step].get_relevant_documents(query)  # BM25+FAISS 앙상블
+        substep_option = idx_scores[0].metadata.get("source", idx_scores[0].page_content)
         st.info(f"📌 사용자의 질문은 ‘{step}’ 단계의 “{substep_option}”에 대한 “{qtype}”입니다.")
 
-        # 6) 절차/ QnA Top-3 검색
-        proc_db     = proc_vectordbs[step]
-        proc_scores = proc_db.similarity_search_with_score(query, k=3)
-        qna_db      = qna_vectordbs[step]
-        qna_scores  = qna_db.similarity_search_with_score(query, k=3)
+        # 6) TOP-3 검색
+        proc_scores = ensemble_retrs[step].get_relevant_documents(query)[:3]
+        qna_scores  = qna_vdbs[step].similarity_search_with_score(query, k=3)
 
-        # 7) 답변 생성 (유사도 기준 QnA >=0.7)
-        if qna_scores[0][1] >= 0.7:
-            top_doc = qna_scores[0][0]
-            prompt = ChatPromptTemplate.from_messages([
-                SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
-                HumanMessagePromptTemplate.from_template(
-                    """세부절차: {substep}
-QnA 문서 청크:
-{chunk}
+        # 7) 답변 생성 생략…
 
-사용자 질문: {question}
-
-위 정보를 바탕으로 문장형으로 답변해 주세요."""
-                )
-            ])
-            chain = LLMChain(
-                llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
-                prompt=prompt
-            )
-            answer = chain.predict(
-                substep=substep_option,
-                chunk=top_doc.page_content,
-                question=query
-            )
-        else:
-            top_doc = proc_scores[0][0]
-            prompt = ChatPromptTemplate.from_messages([
-                SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
-                HumanMessagePromptTemplate.from_template(
-                    """세부절차: {substep}
-절차 문서 청크:
-{chunk}
-
-사용자 질문: {question}
-
-위 정보를 바탕으로 문장형으로 답변해 주세요."""
-                )
-            ])
-            chain = LLMChain(
-                llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
-                prompt=prompt
-            )
-            answer = chain.predict(
-                substep=substep_option,
-                chunk=top_doc.page_content,
-                question=query
-            )
-
-        # 8) 본문 응답
-        st.markdown(f"## {substep_option}")
-        st.write(answer)
-
-        # 9) Expander: TOP3 - 절차 CHUNK (원본 구간 블록 발췌 + chunking)
+        # 8) Expander: TOP3 - 절차 CHUNK
         with st.expander("1) TOP3 - 절차 CHUNK"):
-            for i, (doc, score) in enumerate(proc_scores, start=1):
+            for i, doc in enumerate(proc_scores, start=1):
+                score = doc.metadata.get("score", 0)
                 st.markdown(f"**[TOP_{i}]. {substep_option} — Score {score:.2f}**")
-
-                # 2) “원본 구간 블록”: 해당 substep_option 헤더부터 다음 '##숫자' 전까지
-                pages = original_pages[f"proc:{step}"]
-                orig_block = ""
-                for p in pages:
-                    if substep_option in p.page_content:
-                        lines = p.page_content.splitlines()
-                        # ① 시작 인덱스 찾기
-                        start_idx = next((idx for idx, l in enumerate(lines) if substep_option in l), None)
-                        if start_idx is not None:
-                            # ② 종료 인덱스 찾기 (다음 헤더)
-                            end_idx = next((idx for idx, l in enumerate(lines[start_idx+1:], start_idx+1)
-                                            if re.match(r"^##\d+", l)), len(lines))
-                            block_lines = lines[start_idx:end_idx]
-                            orig_block = "\n".join(block_lines)
-                        break
-
-                st.markdown("**— 원본 구간 전체 —**")
-                st.write(orig_block or "⚠️ 매핑된 원본을 찾을 수 없습니다.")
-
-                # 3) chunking (문장별)
-                st.markdown("**— chunking (문장별) —**")
-                for j, sent in enumerate(re.split(r'(?<=[.])\s+', orig_block), start=1):
-                    s = sent.strip()
-                    if s:
-                        st.write(f"{j}. {s}")
+                # 원본 블록 발췌
+                page_no = doc.metadata.get("page", 1)
+                pages  = original_pages[f"proc:{step}"][1:]  # 첫페이지 제외
+                orig_page = pages[max(page_no-2, 0)].page_content
+                lines = orig_page.splitlines()
+                start_idx = next((j for j,l in enumerate(lines) if substep_option in l), 0)
+                end_idx = next((j for j,l in enumerate(lines[start_idx+1:], start_idx+1)
+                                if re.match(r"^##\d+", l)), len(lines))
+                block = lines[start_idx:end_idx]
+                for j, line in enumerate(block, start=1):
+                    st.write(f"{j}. {line}")
                 st.write("---")
 
-        # 10) Expander: TOP3 - QNA CHUNK
+        # 9) Expander: TOP3 - QNA CHUNK
         with st.expander("2) TOP3 - QNA CHUNK"):
             for i, (doc, score) in enumerate(qna_scores, start=1):
-                tag = doc.metadata.get("tag", "")
+                tag = doc.metadata["tag"]
+                qc  = doc.metadata["question_context"]
+                ac  = doc.metadata["answer_context"]
                 st.markdown(f"**[TOP_{i}]. {tag} — Score {score:.2f}**")
-                qc = doc.metadata.get("question_context", "")
-                ac = doc.metadata.get("answer_context", "")
-                st.markdown("**— 원본 (질문+답변) —**")
                 st.write(qc)
                 st.write(ac)
                 st.markdown("**— chunking (줄 단위) —**")
