@@ -530,24 +530,35 @@ QnA 문서 청크:
         st.markdown(f"## {substep_option}")
         st.write(answer)
 
-        # 9) Expander: TOP3 - 절차 CHUNK
+        # 9) Expander: TOP3 - 절차 CHUNK (원본 구간 블록 발췌 + chunking)
         with st.expander("1) TOP3 - 절차 CHUNK"):
             for i, (doc, score) in enumerate(proc_scores, start=1):
                 st.markdown(f"**[TOP_{i}]. {substep_option} — Score {score:.2f}**")
+
+                # 2) “원본 구간 블록”: 해당 substep_option 헤더부터 다음 '##숫자' 전까지
                 pages = original_pages[f"proc:{step}"]
-                orig_text = ""
+                orig_block = ""
                 for p in pages:
                     if substep_option in p.page_content:
-                        orig_text = p.page_content
+                        lines = p.page_content.splitlines()
+                        # ① 시작 인덱스 찾기
+                        start_idx = next((idx for idx, l in enumerate(lines) if substep_option in l), None)
+                        if start_idx is not None:
+                            # ② 종료 인덱스 찾기 (다음 헤더)
+                            end_idx = next((idx for idx, l in enumerate(lines[start_idx+1:], start_idx+1)
+                                            if re.match(r"^##\d+", l)), len(lines))
+                            block_lines = lines[start_idx:end_idx]
+                            orig_block = "\n".join(block_lines)
                         break
+
                 st.markdown("**— 원본 구간 전체 —**")
-                st.write(orig_text or "⚠️ 매핑된 원본을 찾을 수 없습니다.")
+                st.write(orig_block or "⚠️ 매핑된 원본을 찾을 수 없습니다.")
+
+                # 3) chunking (문장별)
                 st.markdown("**— chunking (문장별) —**")
-                for j, sent in enumerate(orig_text.split(". "), start=1):
+                for j, sent in enumerate(re.split(r'(?<=[.])\s+', orig_block), start=1):
                     s = sent.strip()
                     if s:
-                        if not s.endswith("."):
-                            s += "."
                         st.write(f"{j}. {s}")
                 st.write("---")
 
