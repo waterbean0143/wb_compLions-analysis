@@ -425,21 +425,18 @@ def build_substep_vectordbs(
 
 # 앱 시작 시 한 번만 로드·벡터화
 with st.spinner("📦 데이터 로드 중…"):
-    # unpack all three
     proc_docs_map, qna_docs_map, wordpool_map = load_all_docs()
 
-    proc_vectordbs, qna_vectordbs = build_vectordbs(proc_docs_map, qna_docs_map)
-    global_qna_vectordb           = build_global_qna_vectordb(qna_docs_map)
-    index_retrievers              = build_index_retrievers()
-    substep_vectordbs             = build_substep_vectordbs(proc_docs_map)
+    proc_vectordbs, qna_vectordbs    = build_vectordbs(proc_docs_map, qna_docs_map)
+    global_qna_vectordb              = build_global_qna_vectordb(qna_docs_map)
+    index_vectordbs                  = build_index_vectordbs()            
+    substep_vectordbs                = build_substep_vectordbs(proc_docs_map)
 
-# ─────────────────────────────────────────────────────
-# 8) Q&A 탭 (STEP + SUBSTEP + 질문유형 → 답변 + TOP3 절차/QnA CHUNK)
-# ─────────────────────────────────────────────────────
-qa_tab = st.container()   # 또는 st.tabs(...)으로 탭을 만들었다면 해당 탭 변수 사용
+
 # ─────────────────────────────────────────────────────
 # 8) Q&A 탭 (STEP → Substep 자동 추론 → 유형 분기 → 답변 + TOP3)
 # ─────────────────────────────────────────────────────
+qa_tab = st.container()   # 또는 st.tabs(...)으로 탭을 만들었다면 해당 탭 변수 사용
 with qa_tab:
     st.header("AX SI 방법론 이행봇 - Q&A")
 
@@ -466,11 +463,11 @@ with qa_tab:
             st.warning("❗️ 질문을 입력한 후 버튼을 눌러 주세요.")
             st.stop()
 
-        # 5) Substep 자동 추론 (Index 리트리버에서 Top-3 → 최우선 사용)
-        idx_scores = index_retrievers[step].similarity_search_with_score(query, k=3)
+         # 5) Substep 자동 추론
+        idx_scores = index_vectordbs[step].similarity_search_with_score(query, k=3)  # ← retriever → vector db
         top_idx_doc, idx_score = idx_scores[0]
-        substep_option = top_idx_doc.page_content       # ex. "2. VDC-A 심의 준비"
-        sub_title     = top_idx_doc.metadata["title"]   # ex. "VDC-A 심의 준비"
+        substep_option = top_idx_doc.page_content
+        sub_title      = top_idx_doc.metadata["title"]
         st.info(f"📌 사용자의 질문은 ‘{step}’ 단계의 “{substep_option}”에 대한 “{qtype}”입니다.")
 
         # 6) 절차/ QnA Top-3 청크 검색
