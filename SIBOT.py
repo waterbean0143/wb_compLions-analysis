@@ -531,33 +531,30 @@ QnA 문서 청크:
         st.markdown(f"## {substep_option}")
         st.write(answer)
 
-       # 9) Expander: TOP3 - 절차 CHUNK (원문 + 청크)
+        # 9) Expander: TOP3 - 절차 CHUNK (원문 + 청크)
         with st.expander("1) TOP3 - 절차 CHUNK"):
             for i, (doc, score) in enumerate(proc_scores, start=1):
-            # 제목은 substep_option
-            st.markdown(f"**{i}. {substep_option} — Score {score:.2f}**")
-            # 원문
-            st.markdown("**— 원문 —**")
-            st.write(doc.page_content)
-            # 문장별 청크
-            st.markdown("**— chunking (문장별) —**")
-            for j, sentence in enumerate(doc.page_content.split('. '), start=1):
-                sent = sentence.strip()
-                if sent:
-                    if not sent.endswith('.'): sent += '.'
-                    st.write(f"{j}. {sent}")
-            st.write("---")
-
-        with st.expander("2) TOP3 - QNA CHUNK"):
-            for i, (doc, score) in enumerate(qna_scores, start=1):
-                # 제목은 doc.metadata["tag"]를 사용 (fallback은 substep_option)
-                tag = doc.metadata.get("tag", substep_option)
-                st.markdown(f"**{i}. {tag} — Score {score:.2f}**")
-                # 원문
+                st.markdown(f"**{i}. {substep_option} — Score {score:.2f}**")
                 st.markdown("**— 원문 —**")
                 st.write(doc.page_content)
-                # 줄 단위 청크
+                st.markdown("**— chunking (문장별) —**")
+                for j, sentence in enumerate(doc.page_content.split('. '), start=1):
+                    sent = sentence.strip()
+                    if sent:
+                        if not sent.endswith('.'):
+                            sent += '.'
+                        st.write(f"{j}. {sent}")
+                st.write("---")
+
+        # 10) Expander: TOP3 - QNA CHUNK (원문 + chunking)
+        with st.expander("2) TOP3 - QNA CHUNK"):
+            for i, (doc, score) in enumerate(qna_scores, start=1):
+                tag = doc.metadata.get("tag", substep_option)
+                st.markdown(f"**{i}. {tag} — Score {score:.2f}**")
+                st.markdown("**— 원문 —**")
+                st.write(doc.page_content)
                 st.markdown("**— chunking (줄 단위) —**")
                 for j, line in enumerate(doc.page_content.splitlines(), start=1):
                     st.write(f"{j}. {line}")
                 st.write("---")
+
