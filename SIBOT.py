@@ -384,8 +384,8 @@ def build_bm25(_proc_docs_map: Dict[str, List[Document]]):    # ← 언더스코
 # Ensemble Retriever 생성
 # ─────────────────────────────────────────────────────
 @st.cache_resource(ttl=86400)
-def build_ensemble(_proc_vdbs, _bm25_retrs):                  # ← 언더스코어 추가
-    weights = [faiss_weight, bm25_weight]
+def build_ensemble(_proc_vdbs, _bm25_retrs):
+    weights = [0.7, 0.3]
     ers = {}
     for step in _proc_vdbs:
         ers[step] = EnsembleRetriever.from_retrievers(
@@ -399,21 +399,14 @@ def build_ensemble(_proc_vdbs, _bm25_retrs):                  # ← 언더스코
 
 
 with st.spinner("📦 데이터 로드 중…"):
-    # 1) 문서 로드
-    proc_docs_map, qna_docs_map, wordpool_map, original_pages = load_all_docs()
+    proc_docs_map, qna_docs_map, wp_map, original_pages = load_all_docs()
 
-    # …(기존 vectordb 생성)…
-    proc_vectordbs, qna_vectordbs = build_vectordbs(proc_docs_map, qna_docs_map)
-    global_qna_vectordb           = build_global_qna_vectordb(qna_docs_map)
+    # 기존: proc_vdbs, qna_vdbs = build_vectordbs(...)
+    # 수정:
+    proc_vdbs, qna_vdbs = build_vectordbs(proc_docs_map, qna_docs_map)
 
-    # 2) **Substep 인덱스용 FAISS 생성**
-    index_vectordbs               = build_index_vectordbs()
-
-    # 3) (선택) substep_vectordbs 생성
-    substep_vectordbs             = build_substep_vectordbs(proc_docs_map)
-
-    bm25_retrs              = build_bm25(proc_docs_map)
-    ensemble_retrs          = build_ensemble(proc_vdbs, bm25_retrs)
+    bm25_retrs     = build_bm25(proc_docs_map)
+    ensemble_retrs = build_ensemble(proc_vdbs, bm25_retrs)
 
 # ─────────────────────────────────────────────────────
 # 8) Q&A 탭 (STEP → Substep 자동 추론 → 유형 분기 → 답변 + TOP3 + 원문/청크)
