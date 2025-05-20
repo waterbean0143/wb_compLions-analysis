@@ -465,7 +465,7 @@ with qa_tab:
             st.stop()
 
          # 5) Substep 자동 추론
-       idx_scores = index_vectordbs[step].similarity_search_with_score(query, k=3)
+        idx_scores = index_vectordbs[step].similarity_search_with_score(query, k=3)
         top_idx_doc, idx_score = idx_scores[0]
         substep_option = top_idx_doc.page_content
         sub_title      = top_idx_doc.metadata["title"]
