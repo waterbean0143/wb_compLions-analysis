@@ -32,11 +32,9 @@ from langchain_community.vectorstores import FAISS
 from langchain.retrievers import EnsembleRetriever
 from langchain_community.retrievers import BM25Retriever
 from langchain.memory import ConversationBufferMemory
-from langchain.schema import Document
+from langchain.schema import Document, SystemMessage, HumanMessage
 from langchain.chains import RetrievalQA, ConversationalRetrievalChain
 
-from langchain_core.prompts import SystemMessagePromptTemplate, HumanMessagePromptTemplate, ChatPromptTemplate
-from langchain.schema import SystemMessage, HumanMessage
 from langchain import LLMChain
 
 # ─────────────────────────────────────────────────────
