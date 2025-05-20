@@ -424,13 +424,11 @@ def build_substep_vectordbs(
 
 
 with st.spinner("📦 문서·인덱스 로드 중…"):
-with st.spinner("📦 문서·인덱스 로드 중…"):
     # 1) PDF 다운로드 및 전처리 → 캐시_DATA
     proc_docs_map, qna_docs_map, wordpool_map = load_all_docs()
 
     # 2) 서브스텝 자동 추론용 인덱스 FAISS 생성 (가볍게 실행)
     index_retrievers = build_index_retrievers()        
-    # (build_index_retrievers 는 extract_index_chunks 로 얻은 소단계 목록만 벡터화합니다) :contentReference[oaicite:0]{index=0}:contentReference[oaicite:1]{index=1}
 
 
 # ─────────────────────────────────────────────────────
