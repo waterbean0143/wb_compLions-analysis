@@ -85,9 +85,6 @@ def extract_index_chunks(url: str) -> List[Document]:
 # ─────────────────────────────────────────────────────
 # 0-2) GraphState 정의 & 질문 유형 분류
 # ─────────────────────────────────────────────────────
-# ─────────────────────────────────────────────────────
-# 0-2) GraphState 정의 & 질문 유형 분류
-# ─────────────────────────────────────────────────────
 class GraphState(TypedDict):
     question: str
     step_name: str
@@ -112,27 +109,29 @@ def classify_question_type(q: str) -> str:
         return "일정·마일스톤 확인"
     return "일반 질문"
 
-def classify_with_llm(question: str) -> str:
-    """
-    LLM을 이용해 질문 유형("정의 요청" 등)으로 분류합니다.
-    """
-    system = SystemMessage(content=(
-        "당신은 AX SI 방법론 이행봇의 질문 유형 분류기입니다. "
-        "아래 질문을 다음 유형 중 하나로 분류하고, 오직 분류명만 응답하세요:\n"
+CLASSIFY_PROMPT = ChatPromptTemplate.from_messages([
+    SystemMessagePromptTemplate.from_template(
+        "당신은 AX SI 방법론 이행봇의 분류 전문가입니다."
+    ),
+    HumanMessagePromptTemplate.from_template(
+        "질문: {question}\n\n"
+        "다음 카테고리 중 하나로 분류해주세요:\n"
         "- 정의 요청\n"
         "- 수행 절차 안내\n"
         "- 산출물·문서 요구 사항\n"
         "- 책임·역할 분담\n"
         "- 일정·마일스톤 확인\n"
-        "- 일반 질문\n"
-    ))
-    user = HumanMessage(content=f"질문: {question}")
-    chain = LLMChain(
-        llm=ChatOpenAI(model="gpt-4o-mini", temperature=0, openai_api_key=os.environ["OPENAI_API_KEY"]),
-        prompt=[system, user]
-    )
-    # LLM이 내놓는 문자열 양쪽 공백·개행을 제거하고 리턴
-    return chain.run().strip()
+        "- 일반 질문\n\n"
+        "출력은 오직 위 키워드 중 하나만 간단히 작성하세요."
+    ),
+])
+
+def classify_with_llm(question: str) -> str:
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0,
+                     openai_api_key=os.environ["OPENAI_API_KEY"])
+    chain = LLMChain(llm=llm, prompt=CLASSIFY_PROMPT)
+    result = chain.run(question=question)
+    return result.strip()
 
 # ─────────────────────────────────────────────────────
 # 0-3) Base persona 및 질문유형별 시스템 메시지 정의
