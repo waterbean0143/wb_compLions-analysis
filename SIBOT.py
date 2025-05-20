@@ -424,11 +424,14 @@ def build_substep_vectordbs(
 
 
 with st.spinner("📦 문서·인덱스 로드 중…"):
-    # 1) PDF 다운로드 및 전처리 → 캐시_DATA
+    # PDF 로드 (캐시)
     proc_docs_map, qna_docs_map, wordpool_map = load_all_docs()
 
-    # 2) 서브스텝 자동 추론용 인덱스 FAISS 생성 (가볍게 실행)
-    index_retrievers = build_index_retrievers()        
+    # 전체 QnA 합본 FAISS (자유 질의용)
+    global_qna_vectordb  = build_global_qna_vectordb(qna_docs_map)
+
+    # STEP별 Substep 인덱스용 FAISS
+    index_vectordbs      = build_index_vectordbs()
 
 
 # ─────────────────────────────────────────────────────
@@ -462,7 +465,7 @@ with qa_tab:
             st.stop()
 
          # 5) Substep 자동 추론
-        idx_scores = index_vectordbs[step].similarity_search_with_score(query, k=3)  # ← retriever → vector db
+       idx_scores = index_vectordbs[step].similarity_search_with_score(query, k=3)
         top_idx_doc, idx_score = idx_scores[0]
         substep_option = top_idx_doc.page_content
         sub_title      = top_idx_doc.metadata["title"]
