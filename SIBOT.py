@@ -32,10 +32,9 @@ from langchain_community.vectorstores import FAISS
 from langchain.retrievers import EnsembleRetriever
 from langchain_community.retrievers import BM25Retriever
 from langchain.memory import ConversationBufferMemory
-from langchain.schema import Document, SystemMessage, HumanMessage
-from langchain.chains import RetrievalQA, ConversationalRetrievalChain
+from langchain.schema import Document
 
-from langchain.chains import LLMChain
+from langchain.chains import RetrievalQA, ConversationalRetrievalChain
 
 # ─────────────────────────────────────────────────────
 # 0-1) PDF 첫페이지 인덱스 자동추출 유틸
@@ -93,8 +92,7 @@ class GraphState(TypedDict):
     attempts: int
 
 def classify_question_type(q: str) -> str:
-    # (이미 작성하신 키워드 기반 분류)
-    q_lower = q.lower()
+    q_lower = q.lower()                    # q_lower 정의
     if any(k in q_lower for k in ["정의", "이란"]):
         return "정의 요청"
     if any(k in q_lower for k in ["어떻게", "절차", "방법"]):
@@ -103,114 +101,13 @@ def classify_question_type(q: str) -> str:
         return "산출물·문서 요구 사항"
     if any(k in q_lower for k in ["누가", "책임", "역할"]):
         return "책임·역할 분담"
-    if any(k in q_lower for k in ["언제", "기한", "마감"]) or re.search(r"\d+일", q_lower):
+    # q_lower를 사용해서 숫자+일 패턴도 감지
+    if re.search(r"\d+일", q_lower) or any(k in q_lower for k in ["언제", "기한", "마감"]):
         return "일정·마일스톤 확인"
     return "일반 질문"
 
-def classify_with_llm(query: str) -> str:
-    llm = ChatOpenAI(
-        model="gpt-4o-mini",
-        temperature=0,
-        openai_api_key=os.environ["OPENAI_API_KEY"],
-    )
-    # 시스템 메시지: 전체 페르소나 + 분류 지침
-    system_msg = SystemMessage(
-        content=BASE_PERSONA + "\n\n"
-                "아래 유형 중 하나로 질문을 분류해 주세요:\n" +
-                "\n".join(f"- {k}: {v.splitlines()[0]}" for k, v in QUESTION_TYPE_SYSTEM.items())
-    )
-    # 사용자 메시지: 실제 질문
-    human_msg = HumanMessage(content=f"질문: {query}\n\n분류된 유형만 단어 하나로 출력해주세요.")
-    # LLM 호출
-    resp = llm([system_msg, human_msg])
-    # 반환된 content 에서 앞뒤 공백·줄바꿈 제거
-    return resp.content.strip()
-
 # ─────────────────────────────────────────────────────
-# 0-3) Base persona 및 질문유형별 시스템 메시지 정의
-# ─────────────────────────────────────────────────────
-BASE_PERSONA = """\
-당신은 대기업 KT의 SI(Project Management) 전문 PM입니다.
-KT 내부 프로세스, 조직·역할, 산출물 요건까지 정확히 파악하고 있으며,
-질문자는 KT 직원이므로 너무 법률·학술적 용어 대신 실무에 바로 쓸 수 있는 언어로 답변하세요.
-"""
-
-QUESTION_TYPE_SYSTEM: Dict[str, str] = {
-    "정의 요청": """\
-주어진 세부절차의 개념과 목적을 명확히 정의해주세요.
-– 무엇(What): 이 절차가 무엇인지
-– 왜(Why): 이 절차가 필요한 이유
-– 언제(When): 이 절차가 실시되는 시점
-""",
-    "일반 질문": """\
-주어진 절차 컨텍스트를 참고하여, 사용자 질문의 의도에 맞게 간결하게 답변해주세요.
-""",
-    # 나중에 “수행 절차 안내” 등 더 늘리셔도 됩니다.
-}
-
-# 사용자 메시지 템플릿 (모든 유형 공통)
-USER_TMPL = HumanMessagePromptTemplate.from_template(
-    "질문: {question}\n\n절차 요약:\n{context}\n\n간결하게 답변해주세요."
-)
-
-def make_prompt_for_type(question_type: str) -> ChatPromptTemplate:
-    return ChatPromptTemplate.from_messages([
-        SystemMessagePromptTemplate.from_template(BASE_PERSONA),
-        SystemMessagePromptTemplate.from_template(QUESTION_TYPE_SYSTEM[question_type]),
-        USER_TMPL,
-    ])
-
-# ─────────────────────────────────────────────────────
-# 0-4) 질문 의도·맥락 분류용 시스템 메시지
-# ─────────────────────────────────────────────────────
-INTENT_CLASSIFICATION_PROMPT = ChatPromptTemplate.from_messages([
-    SystemMessagePromptTemplate.from_template(
-        """당신은 AX SI 방법론 이행봇의 질문 의도 분류기입니다.
-아래 6가지 유형 중 하나로 이 질문의 **의도**를 분류하세요.
-- 정의 요청: 절차의 개념과 목적을 물음  
-- 수행 절차 안내: 절차를 단계별로 물음  
-- 산출물·문서 요구 사항: 준비해야 할 산출물·문서 물음  
-- 책임·역할 분담: 누가 무엇을 담당하는지 물음  
-- 일정·마일스톤 확인: 기한·마감·N일 이내 처리 여부 물음  
-- 일반 질문: 위에 해당하지 않는 기타 문의  
-
-질문: “{question}”
-
-**출력 형식** (한 줄):
-질문유형: <위 6가지 중 하나>"""
-    )
-])
-
-# ─────────────────────────────────────────────────────
-# 0-2') classify_with_llm 를 LLMChain 버전으로 대체
-# ─────────────────────────────────────────────────────
-def classify_with_llm(question: str) -> str:
-    # 1) 분류하도록 지시할 시스템 메시지
-    system_prompt = SystemMessage(
-        content=(
-            "아래 질문을 다음 유형 중 하나로 분류하세요:\n"
-            "- 정의 요청\n"
-            "- 수행 절차 안내\n"
-            "- 산출물·문서 요구 사항\n"
-            "- 책임·역할 분담\n"
-            "- 일정·마일스톤 확인\n"
-            "- 일반 질문\n"
-            "질문만 받고, 꼭 해당 분류 이름만 한 줄로 출력해주세요."
-        )
-    )
-    # 2) 실제 사용자 질문
-    user_prompt = HumanMessage(content=f"질문: {question}")
-    # 3) 체인 생성 및 실행
-    chain = LLMChain(
-        llm=ChatOpenAI(model="gpt-4o-mini", temperature=0,
-                       openai_api_key=os.environ["OPENAI_API_KEY"]),
-        prompt=[system_prompt, user_prompt]
-    )
-    classification = chain.run()
-    return classification.strip()
-
-# ─────────────────────────────────────────────────────
-# 0-5) 질문유형별 Persona + SystemPrompt
+# 0-3) 질문유형별 Persona + SystemPrompt
 # ─────────────────────────────────────────────────────
 QUESTION_TYPE_SYSTEM: Dict[str,str] = {
     "정의 요청": """당신은 대기업 KT의 SI 이행론 전문 PM입니다.
@@ -240,7 +137,7 @@ RACI 형식으로 역할과 책임을 정리하세요.
 }
 
 # ─────────────────────────────────────────────────────
-# 0-6) STEP별 시스템 메시지 정의 (start/end 동적 반영)
+# 0-4) STEP별 시스템 메시지 정의 (start/end 동적 반영)
 # ─────────────────────────────────────────────────────
 STEP_SYSTEM_PROMPTS = {
     "제안/계약": """당신은 AX SI 방법론의 ‘제안/계약’ 단계 전문가입니다.
@@ -271,7 +168,7 @@ PMS 구축, 조직·역할 정의, 관리정책 수립 등의 절차를 설명�
 }
 
 # ─────────────────────────────────────────────────────
-# 0-7) STEP별 ChatPromptTemplate 생성
+# 0-5) STEP별 ChatPromptTemplate 생성
 # ─────────────────────────────────────────────────────
 STEP_PROMPTS = {
     step: ChatPromptTemplate.from_messages([
@@ -341,10 +238,6 @@ QNA_PDF_URLS = {
     "제안/계약": "https://drive.google.com/uc?export=download&id=17M1mnMZVl29EahbSVqzcyZEX8LYsx5ER",
 }
 
-WORDPOOL_PDF_URLS = {
-    "SI_용어집": "https://drive.google.com/uc?export=download&id=1aD4QYP1OBXRP7PbXYrlXHn5LlLyFzDtx"
-}
-
 # ─────────────────────────────────────────────────────
 # 5) UI 설정
 # ─────────────────────────────────────────────────────
@@ -365,11 +258,7 @@ def preprocess(text: str) -> str:
 # 7) 문서 로드 & vectordb 생성
 # ─────────────────────────────────────────────────────
 @st.cache_data(ttl=3600*24)
-def load_all_docs() -> Tuple[
-    Dict[str, List[Document]],  # proc_map
-    Dict[str, List[Document]],  # qna_map
-    Dict[str, List[Document]]   # wordpool_map
-]:
+def load_all_docs() -> Tuple[Dict[str, List[Document]], Dict[str, List[Document]]]:
     # 첫 페이지 전용: 빈 줄(2번 연속 개행) 또는 “.␣”을 경계로 분할
     first_page_splitter = CharacterTextSplitter(
         separator=r"\n{2,}|\.(?:\s|$)",
@@ -385,20 +274,22 @@ def load_all_docs() -> Tuple[
 
     proc_map: Dict[str, List[Document]] = {}
     qna_map:  Dict[str, List[Document]] = {}
-    wordpool_map: Dict[str, List[Document]] = {}
 
     def dl_and_chunk(url: str) -> List[Document]:
         pages = download_and_load(url)
         if not pages:
             return []
-        # 첫 페이지만 regex 스타일로 분할
+
+        # 첫 페이지만 regex 스타일로 쪼개고
         first, *rest = pages
         first_texts = first_page_splitter.split_text(first.page_content)
         first_docs = [
             Document(page_content=text, metadata={**first.metadata})
-            for text in first_texts if text.strip()
+            for text in first_texts
+            if text.strip()
         ]
-        # 나머지는 고정 길이 분할
+
+        # 나머지는 CharacterTextSplitter로
         rest_docs = body_splitter.split_documents(rest) if rest else []
         return first_docs + rest_docs
 
@@ -418,15 +309,7 @@ def load_all_docs() -> Tuple[
             d.metadata["step"] = step
         qna_map[step] = docs
 
-    # 용어집(Wordpool) 문서 로드
-    for name, url in WORDPOOL_PDF_URLS.items():
-        docs = dl_and_chunk(url)
-        for d in docs:
-            d.page_content = preprocess(d.page_content)
-            d.metadata["step"] = name
-        wordpool_map[name] = docs
-
-    return proc_map, qna_map, wordpool_map
+    return proc_map, qna_map
     
     def download_and_split(url: str) -> List[Document]:
         # PDF 다운로드
@@ -542,9 +425,7 @@ def build_substep_vectordbs(
 
 # 앱 시작 시 한 번만 로드·벡터화
 with st.spinner("📦 데이터 로드 중…"):
-    # unpack all three
-    proc_docs_map, qna_docs_map, wordpool_map = load_all_docs()
-
+    proc_docs_map, qna_docs_map   = load_all_docs()
     proc_vectordbs, qna_vectordbs = build_vectordbs(proc_docs_map, qna_docs_map)
     global_qna_vectordb           = build_global_qna_vectordb(qna_docs_map)
     index_retrievers              = build_index_retrievers()
@@ -559,8 +440,8 @@ with qa_tab:
 
     # 1) 절차 단계 선택
     step = st.selectbox("📂 절차 단계를 하나 선택해 주세요", list(PROCESS_PDF_URLS.keys()))
-    if not step:
-        st.info("모든 단계를 선택 후 질문해주세요.")
+    if step is None:
+        st.info("모든 단계를 선택 후, 질문을 입력하고 '질문 요청' 버튼을 눌러주세요.")
         st.stop()
 
     # 2) SUBSTEP 선택
@@ -568,14 +449,14 @@ with qa_tab:
     sub_choices = [d.metadata["title"] for d in idx_docs]
     substep     = st.selectbox("⚙️ 세부 절차를 하나 선택해 주세요", sub_choices)
     if not substep:
-        st.info("세부 절차를 선택해주세요.")
+        st.info("모든 단계를 선택 후, 질문을 입력하고 '질문 요청' 버튼을 눌러주세요.")
         st.stop()
 
-     # 3) 분류 방식 선택 (키워드 vs. LLM vs. 비교)
-    classify_method = st.radio(
-        "🔍 질문 유형 분류 방식",
-        ("키워드 기반", "LLM 기반", "비교 보기")
-    )
+    # 3) 질문 유형 선택
+    qtype = st.selectbox("❓ 질문 유형을 하나 선택해 주세요", ["정의 요청", "일반 질문"])
+    if not qtype:
+        st.info("모든 단계를 선택 후, 질문을 입력하고 '질문 요청' 버튼을 눌러주세요.")
+        st.stop()
 
     # 4) 절차 개요
     st.subheader(f"[{step}] 프로세스 개요")
@@ -585,45 +466,37 @@ with qa_tab:
 
     # 5) 질문 입력
     query = st.text_input("💬 질문을 입력하세요", key=f"query_{step}")
-    if not query:
-        st.stop()
 
-    # 6) 질문 요청
+    # 6) 질문 요청 버튼 — 여기서만 분석/API 호출 수행
     if st.button("질문 요청", key=f"btn_{step}"):
         if not query.strip():
             st.warning("질문을 입력해주세요.")
             st.stop()
 
-        # ─── 분류 방식에 따라 qtype 결정 ─────────────────────────
-        if classify_method == "키워드 기반":
-            qtype = classify_question_type(query)
-        elif classify_method == "LLM 기반":
-            qtype = classify_with_llm(query)
-        else:  # 비교 보기
-            kw = classify_question_type(query)
-            llm = classify_with_llm(query)
-            st.markdown("**분류 비교 결과**")
-            st.write(f"- 키워드 기반: `{kw}`")
-            st.write(f"- LLM 기반: `{llm}`")
-            # 기본적으로 키워드 기반 결과를 사용
-            qtype = kw
+        # (디버그) 전체 청크 확인
+        with st.expander("🔍 전체 청크 확인", expanded=False):
+            docs = proc_docs_map[step]
+            st.write(f"• 총 청크 개수: {len(docs)}")
+            for i, d in enumerate(docs[:3]):
+                st.markdown(
+                    f"**Chunk {i+1} (메타: {d.metadata}):**\n```\n{d.page_content[:200]}...\n```"
+                )
 
+        # 7) 질문 유형·SUBSTEP 매핑
         st.info(f"📌 사용자의 질문은 ‘{substep}’ 단계의 “{qtype}” 입니다.")
-        # ────────────────────────────────────────────────────────
 
-        # 7) 글로벌 Q&A 매핑 (Top-3, threshold=0.5)
+        # 8) 글로벌 Q&A 매핑 (Top-3, threshold=0.5)
         docs_and_scores = global_qna_vectordb.similarity_search_with_score(query, k=3)
         with st.expander("🔍 Q&A 유사도 Top 3", expanded=False):
             for doc, score in docs_and_scores:
-                first_line = doc.page_content.splitlines()[0]
-                st.write(f"- **{score:.3f}** {first_line}…")
+                st.write(f"- **{score:.3f}**: {doc.page_content.splitlines()[0]}…")
         top_doc, top_score = docs_and_scores[0]
         if top_score >= 0.5:
             st.subheader("💡 사례 응답")
             st.write(top_doc.page_content)
             st.stop()
 
-        # 8) SUBSTEP RetrievalQA
+        # 9) SUBSTEP RetrievalQA
         retriever = substep_vectordbs[step].get(substep) or proc_vectordbs[step].as_retriever()
         qa_chain = RetrievalQA.from_chain_type(
             llm=ChatOpenAI(model="gpt-4o-mini", temperature=0,
