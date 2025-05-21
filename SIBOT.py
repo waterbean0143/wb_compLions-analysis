@@ -185,32 +185,40 @@ def load_all_docs() -> Tuple[
                 docs.append(Document(page_content=txt,metadata={**first.metadata}))
             docs += split_body.split_documents(rest)
         proc_map[name]=docs
+        
     # 7-2) QnA 문서 (블록 단위)
-    for name,url in QNA_PDF_URLS.items():
-        pages=download_and_load(url)
-        orig_qna[name]=pages
-        full="\n".join(p.page_content for p in pages)
-        raw=[blk for blk in re.split(r"(?=\[질문\s*\d+\])", full) if blk.strip()]
-        docs=[]
-        for blk in raw:
-            lines=blk.splitlines()
-            tag=next((l for l in lines if l.startswith("[질문")), "")
-            ql,al=[],[]
-            ans=False
-            for l in lines[1:]:
-                if l.startswith("[[[답변]") or l.startswith("[[답변]"):
-                    ans=True; al.append(l)
-                elif ans:
-                    al.append(l)
-                else:
-                    ql.append(l)
-            qtext=" ".join(ql).strip()
-            atext=" ".join(al).strip()
+    for name, url in QNA_PDF_URLS.items():
+        pages = download_and_load(url)
+        original_qna[name] = pages
+        # PDF 전체를 하나의 문자열로
+        full_text = "\n".join(p.page_content for p in pages)
+        # “[질문”이 나오는 곳에서 split
+        raw_qnas = [blk for blk in re.split(r'(?=\[질문\s*\d+\s*[:\]])', full_text) if blk.strip()]
+        docs = []
+        for blk in raw_qnas:
+            lines = blk.splitlines()
+            # 태그 (예: “[질문 1 : VDC-A 대상 사업]”)
+            tag = next((l for l in lines if l.startswith("[질문")), "")
+            # 질문 본문 (태그 제외)
+            question_context = "\n".join(
+                l for l in lines
+                if not l.startswith("[[") and not l.startswith("[[[")
+            ).strip()
+            # 답변 본문
+            answer_context = "\n".join(
+                l for l in lines if l.startswith("[[[답변]") or l.startswith("[[답변]")
+            ).strip()
             docs.append(Document(
-                page_content=qtext+"\n"+atext,
-                metadata={"tag":tag,"question_context":qtext,"answer_context":atext}
+                page_content=blk,
+                metadata={
+                    "tag": tag,
+                    "question_context": question_context,
+                    "answer_context": answer_context,
+                    **pages[0].metadata
+                }
             ))
-        qna_map[name]=docs
+        qna_map[name] = docs
+     
     # 7-3) 워드풀 (생략 가능)
     for name,url in WORDPOOL_PDF_URLS.items():
         orig_wp[name]=download_and_load(url)
@@ -240,6 +248,15 @@ def build_global_qna_vectordb(qna_map: Dict[str,List[Document]]) -> FAISS:
     emb=OpenAIEmbeddings(model="text-embedding-ada-002",
                          openai_api_key=os.environ["OPENAI_API_KEY"])
     return FAISS.from_documents(all_docs,emb)
+
+@st.cache_resource(ttl=86400)
+def build_qna_vectordbs(qna_docs_map: Dict[str, List[Document]]) -> Dict[str, FAISS]:
+    emb = OpenAIEmbeddings(model="text-embedding-ada-002",
+                           openai_api_key=os.getenv("OPENAI_API_KEY"))
+    return {
+        step: FAISS.from_documents(docs, emb)
+        for step, docs in qna_docs_map.items()
+    }
 
 @st.cache_resource(ttl=86400)
 def build_index_vectordbs() -> Dict[str,FAISS]:
@@ -301,13 +318,15 @@ def build_ensemble(p_vdbs, bm25s):
 # 8) 데이터 로드 & 벡터 DB 빌드
 # ─────────────────────────────────────────────────────
 with st.spinner("📦 데이터 로드 중…"):
-    proc_docs_map, qna_docs_map, wp_map, original_pages = load_all_docs()
-    proc_vdbs, qna_vdbs   = build_vectordbs(proc_docs_map, qna_docs_map)
-    bm25s                 = build_bm25(proc_docs_map)
-    ensemble_retrs        = build_ensemble(proc_vdbs, bm25s)
-    index_vectordbs       = build_index_vectordbs()
-    substep_vectordbs     = build_substep_vectordbs(proc_docs_map)
-    qna_substep_vectordbs = build_qna_substep_vectordbs(proc_docs_map, qna_docs_map)
+    
+# 문서 로드 직후
+proc_docs_map, qna_docs_map, wp_map, original_pages = load_all_docs()
+
+# vectordb 빌드
+index_vectordbs      = build_index_vectordbs()             # 절차 전체
+substep_vectordbs    = build_substep_vectordbs(proc_docs_map)  # 세부 청크
+qna_vectordbs        = build_qna_vectordbs(qna_docs_map)    # QnA 전체
+qna_substep_vectordbs= build_qna_substep_vectordbs(qna_docs_map)  # QnA→substep map
 
 # ─────────────────────────────────────────────────────
 # 9) Q&A 탭 (STEP→SUBSTEP 추론→TOP3 절차→TOP3 QnA→답변)
@@ -316,15 +335,24 @@ with qa_tab:
     st.header("AX SI 방법론 이행봇 - Q&A")
 
     # 1) STEP 선택
-    step = st.selectbox("📂 절차 단계를 선택해 주세요", list(PROCESS_PDF_URLS.keys()), key="sel_step")
+    step = st.selectbox(
+        "📂 절차 단계를 선택해 주세요",
+        list(PROCESS_PDF_URLS.keys()),
+        key="sel_step"
+    )
 
-    # 1-1) 전체 INDEX 목록
-    idxs = extract_index_chunks(PROCESS_PDF_URLS[step])
+    # 1-1) 전체 INDEX(서브절차) 목록
+    idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
     with st.expander("🔖 전체 세부절차 목록", expanded=False):
-        for d in idxs: st.write(f"- {d.metadata['title']}")
+        for doc in idx_docs:
+            st.write(f"- {doc.metadata['title']}")
 
-    # 2) 질문 유형
-    qtype = st.selectbox("❓ 질문 유형을 선택해 주세요", QUESTION_TYPES, key="sel_qtype")
+    # 2) 질문 유형 선택
+    qtype = st.selectbox(
+        "❓ 질문 유형을 선택해 주세요",
+        QUESTION_TYPES,
+        key="sel_qtype"
+    )
 
     # 3) 질문 입력
     query = st.text_input("💬 질문을 입력하세요", key="input_query")
@@ -332,62 +360,59 @@ with qa_tab:
     # 4) 질문 요청
     if st.button("질문 요청", key="btn_query"):
         if not query.strip():
-            st.warning("❗️ 질문을 입력한 후 버튼을 눌러 주세요."); st.stop()
+            st.warning("❗️ 질문을 입력한 후 버튼을 눌러 주세요.")
+            st.stop()
 
         # 5) Substep 자동 추론
-        idx_score = index_vectordbs[step].similarity_search_with_score(query, k=1)
-        substep_option = idx_score[0][0].page_content
-        st.info(f"📌 사용자의 질문은 '{step}' 단계의 “{substep_option}”에 대한 “{qtype}”입니다.")
+        idx_scores     = index_vectordbs[step].similarity_search_with_score(query, k=1)
+        substep_option = idx_scores[0][0].page_content
+        st.info(f"📌 사용자의 질문은 '{step}' 단계의 \"{substep_option}\"에 대한 \"{qtype}\"입니다.")
 
         # 6) TOP3 - 절차 서브스텝
-        sub_scores = index_vectordbs[step].similarity_search_with_score(query, k=3)
+        substep_scores = index_vectordbs[step].similarity_search_with_score(query, k=3)
         with st.expander("1) TOP3 - 절차 서브스텝", expanded=False):
-            for i,(doc,dist) in enumerate(sub_scores, start=1):
-                sim=1-dist
-                st.markdown(f"**[TOP_{i}]. {doc.page_content} — 유사도 {sim:.2f}**")
-                # 세부 청크 있으면 snippet, 없으면 원본 블록
-                vdb=substep_vectordbs[step].get(doc.page_content)
+            for i, (sub_doc, dist) in enumerate(substep_scores, start=1):
+                sub = sub_doc.page_content
+                similarity = 1.0 - dist
+                st.markdown(f"**[TOP_{i}]. {sub} — 유사도 {similarity:.2f}**")
+                # 세부 청크가 있으면 간단히 snippet, 없으면 원본문서 블록
+                vdb = substep_vectordbs[step].get(sub)
                 if vdb:
-                    chks=vdb.similarity_search_with_score(query,k=3)
-                    for j,(c,csc) in enumerate(chks,1):
-                        sn=c.page_content.replace("\n"," ")[:200]+"…"
-                        st.write(f"  {j}. {sn} (유사도 {1-csc:.2f})")
+                    chunk_scores = vdb.similarity_search_with_score(query, k=3)
+                    for j, (c_doc, c_dist) in enumerate(chunk_scores, start=1):
+                        snippet = c_doc.page_content.replace("\n", " ")[:200] + "…"
+                        st.write(f"  {j}. {snippet} (유사도 {1-c_dist:.2f})")
                 else:
-                    pages=original_pages[f"proc:{step}"][1:]
-                    text=None
-                    for p in pages:
-                        if f"##{doc.page_content}" in p.page_content:
-                            text=p.page_content; break
-                    if text:
-                        pat=rf"(##{re.escape(doc.page_content)}[\s\S]*?)(?=^##\d+\.)"
-                        m=re.search(pat,text,flags=re.MULTILINE)
-                        block=m.group(1).strip() if m else text.strip()
-                        st.text(block)
-                    else:
-                        st.write("⚠️ 원본 문서를 찾을 수 없습니다.")
+                    # 원본문서에서 ##sub 부터 다음 ##까지 추출
+                    pages = original_pages[f"proc:{step}"][1:]
+                    page_text = next((p.page_content for p in pages if f"##{sub}" in p.page_content), "")
+                    m = re.search(rf"(##{re.escape(sub)}[\s\S]*?)(?=^##\d+\.)",
+                                  page_text, flags=re.MULTILINE)
+                    block = m.group(1).strip() if m else page_text.strip()
+                    st.text(block)
                 st.write("---")
 
         # 7) TOP3 - QnA 청크
-        qna_map_for_sub = qna_substep_vectordbs.get(step, {})
-        default_qna    = qna_vdbs.get(step)
-        qna_vdb_for_sub= qna_map_for_sub.get(substep_option, default_qna)
-        qna_scores     = qna_vdb_for_sub.similarity_search_with_score(query,k=3) if qna_vdb_for_sub else []
+        qna_sub_map     = qna_substep_vectordbs.get(step, {})
+        default_qna_vdb = qna_vectordbs.get(step)
+        qna_vdb_for_sub = qna_sub_map.get(substep_option, default_qna_vdb)
+        qna_scores      = qna_vdb_for_sub.similarity_search_with_score(query, k=3) if qna_vdb_for_sub else []
         with st.expander("2) TOP3 - QnA 청크", expanded=False):
             if not qna_scores:
                 st.write("⚠️ 해당 서브스텝에 대한 Q&A가 없습니다.")
-            for i,(doc,score) in enumerate(qna_scores,1):
-                tag=doc.metadata.get("tag","")
-                qc=doc.metadata.get("question_context","").strip()
-                ac=doc.metadata.get("answer_context","").strip()
+            for i, (doc, score) in enumerate(qna_scores, start=1):
+                tag  = doc.metadata.get("tag", "")
+                qc   = doc.metadata.get("question_context", "")
+                ac   = doc.metadata.get("answer_context", "")
                 st.markdown(f"**[TOP_{i}]. {tag} — Score {score:.2f}**")
                 if qc: st.write(f"'{qc}'")
                 if ac: st.write(f"[[[답변] '{ac}'")
                 st.write("---")
 
-        # 8) 답변 생성
-        if qna_scores and qna_scores[0][1]>=0.7:
-            top_doc,_=qna_scores[0]
-            prompt=ChatPromptTemplate.from_messages([
+        # 8) 답변 생성 (QnA 점수 ≥ 0.7 우선)
+        if qna_scores and qna_scores[0][1] >= 0.7:
+            top_doc, _ = qna_scores[0]
+            prompt = ChatPromptTemplate.from_messages([
                 SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
                 HumanMessagePromptTemplate.from_template(
                     """세부절차: {substep}
@@ -403,8 +428,8 @@ QnA 질문: {tag}
 위 정보를 바탕으로 문장형으로 답변해 주세요."""
                 )
             ])
-            answer=LLMChain(
-                llm=ChatOpenAI(model="gpt-4o-mini",temperature=0),
+            answer = LLMChain(
+                llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
                 prompt=prompt
             ).predict(
                 substep=substep_option,
@@ -414,10 +439,10 @@ QnA 질문: {tag}
                 question=query
             )
         else:
-            proc_vdb=substep_vectordbs[step].get(substep_option)
-            p_scores=proc_vdb.similarity_search_with_score(query,k=1) if proc_vdb else []
-            top_doc,_=p_scores[0] if p_scores else (Document(page_content=""),0)
-            prompt=ChatPromptTemplate.from_messages([
+            proc_vdb    = substep_vectordbs[step].get(substep_option)
+            proc_scores = proc_vdb.similarity_search_with_score(query, k=1) if proc_vdb else []
+            top_doc, _  = proc_scores[0] if proc_scores else (Document(page_content=""), 0)
+            prompt = ChatPromptTemplate.from_messages([
                 SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
                 HumanMessagePromptTemplate.from_template(
                     """세부절차: {substep}
@@ -429,8 +454,8 @@ QnA 질문: {tag}
 위 정보를 바탕으로 문장형으로 답변해 주세요."""
                 )
             ])
-            answer=LLMChain(
-                llm=ChatOpenAI(model="gpt-4o-mini",temperature=0),
+            answer = LLMChain(
+                llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
                 prompt=prompt
             ).predict(
                 substep=substep_option,
