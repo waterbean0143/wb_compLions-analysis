@@ -162,9 +162,6 @@ def preprocess(text: str) -> str:
 # ─────────────────────────────────────────────────────
 # 7) 문서 로드 & VectorDB 생성
 # ─────────────────────────────────────────────────────
-# ─────────────────────────────────────────────────────
-# 7) 문서 로드 & VectorDB 생성
-# ─────────────────────────────────────────────────────
 @st.cache_data(ttl=86400)
 def load_all_docs() -> Tuple[
     Dict[str, List[Document]],
@@ -172,12 +169,10 @@ def load_all_docs() -> Tuple[
     Dict[str, List[Document]],
     Dict[str, List[Document]]
 ]:
-    # 텍스트 분할기
     split_first = CharacterTextSplitter(
         separator=r"\n{2,}|\.(?:\s|$)",
         is_separator_regex=True,
-        chunk_size=800,
-        chunk_overlap=0
+        chunk_size=800, chunk_overlap=0
     )
     split_body = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
 
@@ -200,29 +195,21 @@ def load_all_docs() -> Tuple[
     for name, url in QNA_PDF_URLS.items():
         pages = download_and_load(url)
         orig_qna[name] = pages
-
-        # PDF 전체를 하나의 문자열로
         full_text = "\n".join(p.page_content for p in pages)
-        # “[질문”이 나오는 곳에서 split
         raw_qnas = [
             blk for blk in re.split(r'(?=\[질문\s*\d+\s*[:\]])', full_text)
             if blk.strip()
         ]
-
         docs: List[Document] = []
         for blk in raw_qnas:
             lines = blk.splitlines()
-            # 태그 (예: “[질문 1 : VDC-A 대상 사업]”)
             tag = next((l for l in lines if l.startswith("[질문")), "")
-            # 질문 본문 (태그 제외)
             question_context = "\n".join(
                 l for l in lines
                 if not l.startswith("[[") and not l.startswith("[[[")
             ).strip()
-            # 답변 본문
             answer_context = "\n".join(
-                l for l in lines
-                if l.startswith("[[[답변]") or l.startswith("[[답변]")
+                l for l in lines if l.startswith("[[[답변]") or l.startswith("[[답변]")
             ).strip()
             docs.append(Document(
                 page_content=blk,
@@ -254,49 +241,45 @@ def load_all_docs() -> Tuple[
 
 @st.cache_resource(ttl=86400)
 def build_vectordbs(
-    proc_docs_map: Dict[str, List[Document]],
-    qna_docs_map:  Dict[str, List[Document]]
+    _proc_docs_map: Dict[str, List[Document]],
+    _qna_docs_map: Dict[str, List[Document]]
 ) -> Tuple[Dict[str, FAISS], Dict[str, FAISS]]:
     emb = OpenAIEmbeddings(
-        model="text-embedding-ada-002",
-        openai_api_key=os.environ["OPENAI_API_KEY"]
+        model="text-embedding-ada-002", openai_api_key=os.environ["OPENAI_API_KEY"]
     )
-    p_vdb = {s: FAISS.from_documents(d, emb) for s, d in proc_docs_map.items()}
-    q_vdb = {s: FAISS.from_documents(d, emb) for s, d in qna_docs_map.items()}
+    p_vdb = {s: FAISS.from_documents(docs, emb) for s, docs in _proc_docs_map.items()}
+    q_vdb = {s: FAISS.from_documents(docs, emb) for s, docs in _qna_docs_map.items()}
     return p_vdb, q_vdb
 
 
 @st.cache_resource(ttl=86400)
 def build_global_qna_vectordb(
-    qna_map: Dict[str, List[Document]]
+    _qna_map: Dict[str, List[Document]]
 ) -> FAISS:
-    all_docs = [d for docs in qna_map.values() for d in docs]
+    all_docs = [d for docs in _qna_map.values() for d in docs]
     emb = OpenAIEmbeddings(
-        model="text-embedding-ada-002",
-        openai_api_key=os.environ["OPENAI_API_KEY"]
+        model="text-embedding-ada-002", openai_api_key=os.environ["OPENAI_API_KEY"]
     )
     return FAISS.from_documents(all_docs, emb)
 
 
 @st.cache_resource(ttl=86400)
 def build_qna_vectordbs(
-    qna_docs_map: Dict[str, List[Document]]
+    _qna_docs_map: Dict[str, List[Document]]
 ) -> Dict[str, FAISS]:
     emb = OpenAIEmbeddings(
-        model="text-embedding-ada-002",
-        openai_api_key=os.getenv("OPENAI_API_KEY")
+        model="text-embedding-ada-002", openai_api_key=os.getenv("OPENAI_API_KEY")
     )
     return {
         step: FAISS.from_documents(docs, emb)
-        for step, docs in qna_docs_map.items()
+        for step, docs in _qna_docs_map.items()
     }
 
 
 @st.cache_resource(ttl=86400)
 def build_index_vectordbs() -> Dict[str, FAISS]:
     emb = OpenAIEmbeddings(
-        model="text-embedding-ada-002",
-        openai_api_key=os.environ["OPENAI_API_KEY"]
+        model="text-embedding-ada-002", openai_api_key=os.environ["OPENAI_API_KEY"]
     )
     idxs: Dict[str, FAISS] = {}
     for step, url in PROCESS_PDF_URLS.items():
@@ -311,8 +294,7 @@ def build_substep_vectordbs(
     _proc_map: Dict[str, List[Document]]
 ) -> Dict[str, Dict[str, FAISS]]:
     emb = OpenAIEmbeddings(
-        model="text-embedding-ada-002",
-        openai_api_key=os.getenv("OPENAI_API_KEY")
+        model="text-embedding-ada-002", openai_api_key=os.getenv("OPENAI_API_KEY")
     )
     substep_vdbs: Dict[str, Dict[str, FAISS]] = {}
     for step, docs in _proc_map.items():
@@ -332,8 +314,7 @@ def build_qna_substep_vectordbs(
     _qna_docs_map: Dict[str, List[Document]]
 ) -> Dict[str, Dict[str, FAISS]]:
     emb = OpenAIEmbeddings(
-        model="text-embedding-ada-002",
-        openai_api_key=os.getenv("OPENAI_API_KEY")
+        model="text-embedding-ada-002", openai_api_key=os.getenv("OPENAI_API_KEY")
     )
     qna_substep_vdbs: Dict[str, Dict[str, FAISS]] = {}
     for step, docs in _qna_docs_map.items():
@@ -350,23 +331,23 @@ def build_qna_substep_vectordbs(
 
 @st.cache_resource(ttl=86400)
 def build_bm25(
-    proc_map: Dict[str, List[Document]]
+    _proc_map: Dict[str, List[Document]]
 ) -> Dict[str, BM25Retriever]:
     return {
         s: BM25Retriever.from_documents(docs)
-        for s, docs in proc_map.items()
+        for s, docs in _proc_map.items()
     }
 
 
 @st.cache_resource(ttl=86400)
 def build_ensemble(
-    p_vdbs: Dict[str, FAISS],
-    bm25s: Dict[str, BM25Retriever]
+    _p_vdbs: Dict[str, FAISS],
+    _bm25s: Dict[str, BM25Retriever]
 ) -> Dict[str, EnsembleRetriever]:
     ers: Dict[str, EnsembleRetriever] = {}
-    for s in p_vdbs:
+    for s in _p_vdbs:
         ers[s] = EnsembleRetriever(
-            retrievers=[p_vdbs[s].as_retriever(), bm25s[s]],
+            retrievers=[_p_vdbs[s].as_retriever(), _bm25s[s]],
             weights=[0.7, 0.3]
         )
     return ers
@@ -383,6 +364,7 @@ with st.spinner("📦 데이터 로드 중…"):
     qna_substep_vectordbs = build_qna_substep_vectordbs(qna_docs_map)
     bm25s                 = build_bm25(proc_docs_map)
     ensemble_retrievers   = build_ensemble(index_vectordbs, bm25s)
+
 
 # ─────────────────────────────────────────────────────
 # 9) Q&A 탭 (STEP→SUBSTEP 추론→TOP3 절차→TOP3 QnA→답변)
@@ -428,23 +410,21 @@ with qa_tab:
         substep_scores = index_vectordbs[step].similarity_search_with_score(query, k=3)
         with st.expander("1) TOP3 - 절차 서브스텝", expanded=False):
             for i, (sub_doc, dist) in enumerate(substep_scores, start=1):
-                sub = sub_doc.page_content
+                sub        = sub_doc.page_content
                 similarity = 1.0 - dist
                 st.markdown(f"**[TOP_{i}]. {sub} — 유사도 {similarity:.2f}**")
-                # 세부 청크가 있으면 간단히 snippet, 없으면 원본문서 블록
-                vdb = substep_vectordbs[step].get(sub)
+                vdb        = substep_vectordbs[step].get(sub)
                 if vdb:
                     chunk_scores = vdb.similarity_search_with_score(query, k=3)
                     for j, (c_doc, c_dist) in enumerate(chunk_scores, start=1):
                         snippet = c_doc.page_content.replace("\n", " ")[:200] + "…"
                         st.write(f"  {j}. {snippet} (유사도 {1-c_dist:.2f})")
                 else:
-                    # 원본문서에서 ##sub 부터 다음 ##까지 추출
-                    pages = original_pages[f"proc:{step}"][1:]
-                    page_text = next((p.page_content for p in pages if f"##{sub}" in p.page_content), "")
-                    m = re.search(rf"(##{re.escape(sub)}[\s\S]*?)(?=^##\d+\.)",
-                                  page_text, flags=re.MULTILINE)
-                    block = m.group(1).strip() if m else page_text.strip()
+                    pages    = original_pages[f"proc:{step}"][1:]
+                    page_txt = next((p.page_content for p in pages if f"##{sub}" in p.page_content), "")
+                    m        = re.search(rf"(##{re.escape(sub)}[\s\S]*?)(?=^##\d+\.)",
+                                        page_txt, flags=re.MULTILINE)
+                    block    = m.group(1).strip() if m else page_txt.strip()
                     st.text(block)
                 st.write("---")
 
@@ -457,12 +437,14 @@ with qa_tab:
             if not qna_scores:
                 st.write("⚠️ 해당 서브스텝에 대한 Q&A가 없습니다.")
             for i, (doc, score) in enumerate(qna_scores, start=1):
-                tag  = doc.metadata.get("tag", "")
-                qc   = doc.metadata.get("question_context", "")
-                ac   = doc.metadata.get("answer_context", "")
+                tag = doc.metadata.get("tag", "")
+                qc  = doc.metadata.get("question_context", "").strip()
+                ac  = doc.metadata.get("answer_context", "").strip()
                 st.markdown(f"**[TOP_{i}]. {tag} — Score {score:.2f}**")
-                if qc: st.write(f"'{qc}'")
-                if ac: st.write(f"[[[답변] '{ac}'")
+                if qc:
+                    st.write(f"'{qc}'")
+                if ac:
+                    st.write(f"[[[답변] '{ac}'")
                 st.write("---")
 
         # 8) 답변 생성 (QnA 점수 ≥ 0.7 우선)
