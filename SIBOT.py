@@ -189,7 +189,7 @@ def load_all_docs() -> Tuple[
     # 7-2) QnA 문서 (블록 단위)
     for name, url in QNA_PDF_URLS.items():
         pages = download_and_load(url)
-        original_qna[name] = pages
+        orig_qna[name] = pages
         # PDF 전체를 하나의 문자열로
         full_text = "\n".join(p.page_content for p in pages)
         # “[질문”이 나오는 곳에서 split
@@ -318,15 +318,14 @@ def build_ensemble(p_vdbs, bm25s):
 # 8) 데이터 로드 & 벡터 DB 빌드
 # ─────────────────────────────────────────────────────
 with st.spinner("📦 데이터 로드 중…"):
-    
-# 문서 로드 직후
-proc_docs_map, qna_docs_map, wp_map, original_pages = load_all_docs()
+    # 문서 로드 직후
+    proc_docs_map, qna_docs_map, wp_map, original_pages = load_all_docs()
 
-# vectordb 빌드
-index_vectordbs      = build_index_vectordbs()             # 절차 전체
-substep_vectordbs    = build_substep_vectordbs(proc_docs_map)  # 세부 청크
-qna_vectordbs        = build_qna_vectordbs(qna_docs_map)    # QnA 전체
-qna_substep_vectordbs= build_qna_substep_vectordbs(qna_docs_map)  # QnA→substep map
+    # vectordb 빌드
+    index_vectordbs       = build_index_vectordbs()
+    substep_vectordbs     = build_substep_vectordbs(proc_docs_map)
+    qna_vectordbs         = build_qna_vectordbs(qna_docs_map)
+    qna_substep_vectordbs = build_qna_substep_vectordbs(qna_docs_map)
 
 # ─────────────────────────────────────────────────────
 # 9) Q&A 탭 (STEP→SUBSTEP 추론→TOP3 절차→TOP3 QnA→답변)
