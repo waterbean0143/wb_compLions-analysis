@@ -520,7 +520,8 @@ with qa_tab:
         # 5) Substep 자동 추론
         idx_scores     = index_vectordbs[step].similarity_search_with_score(query, k=1)
         substep_option = idx_scores[0][0].page_content
-        st.info(f"📌 사용자의 질문은 ‘{step}’ 단계의 “{substep_option}”에 대한 “{qtype}”입니다.")  :contentReference[oaicite:0]{index=0}:contentReference[oaicite:1]{index=1}
+        st.info(f"📌 사용자의 질문은 '{step}' 단계의 \"{substep_option}\"에 대한 \"{qtype}\"입니다.")
+
 
         # 6) Top-3 서브스텝 추천 및 각 서브스텝 내 청크 Top-3
         substep_scores = index_vectordbs[step].similarity_search_with_score(query, k=3)
