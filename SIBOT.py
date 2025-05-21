@@ -483,8 +483,10 @@ with st.spinner("📦 데이터 로드 중…"):
     qna_substep_vectordbs  = build_qna_substep_vectordbs(proc_docs_map, qna_docs_map)
 
 # ─────────────────────────────────────────────────────
-# 8) Q&A 탭 (STEP → SUBSTEP 자동 추론 → 유형 분기 → 답변 + TOP3 절차/QnA 청크)
+# 8) Q&A 탭 (STEP → SUBSTEP 자동 추론 → 유형 분기 → 답변 + TOP3 절차/원본 출력)
 # ─────────────────────────────────────────────────────
+import re
+
 with qa_tab:
     st.header("AX SI 방법론 이행봇 - Q&A")
 
@@ -522,42 +524,33 @@ with qa_tab:
         substep_option = idx_scores[0][0].page_content
         st.info(f"📌 사용자의 질문은 '{step}' 단계의 \"{substep_option}\"에 대한 \"{qtype}\"입니다.")
 
-        # 6) Top-3 서브스텝 추천 및 각 서브스텝 내 청크 Top-3
+        # 6) TOP3 - 절차 서브스텝 → 원본 블록 출력
         substep_scores = index_vectordbs[step].similarity_search_with_score(query, k=3)
-        with st.expander("1) TOP3 - 절차 서브스텝"):
-            for i, (sub_doc, sub_score) in enumerate(substep_scores, start=1):
-                st.markdown(f"**[TOP_{i}]. {sub_doc.page_content} — Score {sub_score:.2f}**")
-                vdb = substep_vectordbs[step].get(sub_doc.page_content)
-                if not vdb:
-                    st.write("  ⚠️ 이 서브스텝에 대한 세부 문서가 없습니다.")
-                else:
-                    chunk_scores = vdb.similarity_search_with_score(query, k=3)
-                    for j, (c_doc, c_score) in enumerate(chunk_scores, start=1):
-                        snippet = c_doc.page_content.replace("\n"," ")[:200] + "…"
-                        st.write(f"  {j}. {snippet} (Score {c_score:.2f})")
-                st.write("---")
+        with st.expander("1) TOP3 - 절차 서브스텝", expanded=False):
+            for i, (sub_doc, dist) in enumerate(substep_scores, start=1):
+                sub = sub_doc.page_content
+                similarity = 1.0 - dist
+                st.markdown(f"**[TOP_{i}]. {sub} — 유사도 {similarity:.2f}**")
 
-        # 7) 절차 청크 Top-3 (방금 자동 추론한 substep 안에서만)
-        proc_vdb    = substep_vectordbs[step].get(substep_option)
-        proc_scores = proc_vdb.similarity_search_with_score(query, k=3) if proc_vdb else []
-        with st.expander("2) TOP3 - 절차 CHUNK"):
-            if not proc_scores:
-                st.write("⚠️ 해당 서브스텝에 대한 문서가 없습니다.")
-            for i, (doc, score) in enumerate(proc_scores, start=1):
-                st.markdown(f"**[TOP_{i}]. {substep_option} — Score {score:.2f}**")
-                page_no   = doc.metadata.get("page", 1)
-                pages     = original_pages[f"proc:{step}"][1:]
-                orig_page = pages[max(page_no-2, 0)].page_content
-                lines     = orig_page.splitlines()
-                start_idx = next((j for j,l in enumerate(lines) if substep_option in l), None)
-                if start_idx is None:
-                    st.write("⚠️ 해당 서브스텝에 대한 문서가 없습니다.")
+                # 원본 페이지에서 "##<sub>" 블록 찾기
+                pages = original_pages[f"proc:{step}"][1:]  # 첫 페이지(목차) 제외
+                page_text = None
+                for p in pages:
+                    if f"##{sub}" in p.page_content:
+                        page_text = p.page_content
+                        break
+
+                if not page_text:
+                    st.write("⚠️ 이 서브스텝에 대한 원본 문서를 찾을 수 없습니다.")
                 else:
-                    end_idx = next((j for j,l in enumerate(lines[start_idx+1:], start_idx+1)
-                                     if re.match(r"^##\d+", l)), len(lines))
-                    block = lines[start_idx:end_idx]
-                    for j, line in enumerate(block, start=1):
-                        st.write(f"{j}. {line}")
+                    # 정규식으로 heading 부터 다음 heading 이전까지 추출
+                    pattern = rf"(##{re.escape(sub)}[\s\S]*?)(?=^##\d+\.)"
+                    m = re.search(pattern, page_text, flags=re.MULTILINE)
+                    block = m.group(1).strip() if m else page_text.strip()
+
+                    # 원본 텍스트 그대로 출력 (줄바꿈·공백 유지)
+                    st.text(block)
+
                 st.write("---")
 
         # 8) QnA 청크 Top-3 (매핑된 QnA에서만)
