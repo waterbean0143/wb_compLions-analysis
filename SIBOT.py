@@ -250,79 +250,53 @@ def preprocess(text: str) -> str:
 # ─────────────────────────────────────────────────────
 @st.cache_data(ttl=86400)
 def load_all_docs() -> Tuple[
-    Dict[str, List[Document]],
-    Dict[str, List[Document]],
-    Dict[str, List[Document]],
-    Dict[str, List[Document]]
+    Dict[str,List[Document]],  # proc_map
+    Dict[str,List[Document]],  # qna_map
+    Dict[str,List[Document]],
+    Dict[str,List[Document]]
 ]:
-    splitter_first = CharacterTextSplitter(
-        separator=r"\n{2,}|\.(?:\s|$)",
-        is_separator_regex=True,
-        chunk_size=800,
-        chunk_overlap=0
-    )
-    splitter_body = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
+    # … your existing proc loading …
 
-    proc_map, qna_map, wordpool_map = {}, {}, {}
-    original_proc, original_qna, original_wp = {}, {}, {}
-
-    # ─────────────────────────────────────────────────────
-    # 프로세스 로드 (기존 그대로)
-    # ─────────────────────────────────────────────────────
-    for name, url in PROCESS_PDF_URLS.items():
-        pages = download_and_load(url)
-        original_proc[name] = pages  # 목차 포함 전체 보관
-        docs: List[Document] = []
-        if pages:
-            first, *rest = pages
-            for txt in splitter_first.split_text(first.page_content):
-                docs.append(Document(page_content=txt, metadata={**first.metadata}))
-            docs += splitter_body.split_documents(rest)
-        proc_map[name] = docs
-
-    # ─────────────────────────────────────────────────────
-    # QnA 로드 (블록 단위 분할 + 메타·원문 보존)
-    # ─────────────────────────────────────────────────────
+    # QnA: split into question–answer blocks
     for name, url in QNA_PDF_URLS.items():
         pages = download_and_load(url)
-        original_qna[name] = pages   # 전체 페이지 보존
-        all_text = "\n".join(p.page_content for p in pages)
-
-        # “[질문숫자]”으로 시작하는 블록 단위로 분할
-        raw_qnas = [blk for blk in re.split(r"(?=\[질문\d+\])", all_text) if blk.strip()]
+        original_qna[name] = pages
         docs: List[Document] = []
-
-        for blk in raw_qnas:
+        # join everything to one big text per PDF
+        full_text = "\n".join(p.page_content for p in pages)
+        # split on each “[질문 N…” boundary
+        raw_blocks = [
+            blk.strip()
+            for blk in re.split(r'(?=\[질문\s*\d+\s*[:\]]).*', full_text)
+            if blk.strip()
+        ]
+        for blk in raw_blocks:
             lines = blk.splitlines()
-            # 질문 헤더(tag) 추출: "[질문20: 제안서 GD(디자인)]"
-            tag = next((l for l in lines if l.startswith("[질문")), "")
-
-            # 질문 컨텍스트: tag 라인과, 답변 라인 이전까지 모두 포함
-            question_context = tag + "\n" + "\n".join([
-                l for l in lines
-                if not (
-                    l.startswith("[질문")
-                    or l.startswith("[[[답변]")
-                    or l.startswith("[[답변]")
-                )
-            ])
-
-            # 답변 컨텍스트: "[[[답변] ... ]]" 또는 "[[답변]...]" 라인만
-            answer_context = "\n".join([
-                l for l in lines
-                if l.startswith("[[[답변]") or l.startswith("[[답변]")
-            ])
-
+            # first line is "[질문 N : ...]"
+            tag = lines[0].strip()
+            # question lines: from the tag until the first "[[답변]"
+            q_lines = []
+            a_lines = []
+            in_answer = False
+            for l in lines[1:]:
+                if l.startswith('[[[') or l.startswith('[[답변]'):
+                    in_answer = True
+                    a_lines.append(l)
+                elif in_answer:
+                    a_lines.append(l)
+                else:
+                    q_lines.append(l)
+            qtext = " ".join(q_lines).strip()
+            atext = " ".join(a_lines).strip()
             docs.append(Document(
-                page_content=blk,
-                metadata={
+                page_content = qtext + "\n" + atext,
+                metadata = {
                     "tag":              tag,
-                    "question_context": question_context.strip(),
-                    "answer_context":   answer_context.strip(),
+                    "question_context": qtext,
+                    "answer_context":   atext,
                 }
             ))
         qna_map[name] = docs
-
     # ─────────────────────────────────────────────────────
     # 워드풀 (기존 로직)
     # ─────────────────────────────────────────────────────
@@ -342,7 +316,7 @@ def load_all_docs() -> Tuple[
         original_pages[f"wp:{k}"] = v
 
     return proc_map, qna_map, wordpool_map, original_pages
-
+    
 @st.cache_resource(ttl=3600 * 24)
 def build_vectordbs(
     _proc_docs_map: Dict[str, List[Document]],
@@ -542,23 +516,21 @@ with qa_tab:
 
         # 7) TOP3 - QnA 청크 (매핑된 QnA에서만, 없으면 per-step 전체 QnA fallback)
         # per-step substep별 QnA DB
-        qna_sub_map       = qna_substep_vectordbs.get(step, {})
-        default_qna_vdb   = qna_vdbs.get(step)
-        qna_vdb_for_sub   = qna_sub_map.get(substep_option, default_qna_vdb)
-        qna_scores        = qna_vdb_for_sub.similarity_search_with_score(query, k=3)
+        qna_sub_map     = qna_substep_vectordbs.get(step, {})
+        default_qna_vdb = qna_vdbs.get(step)
+        qna_vdb_for_sub = qna_sub_map.get(substep_option, default_qna_vdb)
+        qna_scores      = qna_vdb_for_sub.similarity_search_with_score(query, k=3)
 
         with st.expander("2) TOP3 - QnA 청크", expanded=False):
             if not qna_scores:
                 st.write("⚠️ 해당 서브스텝에 대한 Q&A가 없습니다.")
             for i, (doc, score) in enumerate(qna_scores, start=1):
-                tag      = doc.metadata.get("tag", "질문 없음")
-                q_context = doc.metadata.get("question_context", "").strip()
-                a_context = doc.metadata.get("answer_context", "").strip()
+                tag  = doc.metadata["tag"]
+                qtxt = doc.metadata["question_context"]
+                atxt = doc.metadata["answer_context"]
                 st.markdown(f"**[TOP_{i}]. {tag} — Score {score:.2f}**")
-                if q_context:
-                    st.write(f"'{q_context}'")
-                if a_context:
-                    st.write(f"[[[답변] '{a_context}'")
+                st.write(f"'{qtxt}'")
+                st.write(f"[[[답변] '{atxt}'")
                 st.write("---")
 
         # 8) 답변 생성 (QnA 점수 우선, 0.7 이상)
