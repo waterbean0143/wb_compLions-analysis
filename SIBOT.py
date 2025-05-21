@@ -20,25 +20,22 @@ from functools import partial
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
-import plotly.express as px
-
-import difflib    #추
 
 from kiwipiepy import Kiwi
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
+from langchain_core.prompts import (
+    ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
+)
 from langchain_community.document_loaders import PyMuPDFLoader
-from langchain.text_splitter import CharacterTextSplitter, RecursiveCharacterTextSplitter
+from langchain.text_splitter import CharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain.retrievers import EnsembleRetriever
 from langchain_community.retrievers import BM25Retriever
-from langchain.memory import ConversationBufferMemory
 from langchain.schema import Document
-from langchain.chains import RetrievalQA, ConversationalRetrievalChain, LLMChain
+from langchain.chains import LLMChain
 
 # ─────────────────────────────────────────────────────
-# 0-1) PDF 첫페이지 인덱스 자동추출 유틸
+# 0-1) PDF 다운로드 및 인덱스 추출
 # ─────────────────────────────────────────────────────
 def download_and_load(url: str) -> List[Document]:
     resp = requests.get(url)
@@ -58,187 +55,102 @@ def download_and_load(url: str) -> List[Document]:
     return docs
 
 def extract_index_chunks(url: str) -> List[Document]:
-    raw_docs = download_and_load(url)
-    if not raw_docs:
-        return []
-    first_page = raw_docs[0].page_content
-    lines = first_page.splitlines()
-    start = 0
-    for i, line in enumerate(lines):
-        if line.strip().startswith("##"):
-            start = i + 1
-            break
+    raw = download_and_load(url)
+    if not raw: return []
+    lines = raw[0].page_content.splitlines()
+    start = next((i+1 for i,l in enumerate(lines) if l.strip().startswith("##")), 0)
     pattern = re.compile(r"^(\d+)\.\s*(.+)$")
-    index_docs: List[Document] = []
+    idxs: List[Document] = []
     for line in lines[start:]:
         m = pattern.match(line.strip())
-        if not m:
-            break
+        if not m: break
         num, title = m.groups()
-        meta = {"step": int(num), "title": title}
-        text = f"{num}. {title}"
-        index_docs.append(Document(page_content=text, metadata=meta))
-    return index_docs
+        idxs.append(Document(page_content=f"{num}. {title}", metadata={"step":int(num),"title":title}))
+    return idxs
 
 # ─────────────────────────────────────────────────────
-# 0-2) GraphState 정의 & 질문 유형 분류
+# 0-2) 질문 유형 분류 및 Persona
 # ─────────────────────────────────────────────────────
 class GraphState(TypedDict):
-    question: str
-    step_name: str
-    sub_title: str
-    question_type: str
-    context: str
-    response: str
-    attempts: int
+    question: str; step_name: str; sub_title: str
+    question_type: str; context: str; response: str; attempts: int
 
 INTENT_CLASSIFICATION_PROMPT = ChatPromptTemplate.from_messages([
     SystemMessagePromptTemplate.from_template(
-        """당신은 AX SI 방법론 이행봇의 질문 의도 분류기입니다.
-아래 6가지 유형 중 하나로 이 질문의 **의도**를 분류하세요.
-- 정의 요청: 절차의 개념과 목적을 물음  
-- 수행 절차 안내: 절차를 단계별로 물음  
-- 산출물·문서 요구 사항: 준비해야 할 산출물·문서 물음  
-- 책임·역할 분담: 누가 무엇을 담당하는지 물음  
-- 일정·마일스톤 확인: 기한·마감·N일 이내 처리 여부 물음  
-- 일반 질문: 위에 해당하지 않는 기타 문의  
-
+        """당신은 질문 의도 분류기입니다. 아래 6가지 유형 중 하나로 분류하세요.
+- 정의 요청, 수행 절차 안내, 산출물·문서 요구 사항, 책임·역할 분담, 일정·마일스톤 확인, 일반 질문
 질문: “{question}”
-
-**출력 형식** (한 줄):
-질문유형: <위 6가지 중 하나>"""
+출력: 질문유형: <위 6가지 중 하나>"""
     )
 ])
-
 def classify_with_llm(question: str) -> str:
-    chain = LLMChain(
-        llm=ChatOpenAI(model="gpt-4o-mini", temperature=0, openai_api_key=os.getenv("OPENAI_API_KEY")),
-        prompt=INTENT_CLASSIFICATION_PROMPT
-    )
-    output = chain.predict(question=question)
-    # 예시: "질문유형: 정의 요청"
-    return output.split(":")[-1].strip()
+    out = LLMChain(llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
+                   prompt=INTENT_CLASSIFICATION_PROMPT).predict(question=question)
+    return out.split(":")[-1].strip()
 
-
-# ─────────────────────────────────────────────────────
-# 0-1) 질문 유형 리스트 및 Persona + 지침 선택
-# ─────────────────────────────────────────────────────
 QUESTION_TYPES = [
-    "자유 질의",
-    "정의 요청",
-    "수행 절차 안내",
-    "산출물·문서 요구 사항",
-    "책임·역할 분담",
-    "일정·마일스톤 확인",
+    "자유 질의","정의 요청","수행 절차 안내",
+    "산출물·문서 요구 사항","책임·역할 분담","일정·마일스톤 확인",
 ]
-
-def select_persona_prompt(question_type: str) -> str:
-    base_prompt = """\
-당신은 대기업이자 사기업인 KT의 SI프로젝트 내부 절차 안내 담당자입니다.
-질문자는 기본적으로 KT 직원이며, 공직자가 아닌 민간 기업의 직원입니다.
-KT는 정부 기관이 아니며, 직원들은 공무원이 아닙니다.
-"""
-
-    if question_type == "자유 질의":
-        return base_prompt + """\
-주어진 모든 SI 절차 문서, Q&A, 용어집 등을 기반으로
-어떤 질문에도 가장 관련 있는 정보를 찾아 답변하세요.
-– 답변 근거: <제공된 문서>에 기반합니다.
-– 상세 설명: 필요 시 간단한 예시나 추가 배경을 덧붙여도 됩니다.
-– 범용성: KT 직원 외에도 이해할 수 있게 쉽게 서술합니다.
-"""
-
-    elif question_type == "단순 질의응답":
-        return base_prompt + """\
-주어진 SI 내부 절차에 대해 간단명료하게 답변해야 합니다. 다음 지침을 따라 주세요:
-
-1. 답변 근거: <제공된 문서>에 기반하여 답변하세요.  
-2. 질문 이해: 질문의 핵심을 정확히 파악하세요.  
-3. 관련 절차 확인: 질문과 관련된 절차 및 세부절차를 명시하세요.  
-4. 명확한 답변: 간결하고 명확하게 응답하세요.  
-5. 추가 설명: 필요한 경우 간단한 부연 설명을 제공합니다.  
-6. 한계 명시: 답변의 한계나 예외 사항이 있다면 언급하세요.  
-7. 정보 부족 시 추가 정보 요청: 추가 정보가 필요하다면 질문을 통해 요청하세요.
-
-답변은 SI 내부절차 담당자가 아닌 KT 직원도 이해할 수 있도록 쉽게 설명해 주세요.
-"""
-
-    ## 단계별 적용 예정
-    # elif question_type == "정의 요청":
-    #     ...
-    # elif question_type == "수행 절차 안내":
-    #     ...
-    # (이하 생략)
-
-    # 기본 페르소나 리턴
-    return base_prompt
+def select_persona_prompt(qtype: str) -> str:
+    base = """당신은 KT SI 프로젝트 내부 절차 안내 담당자입니다.
+질문자는 KT 직원입니다."""
+    if qtype == "자유 질의":
+        return base + """
+주어진 절차 문서, Q&A, 용어집을 기반으로 답변하세요.
+– 답변 근거: <제공된 문서>"""
+    else:
+        return base
 
 # ─────────────────────────────────────────────────────
-# 1) 페이지 설정 및 Secrets 로드
+# 1) 페이지 설정 및 Secrets
 # ─────────────────────────────────────────────────────
-st.set_page_config(page_title="AX SI 방법론 이행봇", page_icon="🤖", layout="wide")
-os.environ["OPENAI_API_KEY"]      = st.secrets["openai"]["api_key"]
-os.environ["UPSTAGE_API_KEY"]     = st.secrets["upstage"]["api_key"]
-os.environ["LANGCHAIN_API_KEY"]   = st.secrets["langchain"]["api_key"]
-os.environ["LANGCHAIN_ENDPOINT"]  = st.secrets["langchain"]["endpoint"]
-os.environ["LANGCHAIN_PROJECT"]   = st.secrets["langchain"]["project"]
-os.environ["LANGCHAIN_TRACING_V2"] = st.secrets["langchain"]["tracing_v2"]
-os.environ["LANGSMITH_API_KEY"]   = st.secrets.get("langsmith", {}).get("api_key", "")
+st.set_page_config(page_title="AX SI 방법론 이행봇", layout="wide")
+os.environ["OPENAI_API_KEY"] = st.secrets["openai"]["api_key"]
 
 # ─────────────────────────────────────────────────────
-# 2) 글로벌 설정
+# 2) 전역 설정
 # ─────────────────────────────────────────────────────
-executor = ThreadPoolExecutor(max_workers=5)
-bm25_weight, faiss_weight = 0.3, 0.7
 plt.rcParams['font.family'] = 'NanumGothic'
-plt.rcParams['axes.unicode_minus'] = False
+executor = ThreadPoolExecutor(max_workers=5)
 
 # ─────────────────────────────────────────────────────
 # 3) 로그인
 # ─────────────────────────────────────────────────────
-users = {
-    "10154371": {"password": "10154371", "name": "배수빈"},
-    "10154372": {"password": "10154372", "name": "김도완"},
-    "10156350": {"password": "10156350", "name": "박영준"},
-}
+users = {"10154371":"10154371","10154372":"10154372","10156350":"10156350"}
 if 'logged_in' not in st.session_state:
     st.sidebar.title("🔒 로그인")
-    uid = st.sidebar.text_input("ID", key="login_id")
-    pwd = st.sidebar.text_input("PW", type="password", key="login_pw")
+    uid = st.sidebar.text_input("ID"); pwd = st.sidebar.text_input("PW", type="password")
     if st.sidebar.button("로그인"):
-        if uid in users and users[uid]['password'] == pwd:
-            st.session_state['logged_in'] = True
-            st.sidebar.success(f"환영합니다, {users[uid]['name']}님!")
-            st.experimental_rerun()
-        else:
-            st.sidebar.error("ID 또는 비밀번호가 올바르지 않습니다.")
+        if uid in users and users[uid]==pwd:
+            st.session_state['logged_in']=True; st.experimental_rerun()
+        else: st.sidebar.error("로그인 실패")
     st.stop()
 
 # ─────────────────────────────────────────────────────
-# 4) PDF 매핑
+# 4) PDF URL 매핑
 # ─────────────────────────────────────────────────────
 PROCESS_PDF_URLS = {
-    "제안/계약": "https://drive.google.com/uc?export=download&id=1TNOhmUds7hMpwz3NO4QD-mO-J1sUJoEa",
-    "착수/계획": "https://drive.google.com/uc?export=download&id=16j9ypXkWD7oi477ylSXWhVVe7jLtRuI7",
+    "제안/계약":"https://drive.google.com/uc?export=download&id=1TNOhmUds7hMpwz3NO4QD-mO-J1sUJoEa",
+    "착수/계획":"https://drive.google.com/uc?export=download&id=16j9ypXkWD7oi477ylSXWhVVe7jLtRuI7",
 }
 QNA_PDF_URLS = {
-    "제안/계약": "https://drive.google.com/uc?export=download&id=17M1mnMZVl29EahbSVqzcyZEX8LYsx5ER",
+    "제안/계약":"https://drive.google.com/uc?export=download&id=17M1mnMZVl29EahbSVqzcyZEX8LYsx5ER",
 }
-
 WORDPOOL_PDF_URLS = {
-    "SI_용어집": "https://drive.google.com/uc?export=download&id=1aD4QYP1OBXRP7PbXYrlXHn5LlLyFzDtx"
+    "SI_용어집":"https://drive.google.com/uc?export=download&id=1aD4QYP1OBXRP7PbXYrlXHn5LlLyFzDtx"
 }
 
 # ─────────────────────────────────────────────────────
-# 5) UI 설정
+# 5) UI & 탭 정의
 # ─────────────────────────────────────────────────────
 st.sidebar.title("⚙️ 설정")
-answer_mode = st.sidebar.radio("답변 모드 선택", ['빠른 답변', '정확한 답변'], index=0)
-tabs = st.tabs(["Q&A", "추가예정"])
+answer_mode = st.sidebar.radio("답변 모드", ["빠른 답변","정확한 답변"])
+tabs = st.tabs(["Q&A","추가예정"])
 qa_tab, _ = tabs
 
 # ─────────────────────────────────────────────────────
-# 6) 전처리 함수
+# 6) 전처리 (키워드 추출용)
 # ─────────────────────────────────────────────────────
 kiwi = Kiwi()
 def preprocess(text: str) -> str:
@@ -246,257 +158,173 @@ def preprocess(text: str) -> str:
     return ' '.join(t.form for t in toks if t.tag.startswith(('N','V','MA')))
 
 # ─────────────────────────────────────────────────────
-# 7) 문서 로드 & vectordb 생성
-# ─────────────────────────────────────────────────────
-# ─────────────────────────────────────────────────────
-# 7) 문서 로드 & vectordb 생성
+# 7) 문서 로드 & VectorDB 생성
 # ─────────────────────────────────────────────────────
 @st.cache_data(ttl=86400)
 def load_all_docs() -> Tuple[
-    Dict[str, List[Document]],  # proc_map
-    Dict[str, List[Document]],  # qna_map
-    Dict[str, List[Document]],  # wordpool_map
-    Dict[str, List[Document]]   # original_pages
+    Dict[str,List[Document]],
+    Dict[str,List[Document]],
+    Dict[str,List[Document]],
+    Dict[str,List[Document]]
 ]:
-    splitter_first = CharacterTextSplitter(separator=r"\n{2,}|\.(?:\s|$)",
-                                           is_separator_regex=True,
-                                           chunk_size=800, chunk_overlap=0)
-    splitter_body = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
+    # 텍스트 분할기
+    split_first = CharacterTextSplitter(separator=r"\n{2,}|\.(?:\s|$)",
+                                        is_separator_regex=True,chunk_size=800,chunk_overlap=0)
+    split_body  = CharacterTextSplitter(chunk_size=800,chunk_overlap=100)
 
-    proc_map: Dict[str, List[Document]] = {}
-    qna_map: Dict[str, List[Document]] = {}
-    wordpool_map: Dict[str, List[Document]] = {}
-
-    original_proc: Dict[str, List[Document]] = {}
-    original_qna: Dict[str, List[Document]] = {}
-    original_wp:  Dict[str, List[Document]] = {}
-
-    # 프로세스 문서 로드
-    for name, url in PROCESS_PDF_URLS.items():
+    proc_map, qna_map, wp_map = {}, {}, {}
+    orig_proc, orig_qna, orig_wp = {}, {}, {}
+    # 7-1) 프로세스 문서
+    for name,url in PROCESS_PDF_URLS.items():
         pages = download_and_load(url)
-        original_proc[name] = pages  # 전체 페이지 보관
-        docs: List[Document] = []
+        orig_proc[name]=pages
+        docs: List[Document]=[]
         if pages:
-            first, *rest = pages
-            for txt in splitter_first.split_text(first.page_content):
-                docs.append(Document(page_content=txt, metadata={**first.metadata}))
-            docs += splitter_body.split_documents(rest)
-        proc_map[name] = docs
-
-    # QnA 문서 로드 (블록 단위 질문+답변)
-    for name, url in QNA_PDF_URLS.items():
-        pages = download_and_load(url)
-        original_qna[name] = pages
-        docs: List[Document] = []
-
-        # 전체 텍스트 합치기
-        full_text = "\n".join(p.page_content for p in pages)
-        # "[질문 N" 경계로 분할
-        raw_blocks = [
-            blk.strip()
-            for blk in re.split(r'(?=\[질문\s*\d+\s*[:\]]).*', full_text)
-            if blk.strip()
-        ]
-        for blk in raw_blocks:
-            lines = blk.splitlines()
-            tag = lines[0].strip()  # "[질문 1 : ~]"
-            q_lines, a_lines = [], []
-            in_answer = False
+            first,*rest=pages
+            for txt in split_first.split_text(first.page_content):
+                docs.append(Document(page_content=txt,metadata={**first.metadata}))
+            docs += split_body.split_documents(rest)
+        proc_map[name]=docs
+    # 7-2) QnA 문서 (블록 단위)
+    for name,url in QNA_PDF_URLS.items():
+        pages=download_and_load(url)
+        orig_qna[name]=pages
+        full="\n".join(p.page_content for p in pages)
+        raw=[blk for blk in re.split(r"(?=\[질문\s*\d+\])", full) if blk.strip()]
+        docs=[]
+        for blk in raw:
+            lines=blk.splitlines()
+            tag=next((l for l in lines if l.startswith("[질문")), "")
+            ql,al=[],[]
+            ans=False
             for l in lines[1:]:
-                if l.startswith('[[[') or l.startswith('[[답변]'):
-                    in_answer = True
-                    a_lines.append(l)
-                elif in_answer:
-                    a_lines.append(l)
+                if l.startswith("[[[답변]") or l.startswith("[[답변]"):
+                    ans=True; al.append(l)
+                elif ans:
+                    al.append(l)
                 else:
-                    q_lines.append(l)
-            qtext = " ".join(q_lines).strip()
-            atext = " ".join(a_lines).strip()
+                    ql.append(l)
+            qtext=" ".join(ql).strip()
+            atext=" ".join(al).strip()
             docs.append(Document(
-                page_content = qtext + "\n" + atext,
-                metadata = {
-                    "tag":              tag,
-                    "question_context": qtext,
-                    "answer_context":   atext,
-                }
+                page_content=qtext+"\n"+atext,
+                metadata={"tag":tag,"question_context":qtext,"answer_context":atext}
             ))
-        qna_map[name] = docs
+        qna_map[name]=docs
+    # 7-3) 워드풀 (생략 가능)
+    for name,url in WORDPOOL_PDF_URLS.items():
+        orig_wp[name]=download_and_load(url)
+        wp_map[name]=[]
+    # 7-4) original_pages 통합
+    original_pages={}
+    for k,v in orig_proc.items(): original_pages[f"proc:{k}"]=v
+    for k,v in orig_qna.items(): original_pages[f"qna:{k}"]=v
+    for k,v in orig_wp.items(): original_pages[f"wp:{k}"]=v
 
-    # 워드풀 문서 로드 (필요 시)
-    for name, url in WORDPOOL_PDF_URLS.items():
-        pages = download_and_load(url)
-        original_wp[name] = pages
-        # (생략 가능)
-        wordpool_map[name] = []
+    return proc_map,qna_map,wp_map,original_pages
 
-    # original_pages 통합
-    original_pages: Dict[str, List[Document]] = {}
-    for k, v in original_proc.items():
-        original_pages[f"proc:{k}"] = v
-    for k, v in original_qna.items():
-        original_pages[f"qna:{k}"] = v
-    for k, v in original_wp.items():
-        original_pages[f"wp:{k}"] = v
-
-    return proc_map, qna_map, wordpool_map, original_pages
-
-
-@st.cache_resource(ttl=3600 * 24)
+@st.cache_resource(ttl=86400)
 def build_vectordbs(
-    _proc_docs_map: Dict[str, List[Document]],
-    _qna_docs_map: Dict[str, List[Document]]
-) -> Tuple[Dict[str, FAISS], Dict[str, FAISS]]:
-    emb = OpenAIEmbeddings(
-        model="text-embedding-ada-002",
-        openai_api_key=os.environ["OPENAI_API_KEY"]
-    )
-    proc_vdb = {step: FAISS.from_documents(docs, emb)
-                for step, docs in _proc_docs_map.items()}
-    qna_vdb  = {step: FAISS.from_documents(docs, emb)
-                for step, docs in _qna_docs_map.items()}
-    return proc_vdb, qna_vdb
+    proc_docs_map: Dict[str,List[Document]],
+    qna_docs_map:  Dict[str,List[Document]]
+) -> Tuple[Dict[str,FAISS],Dict[str,FAISS]]:
+    emb = OpenAIEmbeddings(model="text-embedding-ada-002",
+                           openai_api_key=os.environ["OPENAI_API_KEY"])
+    p_vdb={s:FAISS.from_documents(d,emb) for s,d in proc_docs_map.items()}
+    q_vdb={s:FAISS.from_documents(d,emb) for s,d in qna_docs_map.items()}
+    return p_vdb,q_vdb
 
+@st.cache_resource(ttl=86400)
+def build_global_qna_vectordb(qna_map: Dict[str,List[Document]]) -> FAISS:
+    all_docs=[d for docs in qna_map.values() for d in docs]
+    emb=OpenAIEmbeddings(model="text-embedding-ada-002",
+                         openai_api_key=os.environ["OPENAI_API_KEY"])
+    return FAISS.from_documents(all_docs,emb)
 
-@st.cache_resource(ttl=3600 * 24)
-def build_global_qna_vectordb(
-    _qna_map: Dict[str, List[Document]]
-) -> FAISS:
-    all_qna = []
-    for docs in _qna_map.values():
-        all_qna.extend(docs)
-    emb = OpenAIEmbeddings(
-        model="text-embedding-ada-002",
-        openai_api_key=os.environ["OPENAI_API_KEY"]
-    )
-    return FAISS.from_documents(all_qna, emb)
+@st.cache_resource(ttl=86400)
+def build_index_vectordbs() -> Dict[str,FAISS]:
+    emb=OpenAIEmbeddings(model="text-embedding-ada-002",
+                         openai_api_key=os.environ["OPENAI_API_KEY"])
+    idxs={}
+    for step,url in PROCESS_PDF_URLS.items():
+        docs=extract_index_chunks(url)
+        if docs: idxs[step]=FAISS.from_documents(docs,emb)
+    return idxs
 
-
-@st.cache_resource(ttl=3600 * 24)
-def build_index_vectordbs() -> Dict[str, FAISS]:
-    emb = OpenAIEmbeddings(
-        model="text-embedding-ada-002",
-        openai_api_key=os.getenv("OPENAI_API_KEY")
-    )
-    idx_vdbs: Dict[str, FAISS] = {}
-    for step, url in PROCESS_PDF_URLS.items():
-        idx_docs = extract_index_chunks(url)
-        if idx_docs:
-            idx_vdbs[step] = FAISS.from_documents(idx_docs, emb)
-    return idx_vdbs
-
-
-@st.cache_resource(ttl=3600 * 24)
-def build_substep_vectordbs(
-    _proc_docs_map: Dict[str, List[Document]]
-) -> Dict[str, Dict[str, FAISS]]:
-    emb = OpenAIEmbeddings(
-        model="text-embedding-ada-002",
-        openai_api_key=os.environ["OPENAI_API_KEY"]
-    )
-    sub_vdbs: Dict[str, Dict[str, FAISS]] = {}
-    for step, docs in _proc_docs_map.items():
-        idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
-        sub_db: Dict[str, FAISS] = {}
-        for idx in idx_docs:
-            title = idx.metadata["title"]
-            subset = [d for d in docs if title in d.page_content]
-            if subset:
-                sub_db[title] = FAISS.from_documents(subset, emb)
-        sub_vdbs[step] = sub_db
+@st.cache_resource(ttl=86400)
+def build_substep_vectordbs(proc_map: Dict[str,List[Document]]) -> Dict[str,Dict[str,FAISS]]:
+    emb=OpenAIEmbeddings(model="text-embedding-ada-002",
+                         openai_api_key=os.environ["OPENAI_API_KEY"])
+    sub_vdbs={}
+    for step,docs in proc_map.items():
+        idxs=extract_index_chunks(PROCESS_PDF_URLS[step])
+        m={}
+        for idx in idxs:
+            title=idx.metadata["title"]
+            subset=[d for d in docs if title in d.page_content]
+            if subset: m[title]=FAISS.from_documents(subset,emb)
+        sub_vdbs[step]=m
     return sub_vdbs
-
 
 @st.cache_resource(ttl=86400)
 def build_qna_substep_vectordbs(
-    _proc_docs_map: Dict[str, List[Document]],
-    _qna_docs_map: Dict[str, List[Document]]
-) -> Dict[str, Dict[str, FAISS]]:
-    emb = OpenAIEmbeddings(
-        model="text-embedding-ada-002",
-        openai_api_key=os.environ["OPENAI_API_KEY"]
-    )
-    result: Dict[str, Dict[str, FAISS]] = {}
-    for step, qna_docs in _qna_docs_map.items():
-        groups: Dict[str, List[Document]] = {}
-        for doc in qna_docs:
-            tag = doc.metadata.get("tag", "")
-            sub = re.sub(r"^\[질문\s*\d+\s*[:\]]\s*", "", tag)
-            groups.setdefault(sub, []).append(doc)
-        result[step] = {
-            sub: FAISS.from_documents(docs, emb)
-            for sub, docs in groups.items() if docs
-        }
-    return result
-
+    proc_map: Dict[str,List[Document]],
+    qna_map:  Dict[str,List[Document]]
+) -> Dict[str,Dict[str,FAISS]]:
+    emb=OpenAIEmbeddings(model="text-embedding-ada-002",
+                         openai_api_key=os.environ["OPENAI_API_KEY"])
+    res={}
+    for step,docs in qna_map.items():
+        grp={}
+        for d in docs:
+            tag=d.metadata.get("tag","")
+            sub=re.sub(r"^\[질문\s*\d+\]\s*","",tag)
+            grp.setdefault(sub,[]).append(d)
+        res[step]={sub:FAISS.from_documents(lst,emb) for sub,lst in grp.items() if lst}
+    return res
 
 @st.cache_resource(ttl=86400)
-def build_bm25(_proc_docs_map: Dict[str, List[Document]]):
-    return {
-        step: BM25Retriever.from_documents(docs)
-        for step, docs in _proc_docs_map.items()
-    }
-
+def build_bm25(proc_map: Dict[str,List[Document]]):
+    return {s:BM25Retriever.from_documents(docs) for s,docs in proc_map.items()}
 
 @st.cache_resource(ttl=86400)
-def build_ensemble(_proc_vdbs, _bm25_retrs):
-    faiss_weight, bm25_weight = 0.7, 0.3
-    ers = {}
-    for step in _proc_vdbs:
-        ers[step] = EnsembleRetriever(
-            retrievers=[
-                _proc_vdbs[step].as_retriever(),
-                _bm25_retrs[step],
-            ],
-            weights=[faiss_weight, bm25_weight]
+def build_ensemble(p_vdbs, bm25s):
+    ers={}
+    for s in p_vdbs:
+        ers[s]=EnsembleRetriever(
+            retrievers=[p_vdbs[s].as_retriever(), bm25s[s]],
+            weights=[0.7,0.3]
         )
     return ers
 
-
+# ─────────────────────────────────────────────────────
+# 8) 데이터 로드 & 벡터 DB 빌드
+# ─────────────────────────────────────────────────────
 with st.spinner("📦 데이터 로드 중…"):
-    # 1) 문서 로드
     proc_docs_map, qna_docs_map, wp_map, original_pages = load_all_docs()
-
-    # 2) FAISS 벡터 DB 생성
-    proc_vdbs, qna_vdbs = build_vectordbs(proc_docs_map, qna_docs_map)
-
-    # 3) BM25 + Ensemble Retriever
-    bm25_retrs     = build_bm25(proc_docs_map)
-    ensemble_retrs = build_ensemble(proc_vdbs, bm25_retrs)
-
-    # 4) 인덱스용 FAISS (Substep 자동 추론용)
-    index_vectordbs        = build_index_vectordbs()
-
-    # ★ 추가할 한 줄: Substep별 FAISS DB 생성 ★
-    substep_vectordbs      = build_substep_vectordbs(proc_docs_map)
-
-    # 5) QnA Substep별 FAISS DB 생성
-    qna_substep_vectordbs  = build_qna_substep_vectordbs(proc_docs_map, qna_docs_map)
+    proc_vdbs, qna_vdbs   = build_vectordbs(proc_docs_map, qna_docs_map)
+    bm25s                 = build_bm25(proc_docs_map)
+    ensemble_retrs        = build_ensemble(proc_vdbs, bm25s)
+    index_vectordbs       = build_index_vectordbs()
+    substep_vectordbs     = build_substep_vectordbs(proc_docs_map)
+    qna_substep_vectordbs = build_qna_substep_vectordbs(proc_docs_map, qna_docs_map)
 
 # ─────────────────────────────────────────────────────
-# 8) Q&A 탭 (STEP → SUBSTEP 자동 추론 → 유형 분기 → TOP3 절차 서브스텝 + TOP3 QnA 청크 → 답변)
+# 9) Q&A 탭 (STEP→SUBSTEP 추론→TOP3 절차→TOP3 QnA→답변)
 # ─────────────────────────────────────────────────────
 with qa_tab:
     st.header("AX SI 방법론 이행봇 - Q&A")
 
     # 1) STEP 선택
-    step = st.selectbox(
-        "📂 절차 단계를 선택해 주세요",
-        list(PROCESS_PDF_URLS.keys()),
-        key="sel_step"
-    )
+    step = st.selectbox("📂 절차 단계를 선택해 주세요", list(PROCESS_PDF_URLS.keys()), key="sel_step")
 
-    # 1-1) 전체 INDEX(서브절차) 목록 — expander 로 접기
-    idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
+    # 1-1) 전체 INDEX 목록
+    idxs = extract_index_chunks(PROCESS_PDF_URLS[step])
     with st.expander("🔖 전체 세부절차 목록", expanded=False):
-        for doc in idx_docs:
-            st.write(f"- {doc.metadata['title']}")
+        for d in idxs: st.write(f"- {d.metadata['title']}")
 
-    # 2) 질문 유형 선택
-    qtype = st.selectbox(
-        "❓ 질문 유형을 선택해 주세요",
-        QUESTION_TYPES,
-        key="sel_qtype"
-    )
+    # 2) 질문 유형
+    qtype = st.selectbox("❓ 질문 유형을 선택해 주세요", QUESTION_TYPES, key="sel_qtype")
 
     # 3) 질문 입력
     query = st.text_input("💬 질문을 입력하세요", key="input_query")
@@ -504,63 +332,79 @@ with qa_tab:
     # 4) 질문 요청
     if st.button("질문 요청", key="btn_query"):
         if not query.strip():
-            st.warning("❗️ 질문을 입력한 후 버튼을 눌러 주세요.")
-            st.stop()
+            st.warning("❗️ 질문을 입력한 후 버튼을 눌러 주세요."); st.stop()
 
-        # 5) Substep 자동 추론 (Top-1)
-        idx_scores     = index_vectordbs[step].similarity_search_with_score(query, k=1)
-        substep_option = idx_scores[0][0].page_content
+        # 5) Substep 자동 추론
+        idx_score = index_vectordbs[step].similarity_search_with_score(query, k=1)
+        substep_option = idx_score[0][0].page_content
         st.info(f"📌 사용자의 질문은 '{step}' 단계의 “{substep_option}”에 대한 “{qtype}”입니다.")
 
-        # 6) TOP3 - 절차 서브스텝 (원문 블록 그대로)
-        substep_scores = index_vectordbs[step].similarity_search_with_score(query, k=3)
+        # 6) TOP3 - 절차 서브스텝
+        sub_scores = index_vectordbs[step].similarity_search_with_score(query, k=3)
         with st.expander("1) TOP3 - 절차 서브스텝", expanded=False):
-            for i, (sub_doc, sub_score) in enumerate(substep_scores, start=1):
-                sub = sub_doc.page_content
-                st.markdown(f"**[TOP_{i}]. {sub} — Score {sub_score:.2f}**")
-                # 원본 PDF에서 "##<sub>" 블록 전체 추출
-                full_text = "".join(p.page_content for p in original_pages[f"proc:{step}"])
-                pattern   = rf"(##\s*{re.escape(sub)}[\s\S]*?)(?=^##\s*\d+\.)"
-                m = re.search(pattern, full_text, flags=re.M)
-                if m:
-                    st.text(m.group(1).strip())
+            for i,(doc,dist) in enumerate(sub_scores, start=1):
+                sim=1-dist
+                st.markdown(f"**[TOP_{i}]. {doc.page_content} — 유사도 {sim:.2f}**")
+                # 세부 청크 있으면 snippet, 없으면 원본 블록
+                vdb=substep_vectordbs[step].get(doc.page_content)
+                if vdb:
+                    chks=vdb.similarity_search_with_score(query,k=3)
+                    for j,(c,csc) in enumerate(chks,1):
+                        sn=c.page_content.replace("\n"," ")[:200]+"…"
+                        st.write(f"  {j}. {sn} (유사도 {1-csc:.2f})")
                 else:
-                    st.write("⚠️ 해당 서브스텝에 대한 문서가 없습니다.")
+                    pages=original_pages[f"proc:{step}"][1:]
+                    text=None
+                    for p in pages:
+                        if f"##{doc.page_content}" in p.page_content:
+                            text=p.page_content; break
+                    if text:
+                        pat=rf"(##{re.escape(doc.page_content)}[\s\S]*?)(?=^##\d+\.)"
+                        m=re.search(pat,text,flags=re.MULTILINE)
+                        block=m.group(1).strip() if m else text.strip()
+                        st.text(block)
+                    else:
+                        st.write("⚠️ 원본 문서를 찾을 수 없습니다.")
                 st.write("---")
 
-        # 7) TOP3 - QnA 청크 (per-substep 매핑, 없으면 전체 QnA DB fallback)
-        qna_sub_map     = qna_substep_vectordbs.get(step, {})
-        default_qna_vdb = qna_vectordbs.get(step)
-        qna_vdb_for_sub = qna_sub_map.get(substep_option, default_qna_vdb)
-        qna_scores      = qna_vdb_for_sub.similarity_search_with_score(query, k=3) if qna_vdb_for_sub else []
+        # 7) TOP3 - QnA 청크
+        qna_map_for_sub = qna_substep_vectordbs.get(step, {})
+        default_qna    = qna_vdbs.get(step)
+        qna_vdb_for_sub= qna_map_for_sub.get(substep_option, default_qna)
+        qna_scores     = qna_vdb_for_sub.similarity_search_with_score(query,k=3) if qna_vdb_for_sub else []
         with st.expander("2) TOP3 - QnA 청크", expanded=False):
             if not qna_scores:
                 st.write("⚠️ 해당 서브스텝에 대한 Q&A가 없습니다.")
-            for i, (qdoc, qscore) in enumerate(qna_scores, start=1):
-                tag = qdoc.metadata.get("tag", "질문 없음")
-                qc  = qdoc.metadata.get("question_context", "").strip()
-                ac  = qdoc.metadata.get("answer_context", "").strip()
-                st.markdown(f"**[TOP_{i}]. {tag} — Score {qscore:.2f}**")
-                if qc: st.write(qc)
-                if ac: st.write(ac)
+            for i,(doc,score) in enumerate(qna_scores,1):
+                tag=doc.metadata.get("tag","")
+                qc=doc.metadata.get("question_context","").strip()
+                ac=doc.metadata.get("answer_context","").strip()
+                st.markdown(f"**[TOP_{i}]. {tag} — Score {score:.2f}**")
+                if qc: st.write(f"'{qc}'")
+                if ac: st.write(f"[[[답변] '{ac}'")
                 st.write("---")
 
-        # 8) 답변 생성 (QnA 점수 ≥ 0.7 우선, 아니면 절차 서브스텝 기반)
-        if qna_scores and qna_scores[0][1] >= 0.7:
-            top_doc, _ = qna_scores[0]
-            prompt = ChatPromptTemplate.from_messages([
+        # 8) 답변 생성
+        if qna_scores and qna_scores[0][1]>=0.7:
+            top_doc,_=qna_scores[0]
+            prompt=ChatPromptTemplate.from_messages([
                 SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
                 HumanMessagePromptTemplate.from_template(
                     """세부절차: {substep}
 QnA 질문: {tag}
-질문 내용: {question_context}
-답변 내용: {answer_context}
+질문 내용:
+{question_context}
+
+답변 내용:
+{answer_context}
+
+사용자 질문: {question}
 
 위 정보를 바탕으로 문장형으로 답변해 주세요."""
                 )
             ])
-            answer = LLMChain(
-                llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
+            answer=LLMChain(
+                llm=ChatOpenAI(model="gpt-4o-mini",temperature=0),
                 prompt=prompt
             ).predict(
                 substep=substep_option,
@@ -570,11 +414,10 @@ QnA 질문: {tag}
                 question=query
             )
         else:
-            # 절차 서브스텝 청크 기반
-            proc_vdb    = substep_vectordbs[step].get(substep_option)
-            proc_scores = proc_vdb.similarity_search_with_score(query, k=1) if proc_vdb else []
-            top_doc, _ = proc_scores[0] if proc_scores else (None, None)
-            prompt = ChatPromptTemplate.from_messages([
+            proc_vdb=substep_vectordbs[step].get(substep_option)
+            p_scores=proc_vdb.similarity_search_with_score(query,k=1) if proc_vdb else []
+            top_doc,_=p_scores[0] if p_scores else (Document(page_content=""),0)
+            prompt=ChatPromptTemplate.from_messages([
                 SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
                 HumanMessagePromptTemplate.from_template(
                     """세부절차: {substep}
@@ -586,12 +429,12 @@ QnA 질문: {tag}
 위 정보를 바탕으로 문장형으로 답변해 주세요."""
                 )
             ])
-            answer = LLMChain(
-                llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
+            answer=LLMChain(
+                llm=ChatOpenAI(model="gpt-4o-mini",temperature=0),
                 prompt=prompt
             ).predict(
                 substep=substep_option,
-                chunk= top_doc.page_content if top_doc else "",
+                chunk=top_doc.page_content,
                 question=query
             )
 
