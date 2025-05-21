@@ -248,23 +248,50 @@ def preprocess(text: str) -> str:
 # ─────────────────────────────────────────────────────
 # 7) 문서 로드 & vectordb 생성
 # ─────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────
+# 7) 문서 로드 & vectordb 생성
+# ─────────────────────────────────────────────────────
 @st.cache_data(ttl=86400)
 def load_all_docs() -> Tuple[
-    Dict[str,List[Document]],  # proc_map
-    Dict[str,List[Document]],  # qna_map
-    Dict[str,List[Document]],
-    Dict[str,List[Document]]
+    Dict[str, List[Document]],  # proc_map
+    Dict[str, List[Document]],  # qna_map
+    Dict[str, List[Document]],  # wordpool_map
+    Dict[str, List[Document]]   # original_pages
 ]:
-    # … your existing proc loading …
+    splitter_first = CharacterTextSplitter(separator=r"\n{2,}|\.(?:\s|$)",
+                                           is_separator_regex=True,
+                                           chunk_size=800, chunk_overlap=0)
+    splitter_body = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
 
-    # QnA: split into question–answer blocks
+    proc_map: Dict[str, List[Document]] = {}
+    qna_map: Dict[str, List[Document]] = {}
+    wordpool_map: Dict[str, List[Document]] = {}
+
+    original_proc: Dict[str, List[Document]] = {}
+    original_qna: Dict[str, List[Document]] = {}
+    original_wp:  Dict[str, List[Document]] = {}
+
+    # 프로세스 문서 로드
+    for name, url in PROCESS_PDF_URLS.items():
+        pages = download_and_load(url)
+        original_proc[name] = pages  # 전체 페이지 보관
+        docs: List[Document] = []
+        if pages:
+            first, *rest = pages
+            for txt in splitter_first.split_text(first.page_content):
+                docs.append(Document(page_content=txt, metadata={**first.metadata}))
+            docs += splitter_body.split_documents(rest)
+        proc_map[name] = docs
+
+    # QnA 문서 로드 (블록 단위 질문+답변)
     for name, url in QNA_PDF_URLS.items():
         pages = download_and_load(url)
         original_qna[name] = pages
         docs: List[Document] = []
-        # join everything to one big text per PDF
+
+        # 전체 텍스트 합치기
         full_text = "\n".join(p.page_content for p in pages)
-        # split on each “[질문 N…” boundary
+        # "[질문 N" 경계로 분할
         raw_blocks = [
             blk.strip()
             for blk in re.split(r'(?=\[질문\s*\d+\s*[:\]]).*', full_text)
@@ -272,11 +299,8 @@ def load_all_docs() -> Tuple[
         ]
         for blk in raw_blocks:
             lines = blk.splitlines()
-            # first line is "[질문 N : ...]"
-            tag = lines[0].strip()
-            # question lines: from the tag until the first "[[답변]"
-            q_lines = []
-            a_lines = []
+            tag = lines[0].strip()  # "[질문 1 : ~]"
+            q_lines, a_lines = [], []
             in_answer = False
             for l in lines[1:]:
                 if l.startswith('[[[') or l.startswith('[[답변]'):
@@ -297,16 +321,15 @@ def load_all_docs() -> Tuple[
                 }
             ))
         qna_map[name] = docs
-    # ─────────────────────────────────────────────────────
-    # 워드풀 (기존 로직)
-    # ─────────────────────────────────────────────────────
+
+    # 워드풀 문서 로드 (필요 시)
     for name, url in WORDPOOL_PDF_URLS.items():
-        # …생략…
+        pages = download_and_load(url)
+        original_wp[name] = pages
+        # (생략 가능)
         wordpool_map[name] = []
 
-    # ─────────────────────────────────────────────────────
     # original_pages 통합
-    # ─────────────────────────────────────────────────────
     original_pages: Dict[str, List[Document]] = {}
     for k, v in original_proc.items():
         original_pages[f"proc:{k}"] = v
@@ -316,22 +339,25 @@ def load_all_docs() -> Tuple[
         original_pages[f"wp:{k}"] = v
 
     return proc_map, qna_map, wordpool_map, original_pages
-    
+
+
 @st.cache_resource(ttl=3600 * 24)
 def build_vectordbs(
     _proc_docs_map: Dict[str, List[Document]],
     _qna_docs_map: Dict[str, List[Document]]
 ) -> Tuple[Dict[str, FAISS], Dict[str, FAISS]]:
-    emb = OpenAIEmbeddings(model="text-embedding-ada-002",
-                           openai_api_key=os.environ["OPENAI_API_KEY"])
+    emb = OpenAIEmbeddings(
+        model="text-embedding-ada-002",
+        openai_api_key=os.environ["OPENAI_API_KEY"]
+    )
     proc_vdb = {step: FAISS.from_documents(docs, emb)
                 for step, docs in _proc_docs_map.items()}
-    qna_vdb = {step: FAISS.from_documents(docs, emb)
-               for step, docs in _qna_docs_map.items()}
+    qna_vdb  = {step: FAISS.from_documents(docs, emb)
+                for step, docs in _qna_docs_map.items()}
     return proc_vdb, qna_vdb
 
 
-@st.cache_resource(ttl=3600*24)
+@st.cache_resource(ttl=3600 * 24)
 def build_global_qna_vectordb(
     _qna_map: Dict[str, List[Document]]
 ) -> FAISS:
@@ -340,16 +366,16 @@ def build_global_qna_vectordb(
         all_qna.extend(docs)
     emb = OpenAIEmbeddings(
         model="text-embedding-ada-002",
-        openai_api_key=os.environ["OPENAI_API_KEY"],
+        openai_api_key=os.environ["OPENAI_API_KEY"]
     )
     return FAISS.from_documents(all_qna, emb)
 
 
-@st.cache_resource(ttl=3600*24)
+@st.cache_resource(ttl=3600 * 24)
 def build_index_vectordbs() -> Dict[str, FAISS]:
     emb = OpenAIEmbeddings(
         model="text-embedding-ada-002",
-        openai_api_key=os.getenv("OPENAI_API_KEY"),
+        openai_api_key=os.getenv("OPENAI_API_KEY")
     )
     idx_vdbs: Dict[str, FAISS] = {}
     for step, url in PROCESS_PDF_URLS.items():
@@ -357,15 +383,15 @@ def build_index_vectordbs() -> Dict[str, FAISS]:
         if idx_docs:
             idx_vdbs[step] = FAISS.from_documents(idx_docs, emb)
     return idx_vdbs
-    
 
-@st.cache_resource(ttl=3600*24)
+
+@st.cache_resource(ttl=3600 * 24)
 def build_substep_vectordbs(
     _proc_docs_map: Dict[str, List[Document]]
 ) -> Dict[str, Dict[str, FAISS]]:
     emb = OpenAIEmbeddings(
         model="text-embedding-ada-002",
-        openai_api_key=os.environ["OPENAI_API_KEY"],
+        openai_api_key=os.environ["OPENAI_API_KEY"]
     )
     sub_vdbs: Dict[str, Dict[str, FAISS]] = {}
     for step, docs in _proc_docs_map.items():
@@ -379,9 +405,7 @@ def build_substep_vectordbs(
         sub_vdbs[step] = sub_db
     return sub_vdbs
 
-# ─────────────────────────────────────────────────────
-# SUBSTEP 매핑 QNA vectorDB 생성
-# ─────────────────────────────────────────────────────
+
 @st.cache_resource(ttl=86400)
 def build_qna_substep_vectordbs(
     _proc_docs_map: Dict[str, List[Document]],
@@ -389,38 +413,30 @@ def build_qna_substep_vectordbs(
 ) -> Dict[str, Dict[str, FAISS]]:
     emb = OpenAIEmbeddings(
         model="text-embedding-ada-002",
-        openai_api_key=os.environ["OPENAI_API_KEY"],
+        openai_api_key=os.environ["OPENAI_API_KEY"]
     )
     result: Dict[str, Dict[str, FAISS]] = {}
     for step, qna_docs in _qna_docs_map.items():
         groups: Dict[str, List[Document]] = {}
         for doc in qna_docs:
             tag = doc.metadata.get("tag", "")
-            # “[질문2] 6. RFP 분석” 같은 메타에서 “6. RFP 분석”만 추출
-            sub = re.sub(r"^\[질문\d+\]\s*", "", tag)
+            sub = re.sub(r"^\[질문\s*\d+\s*[:\]]\s*", "", tag)
             groups.setdefault(sub, []).append(doc)
-        # 각 substep별로 FAISS 인덱스 생성
         result[step] = {
             sub: FAISS.from_documents(docs, emb)
-            for sub, docs in groups.items()
-            if docs
+            for sub, docs in groups.items() if docs
         }
     return result
 
 
-# ─────────────────────────────────────────────────────
-# BM25 Retriever 생성
-# ─────────────────────────────────────────────────────
 @st.cache_resource(ttl=86400)
-def build_bm25(_proc_docs_map: Dict[str, List[Document]]):    # ← 언더스코어 추가
+def build_bm25(_proc_docs_map: Dict[str, List[Document]]):
     return {
         step: BM25Retriever.from_documents(docs)
         for step, docs in _proc_docs_map.items()
     }
 
-# ─────────────────────────────────────────────────────
-# BM25 + FAISS 앙상블 생성
-# ─────────────────────────────────────────────────────
+
 @st.cache_resource(ttl=86400)
 def build_ensemble(_proc_vdbs, _bm25_retrs):
     faiss_weight, bm25_weight = 0.7, 0.3
