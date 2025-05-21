@@ -255,15 +255,20 @@ def load_all_docs() -> Tuple[
     Dict[str, List[Document]],
     Dict[str, List[Document]]
 ]:
-    splitter_first = CharacterTextSplitter(separator=r"\n{2,}|\.(?:\s|$)",
-                                           is_separator_regex=True,
-                                           chunk_size=800, chunk_overlap=0)
+    splitter_first = CharacterTextSplitter(
+        separator=r"\n{2,}|\.(?:\s|$)",
+        is_separator_regex=True,
+        chunk_size=800,
+        chunk_overlap=0
+    )
     splitter_body = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
 
     proc_map, qna_map, wordpool_map = {}, {}, {}
     original_proc, original_qna, original_wp = {}, {}, {}
 
-    # 프로세스
+    # ─────────────────────────────────────────────────────
+    # 프로세스 로드 (기존 그대로)
+    # ─────────────────────────────────────────────────────
     for name, url in PROCESS_PDF_URLS.items():
         pages = download_and_load(url)
         original_proc[name] = pages  # 목차 포함 전체 보관
@@ -275,33 +280,39 @@ def load_all_docs() -> Tuple[
             docs += splitter_body.split_documents(rest)
         proc_map[name] = docs
 
-    # QnA
+    # ─────────────────────────────────────────────────────
+    # QnA 로드 (블록 단위 분할 + 메타·원문 보존)
+    # ─────────────────────────────────────────────────────
     for name, url in QNA_PDF_URLS.items():
         pages = download_and_load(url)
-        original_qna[name] = pages
+        original_qna[name] = pages   # 전체 페이지 보존
         all_text = "\n".join(p.page_content for p in pages)
-        # “[질문”으로 시작하는 블록 단위 분할
+
+        # “[질문숫자]”으로 시작하는 블록 단위로 분할
         raw_qnas = [blk for blk in re.split(r"(?=\[질문\d+\])", all_text) if blk.strip()]
         docs: List[Document] = []
+
         for blk in raw_qnas:
             lines = blk.splitlines()
-            # 질문 헤더(tag)
+            # 질문 헤더(tag) 추출: "[질문20: 제안서 GD(디자인)]"
             tag = next((l for l in lines if l.startswith("[질문")), "")
 
-            # 질문 컨텍스트
+            # 질문 컨텍스트: tag 라인과, 답변 라인 이전까지 모두 포함
             question_context = tag + "\n" + "\n".join([
                 l for l in lines
                 if not (
-                    l.startswith("[질문") 
-                    or l.startswith("[[[답변]") 
+                    l.startswith("[질문")
+                    or l.startswith("[[[답변]")
                     or l.startswith("[[답변]")
                 )
             ])
-            # 답변 컨텍스트(answer)
+
+            # 답변 컨텍스트: "[[[답변] ... ]]" 또는 "[[답변]...]" 라인만
             answer_context = "\n".join([
                 l for l in lines
                 if l.startswith("[[[답변]") or l.startswith("[[답변]")
             ])
+
             docs.append(Document(
                 page_content=blk,
                 metadata={
@@ -312,12 +323,16 @@ def load_all_docs() -> Tuple[
             ))
         qna_map[name] = docs
 
-    # 워드풀 (생략 가능)
+    # ─────────────────────────────────────────────────────
+    # 워드풀 (기존 로직)
+    # ─────────────────────────────────────────────────────
     for name, url in WORDPOOL_PDF_URLS.items():
-        # ...기존 로직...
+        # …생략…
         wordpool_map[name] = []
 
+    # ─────────────────────────────────────────────────────
     # original_pages 통합
+    # ─────────────────────────────────────────────────────
     original_pages: Dict[str, List[Document]] = {}
     for k, v in original_proc.items():
         original_pages[f"proc:{k}"] = v
@@ -327,7 +342,6 @@ def load_all_docs() -> Tuple[
         original_pages[f"wp:{k}"] = v
 
     return proc_map, qna_map, wordpool_map, original_pages
-
 
 @st.cache_resource(ttl=3600 * 24)
 def build_vectordbs(
