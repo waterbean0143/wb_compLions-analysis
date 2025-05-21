@@ -562,9 +562,10 @@ with qa_tab:
 
         # 8) QnA 청크 Top-3 (매핑된 QnA에서만)
         qna_sub_map     = qna_substep_vectordbs.get(step, {})
-        default_qna_vdb = qna_vectordbs.get(step)
+        default_qna_vdb = qna_vdbs.get(step)
         qna_vdb_for_sub = qna_sub_map.get(substep_option, default_qna_vdb)
         qna_scores      = qna_vdb_for_sub.similarity_search_with_score(query, k=3)
+
         with st.expander("3) TOP3 - QnA 청크", expanded=False):
             if not qna_scores:
                 st.write("⚠️ 해당 서브스텝에 대한 Q&A가 없습니다.")
@@ -572,10 +573,14 @@ with qa_tab:
                 tag = doc.metadata.get("tag", "질문 없음")
                 qc  = doc.metadata.get("question_context", "").strip()
                 ac  = doc.metadata.get("answer_context", "").strip()
+
                 st.markdown(f"**[TOP_{i}]. {tag} — Score {score:.2f}**")
-                if qc: st.write(qc)
-                if ac: st.write(ac)
+                if qc:
+                    st.write(qc)
+                if ac:
+                    st.write(ac)
                 st.write("---")
+
 
         # 9) 답변 생성 (QnA 점수 우선)
         if qna_scores and qna_scores[0][1] >= 0.7:
