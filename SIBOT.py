@@ -34,6 +34,8 @@ from langchain_community.retrievers import BM25Retriever
 from langchain.schema import Document
 from langchain.chains import LLMChain
 
+from collections import defaultdict
+
 # ─────────────────────────────────────────────────────
 # 0-1) PDF 다운로드 및 인덱스 추출
 # ─────────────────────────────────────────────────────
@@ -268,37 +270,45 @@ def build_index_vectordbs() -> Dict[str,FAISS]:
         if docs: idxs[step]=FAISS.from_documents(docs,emb)
     return idxs
 
-@st.cache_resource(ttl=86400)
-def build_substep_vectordbs(proc_map: Dict[str,List[Document]]) -> Dict[str,Dict[str,FAISS]]:
-    emb=OpenAIEmbeddings(model="text-embedding-ada-002",
-                         openai_api_key=os.environ["OPENAI_API_KEY"])
-    sub_vdbs={}
-    for step,docs in proc_map.items():
-        idxs=extract_index_chunks(PROCESS_PDF_URLS[step])
-        m={}
-        for idx in idxs:
-            title=idx.metadata["title"]
-            subset=[d for d in docs if title in d.page_content]
-            if subset: m[title]=FAISS.from_documents(subset,emb)
-        sub_vdbs[step]=m
-    return sub_vdbs
+@st.cache_resource(ttl=3600 * 24)
+def build_substep_vectordbs(_proc_map: Dict[str, List[Document]]) -> Dict[str, Dict[str, FAISS]]:
+    emb = OpenAIEmbeddings(
+        model="text-embedding-ada-002",
+        openai_api_key=os.getenv("OPENAI_API_KEY"),
+    )
+    substep_vdbs: Dict[str, Dict[str, FAISS]] = {}
+    for step, docs in _proc_map.items():
+        # group docs by their substep title
+        tag_map: Dict[str, List[Document]] = defaultdict(list)
+        for doc in docs:
+            tag = doc.metadata.get("title", "")
+            tag_map[tag].append(doc)
+        # build a FAISS index per substep
+        substep_vdbs[step] = {
+            tag: FAISS.from_documents(tag_docs, emb)
+            for tag, tag_docs in tag_map.items()
+        }
+    return substep_vdbs
 
-@st.cache_resource(ttl=86400)
-def build_qna_substep_vectordbs(
-    proc_map: Dict[str,List[Document]],
-    qna_map:  Dict[str,List[Document]]
-) -> Dict[str,Dict[str,FAISS]]:
-    emb=OpenAIEmbeddings(model="text-embedding-ada-002",
-                         openai_api_key=os.environ["OPENAI_API_KEY"])
-    res={}
-    for step,docs in qna_map.items():
-        grp={}
-        for d in docs:
-            tag=d.metadata.get("tag","")
-            sub=re.sub(r"^\[질문\s*\d+\]\s*","",tag)
-            grp.setdefault(sub,[]).append(d)
-        res[step]={sub:FAISS.from_documents(lst,emb) for sub,lst in grp.items() if lst}
-    return res
+@st.cache_resource(ttl=3600 * 24)
+def build_qna_substep_vectordbs(_qna_docs_map: Dict[str, List[Document]]) -> Dict[str, Dict[str, FAISS]]:
+    emb = OpenAIEmbeddings(
+        model="text-embedding-ada-002",
+        openai_api_key=os.getenv("OPENAI_API_KEY"),
+    )
+    qna_substep_vdbs: Dict[str, Dict[str, FAISS]] = {}
+    for step, docs in _qna_docs_map.items():
+        # group QnA docs by their tag (e.g. "[질문 1: ...]")
+        tag_map: Dict[str, List[Document]] = defaultdict(list)
+        for doc in docs:
+            tag = doc.metadata.get("tag", "")
+            tag_map[tag].append(doc)
+        # build a FAISS index per tag under each step
+        qna_substep_vdbs[step] = {
+            tag: FAISS.from_documents(tag_docs, emb)
+            for tag, tag_docs in tag_map.items()
+        }
+    return qna_substep_vdbs
 
 @st.cache_resource(ttl=86400)
 def build_bm25(proc_map: Dict[str,List[Document]]):
