@@ -491,57 +491,81 @@ with qa_tab:
             st.warning("❗️ 질문을 입력한 후 버튼을 눌러 주세요.")
             st.stop()
 
-        # 5) Substep 자동 추론 (Top-1)
+        # 5) Substep 자동 추론
         idx_scores     = index_vectordbs[step].similarity_search_with_score(query, k=1)
         substep_option = idx_scores[0][0].page_content
         st.info(f"📌 사용자의 질문은 '{step}' 단계의 \"{substep_option}\"에 대한 \"{qtype}\"입니다.")
 
-        # 6) TOP3 - 절차 서브스텝
+        # 6) Top-3 서브스텝 추천
         substep_scores = index_vectordbs[step].similarity_search_with_score(query, k=3)
         with st.expander("1) TOP3 - 절차 서브스텝"):
             for i, (sub_doc, sub_score) in enumerate(substep_scores, start=1):
                 st.markdown(f"**[TOP_{i}]. {sub_doc.page_content} — Score {sub_score:.2f}**")
-                # 원본 절차 문서 발췌 (첫 페이지 제외)
-                pages = original_pages[f"proc:{step}"][1:]
-                orig_text = ""
-                for p in pages:
-                    if sub_doc.page_content in p.page_content:
-                        orig_text = p.page_content
-                        break
-                if orig_text:
-                    st.write(orig_text)
+                vdb = substep_vectordbs[step].get(sub_doc.page_content)
+                if not vdb:
+                    st.write("  ⚠️ 이 서브스텝에 대한 세부 문서가 없습니다.")
                 else:
-                    st.write("⚠️ 이 서브스텝에 대한 원본 문서를 찾을 수 없습니다.")
+                    chunk_scores = vdb.similarity_search_with_score(query, k=3)
+                    for j, (c_doc, c_score) in enumerate(chunk_scores, start=1):
+                        snippet = c_doc.page_content.replace("\n", " ")[:200] + "…"
+                        st.write(f"  {j}. {snippet} (Score {c_score:.2f})")
                 st.write("---")
 
-        # 7) TOP3 - QnA 청크 (매핑된 QnA에서만, 없으면 per-step 전체 QnA fallback)
-        # per-step substep별 QnA DB
+        # 7) 절차 청크 Top-3 (방금 자동 추론한 substep 안에서만)
+        proc_vdb    = substep_vectordbs[step].get(substep_option)
+        proc_scores = proc_vdb.similarity_search_with_score(query, k=3) if proc_vdb else []
+        with st.expander("2) TOP3 - 절차 CHUNK"):
+            if not proc_scores:
+                st.write("⚠️ 해당 서브스텝에 대한 문서가 없습니다.")
+            for i, (doc, score) in enumerate(proc_scores, start=1):
+                st.markdown(f"**[TOP_{i}]. {substep_option} — Score {score:.2f}**")
+                page_no   = doc.metadata.get("page", 1)
+                pages     = original_pages[f"proc:{step}"][1:]
+                orig_page = pages[max(page_no-2, 0)].page_content
+                lines     = orig_page.splitlines()
+                start_idx = next((j for j, l in enumerate(lines) if substep_option in l), None)
+                if start_idx is None:
+                    st.write("⚠️ 해당 서브스텝에 대한 문서가 없습니다.")
+                else:
+                    end_idx = next((j for j, l in enumerate(lines[start_idx+1:], start_idx+1)
+                                   if re.match(r"^##\d+", l)), len(lines))
+                    block = lines[start_idx:end_idx]
+                    for j, line in enumerate(block, start=1):
+                        st.write(f"{j}. {line}")
+                st.write("---")
+
+        # 8) QnA 청크 Top-3 (매핑된 QnA에서만)
         qna_sub_map     = qna_substep_vectordbs.get(step, {})
-        default_qna_vdb = qna_vdbs.get(step)
+        default_qna_vdb = qna_vdbs[step]
         qna_vdb_for_sub = qna_sub_map.get(substep_option, default_qna_vdb)
         qna_scores      = qna_vdb_for_sub.similarity_search_with_score(query, k=3)
-
-        with st.expander("2) TOP3 - QnA 청크", expanded=False):
+        with st.expander("3) TOP3 - QnA 청크", expanded=False):
             if not qna_scores:
                 st.write("⚠️ 해당 서브스텝에 대한 Q&A가 없습니다.")
             for i, (doc, score) in enumerate(qna_scores, start=1):
-                tag  = doc.metadata["tag"]
-                qtxt = doc.metadata["question_context"]
-                atxt = doc.metadata["answer_context"]
+                tag = doc.metadata.get("tag", "질문 없음")
+                qc  = doc.metadata.get("question_context", "").strip()
+                ac  = doc.metadata.get("answer_context", "").strip()
                 st.markdown(f"**[TOP_{i}]. {tag} — Score {score:.2f}**")
-                st.write(f"'{qtxt}'")
-                st.write(f"[[[답변] '{atxt}'")
+                if qc:
+                    st.write(qc)
+                if ac:
+                    st.write(ac)
                 st.write("---")
 
-        # 8) 답변 생성 (QnA 점수 우선, 0.7 이상)
+        # 9) 답변 생성 (QnA 우선)
         if qna_scores and qna_scores[0][1] >= 0.7:
             top_doc, _ = qna_scores[0]
             prompt = ChatPromptTemplate.from_messages([
                 SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
                 HumanMessagePromptTemplate.from_template(
                     """세부절차: {substep}
-QnA 문서 청크:
-{chunk}
+QnA 질문: {tag}
+질문 내용:
+{question_context}
+
+답변 내용:
+{answer_context}
 
 사용자 질문: {question}
 
@@ -553,13 +577,12 @@ QnA 문서 청크:
                 prompt=prompt
             ).predict(
                 substep=substep_option,
-                chunk=top_doc.page_content,
+                tag=top_doc.metadata["tag"],
+                question_context=top_doc.metadata["question_context"],
+                answer_context=top_doc.metadata["answer_context"],
                 question=query
             )
         else:
-            # 절차 문서 기반 답변
-            proc_vdb   = substep_vectordbs[step].get(substep_option)
-            proc_scores = proc_vdb.similarity_search_with_score(query, k=1) if proc_vdb else []
             top_doc, _ = proc_scores[0] if proc_scores else (None, None)
             prompt = ChatPromptTemplate.from_messages([
                 SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
@@ -582,6 +605,6 @@ QnA 문서 청크:
                 question=query
             )
 
-        # 9) 본문 응답
+        # 10) 본문 응답
         st.markdown(f"## {substep_option}")
         st.write(answer)
