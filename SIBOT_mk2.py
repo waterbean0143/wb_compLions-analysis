@@ -115,10 +115,10 @@ st.set_page_config(page_title="AX SI 방법론 이행봇", layout="wide")
 os.environ["OPENAI_API_KEY"] = st.secrets["openai"]["api_key"]
 
 # 🔐 LangSmith 환경변수 수동 세팅
-os.environ["LANGCHAIN_API_KEY"] = st.secrets["LANGSMITH"]["LANGSMITH_API_KEY"]
-os.environ["LANGCHAIN_ENDPOINT"] = st.secrets["LANGSMITH"]["LANGSMITH_ENDPOINT"]
-os.environ["LANGCHAIN_TRACING_V2"] = str(st.secrets["LANGSMITH"]["LANGSMITH_TRACING"]).lower()
-os.environ["LANGCHAIN_PROJECT"] = st.secrets["LANGSMITH"]["LANGSMITH_PROJECT"]
+os.environ["LANGCHAIN_API_KEY"] = st.secrets["langsmith"]["api_key"]
+os.environ["LANGCHAIN_PROJECT"] = st.secrets["langsmith"]["project"]
+os.environ["LANGCHAIN_ENDPOINT"] = st.secrets["langsmith"]["endpoint"]
+os.environ["LANGCHAIN_TRACING_V2"] = str(st.secrets["langsmith"]["tracing"]).lower()
 
 # ✅ LangChainTracer 활성화 (환경변수 기반)
 tracer = LangChainTracer(project_name=os.environ.get("LANGCHAIN_PROJECT", "debug-mode"))
