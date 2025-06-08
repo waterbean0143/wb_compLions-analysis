@@ -24,7 +24,7 @@ import matplotlib.pyplot as plt
 from kiwipiepy import Kiwi
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.prompts import (
-    ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
+    ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate, PromptTemplate
 )
 from langchain_community.document_loaders import PyMuPDFLoader
 from langchain.text_splitter import CharacterTextSplitter
