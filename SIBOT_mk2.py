@@ -111,6 +111,7 @@ def select_persona_prompt(qtype: str) -> str:
 # ─────────────────────────────────────────────────────
 st.set_page_config(page_title="AX SI 방법론 이행봇", layout="wide")
 os.environ["OPENAI_API_KEY"] = st.secrets["openai"]["api_key"]
+os.environ["LANGCHAIN_API_KEY"] = st.secrets["langchain"]["api_key"]
 tracer = LangChainTracer(project_name=os.getenv("wb_Complionss"))
 
 # ─────────────────────────────────────────────────────
