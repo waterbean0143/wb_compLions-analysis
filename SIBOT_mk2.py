@@ -540,7 +540,7 @@ PROCESS_PDF_URLS = {
 QNA_PDF_URLS = {
     "제안/계약": "https://drive.google.com/uc?export=download&id=1WWKOJNRrWngf6gTI7dgNp6VnXDv7VKMf",
     "착수/계획": "https://drive.google.com/uc?export=download&id=1H-lkt49Tx45Fo_4Il5PmURb6Pws5nTDO",
-    "실행/통제": "https://drive.google.com/uc?export=download&id=1XXQKDRNiaoRWsKHih7txzQomaMBdtE9v",
+    "실행/통제": "https://drive.google.com/uc?export=download&id=1FJbGnnMGCrqEz5PbSgZby-Aw_EHxIEqz",
     "종료/사후관리": "https://drive.google.com/uc?export=download&id=1gGk5ZCBwd1uluYnKsHD9OVWTjacpyTos",
 }
 WORDPOOL_PDF_URLS = {
