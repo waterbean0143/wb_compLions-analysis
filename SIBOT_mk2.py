@@ -135,10 +135,10 @@ executor = ThreadPoolExecutor(max_workers=5)
 users = {"10154371":"10154371","10154372":"10154372","10156350":"10156350"}
 if 'logged_in' not in st.session_state:
     st.sidebar.title("🔒 로그인")
-    st.sidebar.markdown("### ✅ LangSmith 연결 상태")
-    st.sidebar.text(f"Project: {os.getenv('LANGCHAIN_PROJECT')}")
-    st.sidebar.text(f"API Key 존재: {'✅' if os.getenv('LANGCHAIN_API_KEY') else '❌'}")
-    st.sidebar.text(f"Tracing V2: {os.getenv('LANGCHAIN_TRACING_V2')}")
+
+    st.sidebar.write("🔍 secrets 구조 확인:")
+    st.sidebar.json(st.secrets["langsmith"])
+    
     uid = st.sidebar.text_input("ID"); pwd = st.sidebar.text_input("PW", type="password")
     if st.sidebar.button("로그인"):
         if uid in users and users[uid]==pwd:
