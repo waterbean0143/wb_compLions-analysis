@@ -1,2 +1,3 @@
 # wb_compLions-analysis
-markdown+json으로 코드 자동분석 및 개발을 위한 연습
+llm 파싱 + 벡터 db 통한 문서기반 절차 안내 가이드봇
+[이행봇] 테스터
