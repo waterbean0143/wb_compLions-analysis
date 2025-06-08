@@ -35,6 +35,8 @@ from langchain.schema import Document
 from langchain.chains import LLMChain
 
 from collections import defaultdict
+from langchain.callbacks import LangChainTracer
+
 
 # ─────────────────────────────────────────────────────
 # 0-1) PDF 다운로드 및 인덱스 추출
@@ -109,12 +111,14 @@ def select_persona_prompt(qtype: str) -> str:
 # ─────────────────────────────────────────────────────
 st.set_page_config(page_title="AX SI 방법론 이행봇", layout="wide")
 os.environ["OPENAI_API_KEY"] = st.secrets["openai"]["api_key"]
+tracer = LangChainTracer(project_name=os.getenv("wb_Complions"))
 
 # ─────────────────────────────────────────────────────
 # 2) 전역 설정
 # ─────────────────────────────────────────────────────
 plt.rcParams['font.family'] = 'NanumGothic'
 executor = ThreadPoolExecutor(max_workers=5)
+
 
 # ─────────────────────────────────────────────────────
 # 3) 로그인
@@ -184,27 +188,16 @@ def load_all_docs() -> Tuple[
     proc_map, qna_map, wp_map = {}, {}, {}
     orig_proc, orig_qna, orig_wp = {}, {}, {}
 
-     # 7-1) 프로세스 문서
+    # 7-1) 프로세스 문서
     for name, url in PROCESS_PDF_URLS.items():
         pages = download_and_load(url)
         orig_proc[name] = pages
         docs: List[Document] = []
-
         if pages:
             first, *rest = pages
-
-            # 앞 페이지는 기존처럼 헤더 위주 처리
             for txt in split_first.split_text(first.page_content):
                 docs.append(Document(page_content=txt, metadata={**first.metadata}))
-
-            # 본문 페이지는 각 블록에 대해 title 추출하여 metadata에 삽입
-            for page in rest:
-                chunks = split_body.split_text(page.page_content)
-                for chunk in chunks:
-                    # ##6. 최종산출물 취합/정리 형태에서 타이틀 추출
-                    match = re.search(r"^##\d+\.?\s*(.+)", chunk.strip(), re.MULTILINE)
-                    title = match.group(1).strip() if match else ""
-                    docs.append(Document(page_content=chunk, metadata={**page.metadata, "title": title}))
+            docs += split_body.split_documents(rest)
         proc_map[name] = docs
 
     # 7-2) QnA 문서 (블록 단위)
@@ -386,7 +379,7 @@ with st.spinner("📦 데이터 로드 중…"):
 # 9) Q&A 탭 (STEP→SUBSTEP 추론→TOP3 절차→TOP3 QnA→답변)
 # ─────────────────────────────────────────────────────
 with qa_tab:
-    st.header("AX SI 방법론 이행봇 MK2 - Q&A")
+    st.header("AX SI 방법론 이행봇 - Q&A")
 
     # 1) STEP 선택
     step = st.selectbox(
@@ -484,7 +477,8 @@ QnA 질문: {tag}
             ])
             answer = LLMChain(
                 llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
-                prompt=prompt
+                prompt=prompt,
+                callbacks=[tracer]   # ✅ 추가
             ).predict(
                 substep=substep_option,
                 tag=top_doc.metadata["tag"],
@@ -510,7 +504,8 @@ QnA 질문: {tag}
             ])
             answer = LLMChain(
                 llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
-                prompt=prompt
+                prompt=prompt,
+                callbacks=[tracer]   # ✅ 추가
             ).predict(
                 substep=substep_option,
                 chunk=top_doc.page_content,
