@@ -36,7 +36,7 @@ from langchain.chains import LLMChain
 
 from collections import defaultdict
 from langchain.callbacks import LangChainTracer
-
+from langsmith import traceable
 
 # ─────────────────────────────────────────────────────
 # 0-1) PDF 다운로드 및 인덱스 추출
