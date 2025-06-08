@@ -137,8 +137,12 @@ users = {"10154371":"10154371","10154372":"10154372","10156350":"10156350"}
 if 'logged_in' not in st.session_state:
     st.sidebar.title("🔒 로그인")
 
-    st.sidebar.write("🔍 secrets 구조 확인:")
-    st.sidebar.json(st.secrets["langsmith"])
+    st.sidebar.subheader("🔍 LangSmith 설정 확인")
+    try:
+        st.sidebar.json(dict(st.secrets["langsmith"]))  # 강제 dict 변환
+    except Exception as e:
+        st.sidebar.error("❌ secrets['langsmith'] 확인 불가")
+        st.sidebar.code(str(e))
     
     uid = st.sidebar.text_input("ID"); pwd = st.sidebar.text_input("PW", type="password")
     if st.sidebar.button("로그인"):
