@@ -116,13 +116,13 @@ st.set_page_config(page_title="AX SI 방법론 이행봇", layout="wide")
 os.environ["OPENAI_API_KEY"] = st.secrets["openai"]["api_key"]
 
 # 🔐 LangSmith 환경변수 수동 세팅
-os.environ["LANGCHAIN_API_KEY"]     = st.secrets["langsmith"]["api_key"]
-os.environ["LANGCHAIN_PROJECT"]     = st.secrets["langsmith"]["project"]
-os.environ["LANGCHAIN_ENDPOINT"]    = st.secrets["langsmith"]["endpoint"]
-os.environ["LANGCHAIN_TRACING_V2"]  = str(st.secrets["langsmith"]["tracing"]).lower()
+os.environ["LANGCHAIN_API_KEY"]     = "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"
+os.environ["LANGCHAIN_PROJECT"]     = "SIBOT_MK2"
+os.environ["LANGCHAIN_ENDPOINT"]    = "https://api.smith.langchain.com"
+os.environ["LANGCHAIN_TRACING_V2"]  = "true"  # 문자열로 설정해야 함
 
-st.sidebar.write("🔍 secrets 구조 확인:")
-st.sidebar.json(st.secrets["langsmith"])
+# Tracer 선언 (자동으로 위 project에 연결됨)
+tracer = LangChainTracer()
 # ─────────────────────────────────────────────────────
 # 2) 전역 설정
 # ─────────────────────────────────────────────────────
