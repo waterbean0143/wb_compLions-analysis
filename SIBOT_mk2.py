@@ -133,7 +133,10 @@ print(response.content)
 # ─────────────────────────────────────────────────────
 plt.rcParams['font.family'] = 'NanumGothic'
 executor = ThreadPoolExecutor(max_workers=5)
-tracer = LangChainTracer()
+
+# ✅ LangSmith Trace 설정
+from langchain.callbacks import LangChainTracer
+tracer = LangChainTracer(project_name="SIBOT_MK2")  # 🔥 명시 필요!
 
 # ─────────────────────────────────────────────────────
 # 3) 로그인
