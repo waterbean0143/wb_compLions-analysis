@@ -111,17 +111,18 @@ def select_persona_prompt(qtype: str) -> str:
 # ─────────────────────────────────────────────────────
 st.set_page_config(page_title="AX SI 방법론 이행봇", layout="wide")
 
+
 # 🔐 OpenAI 설정
 os.environ["OPENAI_API_KEY"] = st.secrets["openai"]["api_key"]
 
 # 🔐 LangSmith 환경변수 수동 세팅
-os.environ["LANGCHAIN_API_KEY"] = st.secrets["langsmith"]["api_key"]
-os.environ["LANGCHAIN_PROJECT"] = st.secrets["langsmith"]["project"]
-os.environ["LANGCHAIN_ENDPOINT"] = st.secrets["langsmith"]["endpoint"]
-os.environ["LANGCHAIN_TRACING_V2"] = str(st.secrets["langsmith"]["tracing"]).lower()
+os.environ["LANGCHAIN_API_KEY"]     = st.secrets["langsmith"]["api_key"]
+os.environ["LANGCHAIN_PROJECT"]     = st.secrets["langsmith"]["project"]
+os.environ["LANGCHAIN_ENDPOINT"]    = st.secrets["langsmith"]["endpoint"]
+os.environ["LANGCHAIN_TRACING_V2"]  = str(st.secrets["langsmith"]["tracing"]).lower()
 
-# ✅ LangChainTracer 활성화 (환경변수 기반)
-tracer = LangChainTracer(project_name=os.environ.get("LANGCHAIN_PROJECT", "debug-mode"))
+st.sidebar.write("🔍 secrets 구조 확인:")
+st.sidebar.json(st.secrets["langsmith"])
 # ─────────────────────────────────────────────────────
 # 2) 전역 설정
 # ─────────────────────────────────────────────────────
