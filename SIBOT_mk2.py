@@ -127,7 +127,9 @@ users = {"10154371":"10154371","10154372":"10154372","10156350":"10156350"}
 if 'logged_in' not in st.session_state:
     st.sidebar.title("🔒 로그인")
     st.sidebar.text(f"Tracer project: {os.getenv('wb_complionss')}")
-    uid = st.sidebar.text_input("ID"); pwd = st.sidebar.text_input("PW", type="password")
+    st.sidebar.text(f"API Key 존재 여부: {'✅' if os.getenv('LANGCHAIN_API_KEY') else '❌'}")
+    uid = st.sidebar.text_input("ID"); pwd = st.sidebar.text_input("PW", type="
+    password")
     if st.sidebar.button("로그인"):
         if uid in users and users[uid]==pwd:
             st.session_state['logged_in']=True; st.experimental_rerun()
