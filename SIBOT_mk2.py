@@ -375,7 +375,7 @@ with st.spinner("📦 데이터 로드 중…"):
 # 9) Q&A 탭 (STEP→SUBSTEP 추론→TOP3 절차→TOP3 QnA→답변)
 # ─────────────────────────────────────────────────────
 with qa_tab:
-    st.header("AX SI 방법론 이행봇 - Q&A")
+    st.header("AX SI 방법론 이행봇 MK2 - Q&A")
 
     # 1) STEP 선택
     step = st.selectbox(
