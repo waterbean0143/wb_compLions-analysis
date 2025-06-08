@@ -112,7 +112,7 @@ def select_persona_prompt(qtype: str) -> str:
 st.set_page_config(page_title="AX SI 방법론 이행봇", layout="wide")
 os.environ["OPENAI_API_KEY"] = st.secrets["openai"]["api_key"]
 os.environ["LANGCHAIN_API_KEY"] = st.secrets["langchain"]["api_key"]
-tracer = LangChainTracer(project_name=os.getenv("wb_Complionss"))
+tracer = LangChainTracer(project_name=os.getenv("SIBOT_MK2"))
 
 # ─────────────────────────────────────────────────────
 # 2) 전역 설정
@@ -137,6 +137,16 @@ if 'logged_in' not in st.session_state:
             st.session_state['logged_in']=True; st.experimental_rerun()
         else: st.sidebar.error("로그인 실패")
     st.stop()
+
+if st.sidebar.button("🔍 LangSmith 연결 테스트"):
+    test_prompt = PromptTemplate.from_template("Say hi to {name}")
+    test_chain = LLMChain(
+        llm=ChatOpenAI(model="gpt-4o", temperature=0),
+        prompt=test_prompt,
+        callbacks=[tracer]   # ✅ 여기 중요
+    )
+    output = test_chain.invoke({"name": "LangSmith"})
+    st.sidebar.success(f"응답: {output}")
 
 # ─────────────────────────────────────────────────────
 # 4) PDF URL 매핑
