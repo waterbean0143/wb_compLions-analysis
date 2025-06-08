@@ -133,7 +133,7 @@ print(response.content)
 # ─────────────────────────────────────────────────────
 plt.rcParams['font.family'] = 'NanumGothic'
 executor = ThreadPoolExecutor(max_workers=5)
-
+tracer = LangChainTracer()
 
 # ─────────────────────────────────────────────────────
 # 3) 로그인
