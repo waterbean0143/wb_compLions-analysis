@@ -126,7 +126,7 @@ executor = ThreadPoolExecutor(max_workers=5)
 users = {"10154371":"10154371","10154372":"10154372","10156350":"10156350"}
 if 'logged_in' not in st.session_state:
     st.sidebar.title("🔒 로그인")
-    st.sidebar.text(f"Tracer project: {os.getenv('wb_complionss')}")
+    st.sidebar.text(f"Tracer project: {os.getenv('LANGCHAIN_PROJECT')}")
     st.sidebar.text(f"API Key 존재 여부: {'✅' if os.getenv('LANGCHAIN_API_KEY') else '❌'}")
     uid = st.sidebar.text_input("ID"); pwd = st.sidebar.text_input("PW", type="
     password")
