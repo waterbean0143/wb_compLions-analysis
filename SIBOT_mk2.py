@@ -138,15 +138,16 @@ if 'logged_in' not in st.session_state:
         else: st.sidebar.error("로그인 실패")
     st.stop()
 
-if st.sidebar.button("🔍 LangSmith 연결 테스트"):
-    test_prompt = PromptTemplate.from_template("Say hi to {name}")
-    test_chain = LLMChain(
-        llm=ChatOpenAI(model="gpt-4o", temperature=0),
-        prompt=test_prompt,
-        callbacks=[tracer]   # ✅ 여기 중요
+if st.sidebar.button("🔁 LangSmith 직접 Trace 테스트"):
+    tracer = LangChainTracer(project_name=os.environ["LANGCHAIN_PROJECT"])
+    prompt = PromptTemplate.from_template("너는 누구니?")
+    chain = LLMChain(
+        llm=ChatOpenAI(model="gpt-4", temperature=0),
+        prompt=prompt,
+        callbacks=[tracer]
     )
-    output = test_chain.invoke({"name": "LangSmith"})
-    st.sidebar.success(f"응답: {output}")
+    response = chain.invoke({})
+    st.sidebar.markdown(f"응답: {response['text']}")
 
 # ─────────────────────────────────────────────────────
 # 4) PDF URL 매핑
