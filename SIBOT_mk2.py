@@ -473,7 +473,7 @@ st.set_page_config(page_title="AX SI 방법론 이행봇", layout="wide")
 os.environ["OPENAI_API_KEY"] = st.secrets["openai"]["api_key"]
 
 # 🔐 LangSmith 환경변수 수동 세팅
-os.environ["LANGCHAIN_API_KEY"] = "lsv2_pt_..."
+os.environ["LANGCHAIN_API_KEY"] = "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"
 os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
 os.environ["LANGCHAIN_PROJECT"] = "SIBOT_MK2"
 os.environ["LANGCHAIN_TRACING_V2"] = "true"
