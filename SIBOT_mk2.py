@@ -809,25 +809,27 @@ with qa_tab:
         substep_option = idx_scores[0][0].page_content
         st.info(f"📌 사용자의 질문은 '{step}' 단계의 \"{substep_option}\"에 대한 \"{qtype}\"입니다.")
 
-        # 6) TOP3 - 절차 서브스텝
-        substep_scores = index_vectordbs[step].similarity_search_with_score(query, k=3)
+        # 6) TOP3 - 절차 서브스텝# 1) TOP3 - 절차 서브스텝
         with st.expander("1) TOP3 - 절차 서브스텝", expanded=False):
             for i, (sub_doc, dist) in enumerate(substep_scores, start=1):
                 sub = sub_doc.page_content
                 similarity = 1.0 - dist
                 st.markdown(f"**[TOP_{i}]. {sub} — 유사도 {similarity:.2f}**")
-                vdb = substep_vectordbs[step].get(sub)
+                vdb = substep_vectordbs.get(step, {}).get(sub)
                 if vdb:
                     chunk_scores = vdb.similarity_search_with_score(query, k=3)
                     for j, (c_doc, c_dist) in enumerate(chunk_scores, start=1):
                         snippet = c_doc.page_content.replace("\n", " ")[:200] + "…"
                         st.write(f"  {j}. {snippet} (유사도 {1-c_dist:.2f})")
                 else:
-                    pages = original_pages[f"proc:{step}"][1:]
+                    pages = original_pages.get(f"proc:{step}", [])[1:]
                     page_txt = next((p.page_content for p in pages if f"##{sub}" in p.page_content), "")
-                    m = re.search(rf"(##{re.escape(sub)}[\s\S]*?)(?=^##\d+\.)", page_txt, flags=re.MULTILINE)
-                    block = m.group(1).strip() if m else page_txt.strip()
-                    st.text(block)
+                    if page_txt:
+                        m = re.search(rf"(##{re.escape(sub)}[\s\S]*?)(?=^##\d+\.)", page_txt, flags=re.MULTILINE)
+                        block = m.group(1).strip() if m else page_txt.strip()
+                        st.text(block)
+                    else:
+                        st.warning(f"⚠️ '{sub}'에 대한 문서를 찾을 수 없습니다.")
                 st.write("---")
 
         # 7) TOP3 - QnA 청크
@@ -846,13 +848,18 @@ with qa_tab:
                 st.write("⚠️ 해당 서브스텝에 대한 Q&A가 없습니다.")
             for i, (doc, score) in enumerate(qna_scores, start=1):
                 tag = doc.metadata.get("tag", "")
-                qc  = doc.metadata.get("question_context", "").strip()
-                ac  = doc.metadata.get("answer_context", "").strip()
+                qc = doc.metadata.get("question_context", "").strip()
+                ac = doc.metadata.get("answer_context", "").strip()
                 st.markdown(f"**[TOP_{i}]. {tag} — Score {score:.2f}**")
+        
+                # Fallback: question/answer context 없을 경우 page_content로 대체
                 if qc:
                     st.write(f"'{qc}'")
                 if ac:
                     st.write(f"[[[답변] '{ac}'")
+                if not qc and not ac:
+                    fallback = doc.page_content.strip().replace("\n", " ")[:300]
+                    st.text(f"📄 원문 청크: {fallback} …")
                 st.write("---")
 
         # 8) 답변 생성
