@@ -815,93 +815,93 @@ with qa_tab:
 
         substep_scores = index_vectordbs[step].similarity_search_with_score(query, k=3)
 
-# 6) Tracer 모드 설정
-if run_mode == "LangSmith Tracer 적용":
-    status_placeholder.info("🔍 LangSmith Tracer 실행 중...")
-    tracer = LangChainTracer(project_name="SIBOT_MK2")
-else:
-    tracer = None
-
-try:
-    status_placeholder.info("⏳ 답변 생성 중...")
-
-    qna_sub_map     = qna_substep_vectordbs.get(step, {})
-    default_qna_vdb = qna_vectordbs.get(step)
-    qna_vdb_for_sub = qna_sub_map.get(substep_option, default_qna_vdb)
-    qna_scores      = qna_vdb_for_sub.similarity_search_with_score(query, k=3) if qna_vdb_for_sub else []
-
-    with collect_runs() as run_collector:
-        if qna_scores and qna_scores[0][1] >= 0.7:
-            top_doc, _ = qna_scores[0]
-            prompt = ChatPromptTemplate.from_messages([
-                SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
-                HumanMessagePromptTemplate.from_template(
-                    """세부절차: {substep}
-QnA 질문: {tag}
-질문 내용:
-{question_context}
-
-답변 내용:
-{answer_context}
-
-사용자 질문: {question}
-
-위 정보를 바탕으로 문장형으로 답변해 주세요."""
-                )
-            ])
-            answer = LLMChain(
-                llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
-                prompt=prompt,
-                callbacks=[tracer] if tracer else None
-            ).predict(
-                substep=substep_option,
-                tag=top_doc.metadata.get("tag", ""),
-                question_context=top_doc.metadata.get("question_context", ""),
-                answer_context=top_doc.metadata.get("answer_context", ""),
-                question=query
-            )
+        # 6) Tracer 모드 설정
+        if run_mode == "LangSmith Tracer 적용":
+            status_placeholder.info("🔍 LangSmith Tracer 실행 중...")
+            tracer = LangChainTracer(project_name="SIBOT_MK2")
         else:
-            proc_vdb = substep_vectordbs.get(step, {}).get(substep_option)
-            proc_scores = []
-            if proc_vdb:
-                try:
-                    proc_scores = proc_vdb.similarity_search_with_score(query, k=1)
-                except Exception as e:
-                    st.warning(f"⚠️ 절차 문서 검색 실패: {e}")
-            top_doc, _ = proc_scores[0] if proc_scores else (Document(page_content=""), 0)
-            prompt = ChatPromptTemplate.from_messages([
-                SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
-                HumanMessagePromptTemplate.from_template(
-                    """세부절차: {substep}
-절차 문서 청크:
-{chunk}
-
-사용자 질문: {question}
-
-위 정보를 바탕으로 문장형으로 답변해 주세요."""
-                )
-            ])
-            answer = LLMChain(
-                llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
-                prompt=prompt,
-                callbacks=[tracer] if tracer else None
-            ).predict(
-                substep=substep_option,
-                chunk=top_doc.page_content,
-                question=query
-            )
-
-    # LangSmith run 정보 저장 (관리자 탭 등에서 활용 가능)
-    run_id = run_collector.traced_runs[0].id if run_collector.traced_runs else None
-    st.session_state["last_run_id"] = run_id
-
-    if tracer:
-        status_placeholder.success("✅ Tracer 실행 완료 (답변 완료)")
-    else:
-        status_placeholder.success("✅ 답변 완료")
-
-except Exception as e:
-    status_placeholder.error(f"❗ 오류 발생: {e}")
+            tracer = None
+        
+        try:
+            status_placeholder.info("⏳ 답변 생성 중...")
+        
+            qna_sub_map     = qna_substep_vectordbs.get(step, {})
+            default_qna_vdb = qna_vectordbs.get(step)
+            qna_vdb_for_sub = qna_sub_map.get(substep_option, default_qna_vdb)
+            qna_scores      = qna_vdb_for_sub.similarity_search_with_score(query, k=3) if qna_vdb_for_sub else []
+        
+            with collect_runs() as run_collector:
+                if qna_scores and qna_scores[0][1] >= 0.7:
+                    top_doc, _ = qna_scores[0]
+                    prompt = ChatPromptTemplate.from_messages([
+                        SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
+                        HumanMessagePromptTemplate.from_template(
+                            """세부절차: {substep}
+        QnA 질문: {tag}
+        질문 내용:
+        {question_context}
+        
+        답변 내용:
+        {answer_context}
+        
+        사용자 질문: {question}
+        
+        위 정보를 바탕으로 문장형으로 답변해 주세요."""
+                        )
+                    ])
+                    answer = LLMChain(
+                        llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
+                        prompt=prompt,
+                        callbacks=[tracer] if tracer else None
+                    ).predict(
+                        substep=substep_option,
+                        tag=top_doc.metadata.get("tag", ""),
+                        question_context=top_doc.metadata.get("question_context", ""),
+                        answer_context=top_doc.metadata.get("answer_context", ""),
+                        question=query
+                    )
+                else:
+                    proc_vdb = substep_vectordbs.get(step, {}).get(substep_option)
+                    proc_scores = []
+                    if proc_vdb:
+                        try:
+                            proc_scores = proc_vdb.similarity_search_with_score(query, k=1)
+                        except Exception as e:
+                            st.warning(f"⚠️ 절차 문서 검색 실패: {e}")
+                    top_doc, _ = proc_scores[0] if proc_scores else (Document(page_content=""), 0)
+                    prompt = ChatPromptTemplate.from_messages([
+                        SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
+                        HumanMessagePromptTemplate.from_template(
+                            """세부절차: {substep}
+        절차 문서 청크:
+        {chunk}
+        
+        사용자 질문: {question}
+        
+        위 정보를 바탕으로 문장형으로 답변해 주세요."""
+                        )
+                    ])
+                    answer = LLMChain(
+                        llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
+                        prompt=prompt,
+                        callbacks=[tracer] if tracer else None
+                    ).predict(
+                        substep=substep_option,
+                        chunk=top_doc.page_content,
+                        question=query
+                    )
+        
+            # LangSmith run 정보 저장 (관리자 탭 등에서 활용 가능)
+            run_id = run_collector.traced_runs[0].id if run_collector.traced_runs else None
+            st.session_state["last_run_id"] = run_id
+        
+            if tracer:
+                status_placeholder.success("✅ Tracer 실행 완료 (답변 완료)")
+            else:
+                status_placeholder.success("✅ 답변 완료")
+        
+        except Exception as e:
+            status_placeholder.error(f"❗ 오류 발생: {e}")
 
     
         # 7) TOP3 절차 서브스텝
