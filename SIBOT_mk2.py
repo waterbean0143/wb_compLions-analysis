@@ -942,3 +942,46 @@ QnA 질문: {tag}
         if answer:
             with st.expander("3) 생성된 문장형 답변", expanded=True):
                 st.markdown(answer)
+# ─────────────────────────────────────────────────────
+# 10) ADMIN DEBUG 탭 
+# ─────────────────────────────────────────────────────
+with admin_debug_tab:
+    st.header("🔧 ADMIN DEBUG (LangSmith + Streamlit 상태 추적)")
+
+    # 1. LangSmith 정보 출력
+    if tracer:
+        st.subheader("🧠 LangSmith Trace Info")
+        st.code(f"Project: {tracer.project_name}\nSession ID: {tracer.run_id or 'N/A'}")
+
+    # 2. Streamlit 내부 상태 출력
+    st.subheader("📦 Streamlit 세션 상태")
+    st.json({
+        "질문": query,
+        "단계": step,
+        "서브스텝": substep_option,
+        "QnA 점수": [(doc.metadata.get("tag", ""), f"{score:.2f}") for doc, score in qna_scores] if qna_scores else "없음",
+        "절차 점수": [(doc.page_content[:30], f"{score:.2f}") for doc, score in proc_scores] if 'proc_scores' in locals() else "없음"
+    })
+
+    # 3. 프롬프트 내용 확인 (PromptTemplate에서 .format() 사용해보기)
+    st.subheader("📝 생성된 프롬프트 내용")
+    try:
+        formatted_prompt = prompt.format(
+            substep=substep_option,
+            tag=top_doc.metadata.get("tag", ""),
+            question_context=top_doc.metadata.get("question_context", ""),
+            answer_context=top_doc.metadata.get("answer_context", ""),
+            question=query
+        )
+        st.code(formatted_prompt)
+    except:
+        st.write("⚠️ 프롬프트 포맷 실패")
+
+    # 4. 생성된 답변 출력
+    if answer:
+        st.subheader("🧾 생성된 답변")
+        st.markdown(answer)
+
+    # 5. LangSmith로 이동 링크
+    if tracer and hasattr(tracer, "session_url"):
+        st.markdown(f"[🛠 LangSmith 대시보드 열기]({tracer.session_url})")
