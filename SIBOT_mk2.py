@@ -559,8 +559,8 @@ if st.sidebar.button("🧪 LangSmith 수동 디버그"):
     result = chain.invoke({"name": "홍길동"})
     st.sidebar.success(f"✅ 응답: {result['text']}")
     
-tabs = st.tabs(["Q&A","추가예정"])
-qa_tab, _ = tabs
+tabs = st.tabs(["Q&A","Admin Debug"])
+qa_tab, admin_debug_tab = st.tabs(["Q&A", "ADMIN DEBUG"])
 
 # ─────────────────────────────────────────────────────
 # 6) 전처리 (키워드 추출용)
