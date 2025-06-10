@@ -37,6 +37,7 @@ from langchain.chains import LLMChain
 from collections import defaultdict
 from langchain.callbacks import LangChainTracer
 from langsmith import traceable
+from langchain.callbacks.manager import collect_runs
 
 # ─────────────────────────────────────────────────────
 # 0-1) PDF 다운로드 및 인덱스 추출
@@ -949,9 +950,9 @@ with admin_debug_tab:
     st.header("🔧 ADMIN DEBUG (LangSmith + Streamlit 상태 추적)")
 
     # 1. LangSmith 정보 출력
-    if tracer:
-        st.subheader("🧠 LangSmith Trace Info")
-        st.code(f"Project: {tracer.project_name}\nSession ID: {tracer.run_id or 'N/A'}")
+   if tracer:
+    run_id = st.session_state.get("last_run_id", "N/A")
+    st.code(f"Project: {tracer.project_name}\nLangSmith Run ID: {run_id}")
 
     # 2. Streamlit 내부 상태 출력
     st.subheader("📦 Streamlit 세션 상태")
