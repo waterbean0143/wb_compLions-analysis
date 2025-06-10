@@ -820,8 +820,7 @@ with qa_tab:
             tracer = LangChainTracer(project_name="SIBOT_MK2")
         else:
             tracer = None
-        answer = None
- 
+            
         try:
             status_placeholder.info("⏳ 답변 생성 중...")
         
@@ -987,6 +986,7 @@ with admin_debug_tab:
         st.write("⚠️ 프롬프트 포맷 실패")
 
     # 4. 생성된 답변 출력
+    answer = None
     if answer:
         st.subheader("🧾 생성된 답변")
         st.markdown(answer)
