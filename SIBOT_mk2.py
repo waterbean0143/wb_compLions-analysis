@@ -800,6 +800,8 @@ with qa_tab:
 
     # 4) 질문 요청
     if st.button("질문 요청", key="btn_query"):
+        status_placeholder = st.empty()  # 1️⃣
+        
         if not query.strip():
             st.warning("❗️ 질문을 입력한 후 버튼을 눌러 주세요.")
             st.stop()
@@ -810,8 +812,29 @@ with qa_tab:
         st.info(f"📌 사용자의 질문은 '{step}' 단계의 \"{substep_option}\"에 대한 \"{qtype}\"입니다.")
 
         substep_scores = index_vectordbs[step].similarity_search_with_score(query, k=3)
+
+    # 6) Tracer 모드 설정
+    if run_mode == "LangSmith Tracer 적용":
+        status_placeholder.info("🔍 LangSmith Tracer 실행 중...")  # 2️⃣
+        tracer = LangChainTracer(project_name="SIBOT_MK2")
+    else:
+        tracer = None
+
+    try:
+        # 답변 생성 전 표시
+        status_placeholder.info("⏳ 답변 생성 중...")  # 3️⃣
+
+        answer = LLMChain(...).predict(...)
+
+        # 답변 완료 메시지
+        if tracer:
+            status_placeholder.success("✅ Tracer 실행 완료 (답변 완료)")  # 4️⃣
+        else:
+            status_placeholder.success("✅ 답변 완료")  # 4️⃣
+    except Exception as e:
+        status_placeholder.error(f"❗ 오류 발생: {e}")
         
-        # 6) TOP3 - 절차 서브스텝# 1) TOP3 - 절차 서브스텝
+        # 7) TOP3 - 절차 서브스텝# 1) TOP3 - 절차 서브스텝
         with st.expander("1) TOP3 - 절차 서브스텝", expanded=False):
             for i, (sub_doc, dist) in enumerate(substep_scores, start=1):
                 sub = sub_doc.page_content
@@ -834,7 +857,7 @@ with qa_tab:
                         st.warning(f"⚠️ '{sub}'에 대한 문서를 찾을 수 없습니다.")
                 st.write("---")
 
-        # 7) TOP3 - QnA 청크
+        # 8) TOP3 - QnA 청크
         qna_scores = []
         qna_sub_map     = qna_substep_vectordbs.get(step, {})
         default_qna_vdb = qna_vectordbs.get(step)
@@ -864,7 +887,7 @@ with qa_tab:
                     st.text(f"📄 원문 청크: {fallback} …")
                 st.write("---")
 
-        # 8) 답변 생성
+        # 9) 답변 생성
         answer = None  # ✅ 안전 초기화
 
         if run_mode == "LangSmith Tracer 적용":
@@ -936,7 +959,7 @@ QnA 질문: {tag}
         except Exception as e:
             st.error(f"❗️ 답변 생성 중 오류 발생: {e}")
 
-        # 9) 답변 출력
+        # 10) 답변 출력
         if answer:
             with st.expander("3) 생성된 문장형 답변", expanded=True):
                 st.markdown(answer)
