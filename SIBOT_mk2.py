@@ -775,8 +775,6 @@ with st.spinner("📦 데이터 로드 중…"):
     qna_substep_vectordbs = build_qna_substep_vectordbs(qna_docs_map)
     bm25s                 = build_bm25(proc_docs_map)
     ensemble_retrievers   = build_ensemble(index_vectordbs, bm25s)
-
-
 # ─────────────────────────────────────────────────────
 # 9) Q&A 탭 (STEP→SUBSTEP 추론→TOP3 절차→TOP3 QnA→답변)
 # ─────────────────────────────────────────────────────
@@ -812,7 +810,7 @@ with qa_tab:
         # 5) Substep 자동 추론
         idx_scores = index_vectordbs[step].similarity_search_with_score(query, k=1)
         substep_option = idx_scores[0][0].page_content
-        st.info(f"📌 사용자의 질문은 '{step}' 단계의 "{substep_option}"에 대한 "{qtype}"입니다.")
+        st.info(f"📌 사용자의 질문은 '{step}' 단계의 \"{substep_option}\"에 대한 \"{qtype}\"입니다.")
 
         substep_scores = index_vectordbs[step].similarity_search_with_score(query, k=3)
 
