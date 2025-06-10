@@ -560,7 +560,6 @@ if st.sidebar.button("🧪 LangSmith 수동 디버그"):
     result = chain.invoke({"name": "홍길동"})
     st.sidebar.success(f"✅ 응답: {result['text']}")
     
-tabs = st.tabs(["Q&A","Admin Debug"])
 qa_tab, admin_debug_tab = st.tabs(["Q&A", "ADMIN DEBUG"])
 
 # ─────────────────────────────────────────────────────
