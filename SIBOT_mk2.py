@@ -856,18 +856,21 @@ with qa_tab:
                 st.write("---")
 
         # 8) 답변 생성
+        answer = None  # ✅ 안전 초기화
+
         if run_mode == "LangSmith Tracer 적용":
             st.success("✅ LangSmith Tracer 실행 중...")
             tracer = LangChainTracer(project_name="SIBOT_MK2")
         else:
             tracer = None
 
-        if qna_scores and qna_scores[0][1] >= 0.7:
-            top_doc, _ = qna_scores[0]
-            prompt = ChatPromptTemplate.from_messages([
-                SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
-                HumanMessagePromptTemplate.from_template(
-                    """세부절차: {substep}
+        try:
+            if qna_scores and qna_scores[0][1] >= 0.7:
+                top_doc, _ = qna_scores[0]
+                prompt = ChatPromptTemplate.from_messages([
+                    SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
+                    HumanMessagePromptTemplate.from_template(
+                        """세부절차: {substep}
 QnA 질문: {tag}
 질문 내용:
 {question_context}
@@ -878,50 +881,53 @@ QnA 질문: {tag}
 사용자 질문: {question}
 
 위 정보를 바탕으로 문장형으로 답변해 주세요."""
+                    )
+                ])
+                answer = LLMChain(
+                    llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
+                    prompt=prompt,
+                    callbacks=[tracer] if tracer else None
+                ).predict(
+                    substep=substep_option,
+                    tag=top_doc.metadata.get("tag", ""),
+                    question_context=top_doc.metadata.get("question_context", ""),
+                    answer_context=top_doc.metadata.get("answer_context", ""),
+                    question=query
                 )
-            ])
-            answer = LLMChain(
-                llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
-                prompt=prompt,
-                callbacks=[tracer] if tracer else None
-            ).predict(
-                substep=substep_option,
-                tag=top_doc.metadata.get("tag", ""),
-                question_context=top_doc.metadata.get("question_context", ""),
-                answer_context=top_doc.metadata.get("answer_context", ""),
-                question=query
-            )
-        else:
-            proc_vdb = substep_vectordbs[step].get(substep_option)
-            proc_scores = []
-            if proc_vdb:
-                try:
-                    proc_scores = proc_vdb.similarity_search_with_score(query, k=1)
-                except Exception as e:
-                    st.warning(f"⚠️ 절차 문서 검색 실패: {e}")
-            top_doc, _ = proc_scores[0] if proc_scores else (Document(page_content=""), 0)
-            prompt = ChatPromptTemplate.from_messages([
-                SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
-                HumanMessagePromptTemplate.from_template(
-                    """세부절차: {substep}
+            else:
+                proc_vdb = substep_vectordbs[step].get(substep_option)
+                proc_scores = []
+                if proc_vdb:
+                    try:
+                        proc_scores = proc_vdb.similarity_search_with_score(query, k=1)
+                    except Exception as e:
+                        st.warning(f"⚠️ 절차 문서 검색 실패: {e}")
+                top_doc, _ = proc_scores[0] if proc_scores else (Document(page_content=""), 0)
+                prompt = ChatPromptTemplate.from_messages([
+                    SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
+                    HumanMessagePromptTemplate.from_template(
+                        """세부절차: {substep}
 절차 문서 청크:
 {chunk}
 
 사용자 질문: {question}
 
 위 정보를 바탕으로 문장형으로 답변해 주세요."""
+                    )
+                ])
+                answer = LLMChain(
+                    llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
+                    prompt=prompt,
+                    callbacks=[tracer] if tracer else None
+                ).predict(
+                    substep=substep_option,
+                    chunk=top_doc.page_content,
+                    question=query
                 )
-            ])
-            answer = LLMChain(
-                llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
-                prompt=prompt,
-                callbacks=[tracer] if tracer else None
-            ).predict(
-                substep=substep_option,
-                chunk=top_doc.page_content,
-                question=query
-            )
+        except Exception as e:
+            st.error(f"❗️ 답변 생성 중 오류 발생: {e}")
 
-# 9) 답변 출력
-with st.expander("3) 생성된 문장형 답변", expanded=True):
-    st.markdown(answer)
+        # 9) 답변 출력
+        if answer:
+            with st.expander("3) 생성된 문장형 답변", expanded=True):
+                st.markdown(answer)
