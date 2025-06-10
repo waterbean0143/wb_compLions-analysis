@@ -801,7 +801,6 @@ with qa_tab:
     
     # 4) 질문 요청
     if st.button("질문 요청", key="btn_query"):
-        status_placeholder = st.empty()  # 1️⃣
         
         if not query.strip():
             st.warning("❗️ 질문을 입력한 후 버튼을 눌러 주세요.")
