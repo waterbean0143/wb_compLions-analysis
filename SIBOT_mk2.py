@@ -809,6 +809,8 @@ with qa_tab:
         substep_option = idx_scores[0][0].page_content
         st.info(f"📌 사용자의 질문은 '{step}' 단계의 \"{substep_option}\"에 대한 \"{qtype}\"입니다.")
 
+        substep_scores = index_vectordbs[step].similarity_search_with_score(query, k=3)
+        
         # 6) TOP3 - 절차 서브스텝# 1) TOP3 - 절차 서브스텝
         with st.expander("1) TOP3 - 절차 서브스텝", expanded=False):
             for i, (sub_doc, dist) in enumerate(substep_scores, start=1):
