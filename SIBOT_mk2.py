@@ -798,168 +798,39 @@ with qa_tab:
     # 3) 질문 입력
     query = st.text_input("💬 질문을 입력하세요", key="input_query")
     status_placeholder = st.empty()
-    
+
     substep_option = ""
     substep_scores = []
     qna_scores = []
-    
+
     # 4) 질문 요청
     if st.button("질문 요청", key="btn_query"):
         if not query.strip():
             st.warning("❗ 질문을 입력한 후 버튼을 눌러 주세요.")
             st.stop()
-    
+
         # 5) Substep 자동 추론
         idx_scores = index_vectordbs[step].similarity_search_with_score(query, k=1)
         substep_option = idx_scores[0][0].page_content
-        st.info(f"📌 사용자의 질문은 '{step}' 단계의 \"{substep_option}\"에 대한 \"{qtype}\"입니다.")
-    
+        st.info(f"📌 사용자의 질문은 '{step}' 단계의 "{substep_option}"에 대한 "{qtype}"입니다.")
+
         substep_scores = index_vectordbs[step].similarity_search_with_score(query, k=3)
-    
-# 6) Tracer 모드 설정 (❗ 반드시 버튼 안에 위치해야 함)
-if run_mode == "LangSmith Tracer 적용":
-    status_placeholder.info("🔍 LangSmith Tracer 실행 중...")
-    tracer = LangChainTracer(project_name="SIBOT_MK2")
-else:
-    tracer = None
 
-try:
-    # 답변 생성 전 표시
-    status_placeholder.info("⏳ 답변 생성 중...")
-
-    # 7) 답변 생성
-    if qna_scores and qna_scores[0][1] >= 0.7:
-        top_doc, _ = qna_scores[0]
-        prompt = ChatPromptTemplate.from_messages([
-            SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
-            HumanMessagePromptTemplate.from_template(
-                """세부절차: {substep}
-QnA 질문: {tag}
-질문 내용:
-{question_context}
-
-답변 내용:
-{answer_context}
-
-사용자 질문: {question}
-
-위 정보를 바탕으로 문장형으로 답변해 주세요."""
-            )
-        ])
-        answer = LLMChain(
-            llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
-            prompt=prompt,
-            callbacks=[tracer] if tracer else None
-        ).predict(
-            substep=substep_option,
-            tag=top_doc.metadata.get("tag", ""),
-            question_context=top_doc.metadata.get("question_context", ""),
-            answer_context=top_doc.metadata.get("answer_context", ""),
-            question=query
-        )
-    else:
-        proc_vdb = substep_vectordbs.get(step, {}).get(substep_option)
-        proc_scores = []
-        if proc_vdb:
-            try:
-                proc_scores = proc_vdb.similarity_search_with_score(query, k=1)
-            except Exception as e:
-                st.warning(f"⚠️ 절차 문서 검색 실패: {e}")
-        top_doc, _ = proc_scores[0] if proc_scores else (Document(page_content=""), 0)
-        prompt = ChatPromptTemplate.from_messages([
-            SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
-            HumanMessagePromptTemplate.from_template(
-                """세부절차: {substep}
-절차 문서 청크:
-{chunk}
-
-사용자 질문: {question}
-
-위 정보를 바탕으로 문장형으로 답변해 주세요."""
-            )
-        ])
-        answer = LLMChain(
-            llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
-            prompt=prompt,
-            callbacks=[tracer] if tracer else None
-        ).predict(
-            substep=substep_option,
-            chunk=top_doc.page_content,
-            question=query
-        )
-
-    # 답변 완료 메시지
-    if tracer:
-        status_placeholder.success("✅ Tracer 실행 완료 (답변 완료)")
-    else:
-        status_placeholder.success("✅ 답변 완료")
-
-except Exception as e:
-    status_placeholder.error(f"❗ 오류 발생: {e}")
-
-# 8) TOP3 절차 서브스텝 출력 (예외 상관없이 항상)
-with st.expander("1) TOP3 - 절차 서브스텝", expanded=False):
-    for i, (sub_doc, dist) in enumerate(substep_scores, start=1):
-        sub = sub_doc.page_content
-        similarity = 1.0 - dist
-        st.markdown(f"**[TOP_{i}]. {sub} — 유사도 {similarity:.2f}**")
-        vdb = substep_vectordbs.get(step, {}).get(sub)
-        if vdb:
-            chunk_scores = vdb.similarity_search_with_score(query, k=3)
-            for j, (c_doc, c_dist) in enumerate(chunk_scores, start=1):
-                snippet = c_doc.page_content.replace("\n", " ")[:200] + "…"
-                st.write(f"  {j}. {snippet} (유사도 {1-c_dist:.2f})")
-        else:
-            pages = original_pages.get(f"proc:{step}", [])[1:]
-            page_txt = next((p.page_content for p in pages if f"##{sub}" in p.page_content), "")
-            if page_txt:
-                m = re.search(rf"(##{re.escape(sub)}[\s\S]*?)(?=^##\d+\.)", page_txt, flags=re.MULTILINE)
-                block = m.group(1).strip() if m else page_txt.strip()
-                st.text(block)
-            else:
-                st.warning(f"⚠️ '{sub}'에 대한 문서를 찾을 수 없습니다.")
-        st.write("---")
-
-        # 8) TOP3 - QnA 청크
-        qna_scores = []
-        qna_sub_map     = qna_substep_vectordbs.get(step, {})
-        default_qna_vdb = qna_vectordbs.get(step)
-        qna_vdb_for_sub = qna_sub_map.get(substep_option, default_qna_vdb)
-        if qna_vdb_for_sub:
-            try:
-                qna_scores = qna_vdb_for_sub.similarity_search_with_score(query, k=3)
-            except Exception as e:
-                st.warning(f"⚠️ QnA 검색 실패: {e}")
-
-        with st.expander("2) TOP3 - QnA 청크", expanded=False):
-            if not qna_scores:
-                st.write("⚠️ 해당 서브스텝에 대한 Q&A가 없습니다.")
-            for i, (doc, score) in enumerate(qna_scores, start=1):
-                tag = doc.metadata.get("tag", "")
-                qc = doc.metadata.get("question_context", "").strip()
-                ac = doc.metadata.get("answer_context", "").strip()
-                st.markdown(f"**[TOP_{i}]. {tag} — Score {score:.2f}**")
-        
-                # Fallback: question/answer context 없을 경우 page_content로 대체
-                if qc:
-                    st.write(f"'{qc}'")
-                if ac:
-                    st.write(f"[[[답변] '{ac}'")
-                if not qc and not ac:
-                    fallback = doc.page_content.strip().replace("\n", " ")[:300]
-                    st.text(f"📄 원문 청크: {fallback} …")
-                st.write("---")
-
-        # 9) 답변 생성
-        answer = None  # ✅ 안전 초기화
-
+        # 6) Tracer 모드 설정
         if run_mode == "LangSmith Tracer 적용":
-            st.success("✅ LangSmith Tracer 실행 중...")
+            status_placeholder.info("🔍 LangSmith Tracer 실행 중...")
             tracer = LangChainTracer(project_name="SIBOT_MK2")
         else:
             tracer = None
 
         try:
+            status_placeholder.info("⏳ 답변 생성 중...")
+
+            qna_sub_map     = qna_substep_vectordbs.get(step, {})
+            default_qna_vdb = qna_vectordbs.get(step)
+            qna_vdb_for_sub = qna_sub_map.get(substep_option, default_qna_vdb)
+            qna_scores      = qna_vdb_for_sub.similarity_search_with_score(query, k=3) if qna_vdb_for_sub else []
+
             if qna_scores and qna_scores[0][1] >= 0.7:
                 top_doc, _ = qna_scores[0]
                 prompt = ChatPromptTemplate.from_messages([
@@ -990,7 +861,7 @@ QnA 질문: {tag}
                     question=query
                 )
             else:
-                proc_vdb = substep_vectordbs[step].get(substep_option)
+                proc_vdb = substep_vectordbs.get(step, {}).get(substep_option)
                 proc_scores = []
                 if proc_vdb:
                     try:
@@ -1019,10 +890,57 @@ QnA 질문: {tag}
                     chunk=top_doc.page_content,
                     question=query
                 )
-        except Exception as e:
-            st.error(f"❗️ 답변 생성 중 오류 발생: {e}")
 
-        # 10) 답변 출력
+            if tracer:
+                status_placeholder.success("✅ Tracer 실행 완료 (답변 완료)")
+            else:
+                status_placeholder.success("✅ 답변 완료")
+
+        except Exception as e:
+            status_placeholder.error(f"❗ 오류 발생: {e}")
+
+        # 7) TOP3 절차 서브스텝
+        with st.expander("1) TOP3 - 절차 서브스텝", expanded=False):
+            for i, (sub_doc, dist) in enumerate(substep_scores, start=1):
+                sub = sub_doc.page_content
+                similarity = 1.0 - dist
+                st.markdown(f"**[TOP_{i}]. {sub} — 유사도 {similarity:.2f}**")
+                vdb = substep_vectordbs.get(step, {}).get(sub)
+                if vdb:
+                    chunk_scores = vdb.similarity_search_with_score(query, k=3)
+                    for j, (c_doc, c_dist) in enumerate(chunk_scores, start=1):
+                        snippet = c_doc.page_content.replace("\n", " ")[:200] + "…"
+                        st.write(f"  {j}. {snippet} (유사도 {1-c_dist:.2f})")
+                else:
+                    pages = original_pages.get(f"proc:{step}", [])[1:]
+                    page_txt = next((p.page_content for p in pages if f"##{sub}" in p.page_content), "")
+                    if page_txt:
+                        m = re.search(rf"(##{re.escape(sub)}[\s\S]*?)(?=^##\d+\.)", page_txt, flags=re.MULTILINE)
+                        block = m.group(1).strip() if m else page_txt.strip()
+                        st.text(block)
+                    else:
+                        st.warning(f"⚠️ '{sub}'에 대한 문서를 찾을 수 없습니다.")
+                st.write("---")
+
+        # 8) TOP3 QnA 청크
+        with st.expander("2) TOP3 - QnA 청크", expanded=False):
+            if not qna_scores:
+                st.write("⚠️ 해당 서브스텝에 대한 Q&A가 없습니다.")
+            for i, (doc, score) in enumerate(qna_scores, start=1):
+                tag = doc.metadata.get("tag", "")
+                qc = doc.metadata.get("question_context", "").strip()
+                ac = doc.metadata.get("answer_context", "").strip()
+                st.markdown(f"**[TOP_{i}]. {tag} — Score {score:.2f}**")
+                if qc:
+                    st.write(f"'{qc}'")
+                if ac:
+                    st.write(f"[[[답변] '{ac}'")
+                if not qc and not ac:
+                    fallback = doc.page_content.strip().replace("\n", " ")[:300]
+                    st.text(f"📄 원문 청크: {fallback} …")
+                st.write("---")
+
+        # 9) 답변 출력
         if answer:
             with st.expander("3) 생성된 문장형 답변", expanded=True):
                 st.markdown(answer)
