@@ -819,11 +819,10 @@ with qa_tab:
             status_placeholder.info("🔍 LangSmith Tracer 실행 중...")
             tracer = LangChainTracer(project_name="SIBOT_MK2")
         else:
-            tracer = None
-            
+            tracer = None            
         try:
             status_placeholder.info("⏳ 답변 생성 중...")
-        
+            
             qna_sub_map     = qna_substep_vectordbs.get(step, {})
             default_qna_vdb = qna_vectordbs.get(step)
             qna_vdb_for_sub = qna_sub_map.get(substep_option, default_qna_vdb)
