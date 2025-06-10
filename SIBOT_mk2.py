@@ -798,6 +798,9 @@ with qa_tab:
     # 3) 질문 입력
     query = st.text_input("💬 질문을 입력하세요", key="input_query")
     status_placeholder = st.empty()
+    
+    substep_option = ""
+    substep_scores = []
     qna_scores = []
     
     # 4) 질문 요청
