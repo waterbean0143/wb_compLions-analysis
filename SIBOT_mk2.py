@@ -466,7 +466,8 @@ def select_persona_prompt(qtype: str) -> str:
 # ─────────────────────────────────────────────────────
 # 1) 페이지 설정 및 Secrets
 # ─────────────────────────────────────────────────────
-st.set_page_config(page_title="AX SI 방법론 이행봇", layout="wide")
+st.set_page_config(page_title="AX이행봇 LangSmith 통합 테스트봇", layout="wide")
+st.title("📌 SIBOT + LangSmith QA")
 
 
 # 🔐 OpenAI 설정
@@ -550,8 +551,14 @@ WORDPOOL_PDF_URLS = {
 # ─────────────────────────────────────────────────────
 # 5) UI & 탭 정의
 # ─────────────────────────────────────────────────────
-st.sidebar.title("⚙️ 설정")
-answer_mode = st.sidebar.radio("답변 모드", ["빠른 답변","정확한 답변"])
+run_mode = st.sidebar.radio("⚙️ 실행 모드", ["Retrieval + LLMChain 적용", "LangSmith Tracer 적용"])
+if st.sidebar.button("🧪 LangSmith 수동 디버그"):
+    tracer = LangChainTracer(project_name="SIBOT_MK2_DEBUG")
+    debug_prompt = ChatPromptTemplate.from_template("LangSmith 수동 트레이스 테스트입니다. 이름: {name}")
+    chain = LLMChain(llm=ChatOpenAI(), prompt=debug_prompt, callbacks=[tracer])
+    result = chain.invoke({"name": "홍길동"})
+    st.sidebar.success(f"✅ 응답: {result['text']}")
+    
 tabs = st.tabs(["Q&A","추가예정"])
 qa_tab, _ = tabs
 
