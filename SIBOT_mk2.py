@@ -921,3 +921,7 @@ QnA 질문: {tag}
                 chunk=top_doc.page_content,
                 question=query
             )
+
+# 9) 답변 출력
+with st.expander("3) 생성된 문장형 답변", expanded=True):
+    st.markdown(answer)
