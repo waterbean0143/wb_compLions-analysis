@@ -820,7 +820,7 @@ with qa_tab:
             tracer = LangChainTracer(project_name="SIBOT_MK2")
         else:
             tracer = None
-            answer = None
+        answer = None
  
         try:
             status_placeholder.info("⏳ 답변 생성 중...")
