@@ -956,9 +956,11 @@ with admin_debug_tab:
     st.header("🔧 ADMIN DEBUG (LangSmith + Streamlit 상태 추적)")
 
     # 1. LangSmith 정보 출력
-   if tracer:
-    run_id = st.session_state.get("last_run_id", "N/A")
-    st.code(f"Project: {tracer.project_name}\nLangSmith Run ID: {run_id}")
+    if "last_run_id" in st.session_state:
+        st.subheader("🧠 LangSmith Trace Info")
+        st.code(f"Project: SIBOT_MK2\nSession ID: {st.session_state['last_run_id']}")
+    else:
+        st.info("🧪 LangSmith Trace 세션 정보 없음.")
 
     # 2. Streamlit 내부 상태 출력
     st.subheader("📦 Streamlit 세션 상태")
