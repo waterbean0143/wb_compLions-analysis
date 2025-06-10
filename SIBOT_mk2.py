@@ -797,7 +797,8 @@ with qa_tab:
 
     # 3) 질문 입력
     query = st.text_input("💬 질문을 입력하세요", key="input_query")
-
+    status_placeholder = st.empty()
+    
     # 4) 질문 요청
     if st.button("질문 요청", key="btn_query"):
         status_placeholder = st.empty()  # 1️⃣
