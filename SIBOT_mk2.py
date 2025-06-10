@@ -880,14 +880,20 @@ QnA 질문: {tag}
 위 정보를 바탕으로 문장형으로 답변해 주세요."""
                     )
                 ])
-                answer = LLMChain(
-                    llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
-                    prompt=prompt,
-                    callbacks=[tracer] if tracer else None
-                ).predict(
-                    substep=substep_option,
-                    chunk=top_doc.page_content,
-                    question=query
+                with collect_runs() as run_collector:
+                    answer = LLMChain(
+                        llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
+                        prompt=prompt,
+                        callbacks=[tracer] if tracer else None
+                    ).predict(
+                        substep=substep_option,
+                        chunk=top_doc.page_content,
+                        question=query
+    )
+
+# LangSmith run 정보 저장 (관리자 탭 등에서 활용 가능)
+run_id = run_collector.traced_runs[0].id if run_collector.traced_runs else None
+st.session_state["last_run_id"] = run_id
                 )
 
             if tracer:
