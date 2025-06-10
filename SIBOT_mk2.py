@@ -858,13 +858,20 @@ with qa_tab:
                     st.write(f"[[[답변] '{ac}'")
                 st.write("---")
 
-        # 8) 답변 생성 (QnA 점수 ≥ 0.7 우선)
-        if qna_scores and qna_scores[0][1] >= 0.7:
-            top_doc, _ = qna_scores[0]
-            prompt = ChatPromptTemplate.from_messages([
-                SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
-                HumanMessagePromptTemplate.from_template(
-                    """세부절차: {substep}
+# 8) 답변 생성
+if run_mode == "LangSmith Tracer 적용":
+    st.success("✅ LangSmith Tracer 실행 중...")
+    tracer = LangChainTracer(project_name="SIBOT_MK2")
+else:
+    tracer = None  # Tracer 미사용 모드
+
+# QnA 기반 우선
+if qna_scores and qna_scores[0][1] >= 0.7:
+    top_doc, _ = qna_scores[0]
+    prompt = ChatPromptTemplate.from_messages([
+        SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
+        HumanMessagePromptTemplate.from_template(
+            """세부절차: {substep}
 QnA 질문: {tag}
 질문 내용:
 {question_context}
@@ -875,45 +882,41 @@ QnA 질문: {tag}
 사용자 질문: {question}
 
 위 정보를 바탕으로 문장형으로 답변해 주세요."""
-                )
-            ])
-            answer = LLMChain(
-                llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
-                prompt=prompt,
-                callbacks=[tracer]   # ✅ 추가
-            ).predict(
-                substep=substep_option,
-                tag=top_doc.metadata["tag"],
-                question_context=top_doc.metadata["question_context"],
-                answer_context=top_doc.metadata["answer_context"],
-                question=query
-            )
-        else:
-            proc_vdb    = substep_vectordbs[step].get(substep_option)
-            proc_scores = proc_vdb.similarity_search_with_score(query, k=1) if proc_vdb else []
-            top_doc, _  = proc_scores[0] if proc_scores else (Document(page_content=""), 0)
-            prompt = ChatPromptTemplate.from_messages([
-                SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
-                HumanMessagePromptTemplate.from_template(
-                    """세부절차: {substep}
+        )
+    ])
+    answer = LLMChain(
+        llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
+        prompt=prompt,
+        callbacks=[tracer] if tracer else None
+    ).predict(
+        substep=substep_option,
+        tag=top_doc.metadata["tag"],
+        question_context=top_doc.metadata["question_context"],
+        answer_context=top_doc.metadata["answer_context"],
+        question=query
+    )
+else:
+    proc_vdb    = substep_vectordbs[step].get(substep_option)
+    proc_scores = proc_vdb.similarity_search_with_score(query, k=1) if proc_vdb else []
+    top_doc, _  = proc_scores[0] if proc_scores else (Document(page_content=""), 0)
+    prompt = ChatPromptTemplate.from_messages([
+        SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
+        HumanMessagePromptTemplate.from_template(
+            """세부절차: {substep}
 절차 문서 청크:
 {chunk}
 
 사용자 질문: {question}
 
 위 정보를 바탕으로 문장형으로 답변해 주세요."""
-                )
-            ])
-            answer = LLMChain(
-                llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
-                prompt=prompt,
-                callbacks=[tracer]   # ✅ 추가
-            ).predict(
-                substep=substep_option,
-                chunk=top_doc.page_content,
-                question=query
-            )
-
-        # 9) 본문 응답
-        st.markdown(f"## {substep_option}")
-        st.write(answer)
+        )
+    ])
+    answer = LLMChain(
+        llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
+        prompt=prompt,
+        callbacks=[tracer] if tracer else None
+    ).predict(
+        substep=substep_option,
+        chunk=top_doc.page_content,
+        question=query
+    )
