@@ -871,7 +871,11 @@ with qa_tab:
                         })
                     # ————————————————                    
                     prompt = ChatPromptTemplate.from_messages([
-                        SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
+                        # Phase+질문유형 기반으로 가장 먼저 나오는, 전체 시스템 프롬프트
+                        SystemMessagePromptTemplate.from_template(
+                            generate_prompt_by_phase_and_type(step, qtype)
+                        ),
+                        # 실제 사용자 질문 템플릿
                         HumanMessagePromptTemplate.from_template(
                             """세부절차: {substep}
         QnA 질문: {tag}
