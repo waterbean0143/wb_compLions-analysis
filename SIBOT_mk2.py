@@ -947,8 +947,8 @@ with qa_tab:
                 status_placeholder.success("✅ 답변 완료")
 
                # Answer가 정상 생성됐으면 화면에 출력
-               if answer:
-                   st.write(answer)       
+            if answer:
+                st.write(answer)       
         except Exception as e:
             status_placeholder.error(f"❗ 오류 발생: {e}")
 
