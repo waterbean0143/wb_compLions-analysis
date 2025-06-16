@@ -863,12 +863,12 @@ with qa_tab:
                     top_doc, _ = qna_scores[0]
                     # ————————————————
                     # LangSmith 태그 설정 (QnA 근거)
-                    if tracer:
-                        tracer.run_manager.set_tags({
-                            "step": step,
-                            "qtype": qtype,
-                            "evidence_docs": top_doc.metadata.get("tag","")
-                        })
+                if tracer and run_collector.traced_runs:
+                    run_collector.traced_runs[0].set_tags({
+                        "step": step,
+                        "qtype": qtype,
+                        "evidence_docs": top_doc.metadata.get("tag","")
+                    })
                     # ————————————————                    
                     prompt = ChatPromptTemplate.from_messages([
                         SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
@@ -908,12 +908,12 @@ with qa_tab:
                     top_doc, _ = proc_scores[0] if proc_scores else (Document(page_content=""), 0)
                     # ————————————————
                     # LangSmith 태그 설정 (절차 문서 근거)
-                    if tracer:
-                        tracer.run_manager.set_tags({
-                            "step": step,
-                            "qtype": qtype,
-                            "evidence_docs": proc_scores and proc_scores[0][0].metadata.get("substep","")
-                        })
+                if tracer and run_collector.traced_runs:
+                    run_collector.traced_runs[0].set_tags({
+                        "step": step,
+                        "qtype": qtype,
+                        "evidence_docs": proc_scores and proc_scores[0][0].metadata.get("substep","")
+                    })
                     # ————————————————
                     prompt = ChatPromptTemplate.from_messages([
                         SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
