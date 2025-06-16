@@ -589,7 +589,7 @@ def load_all_docs() -> Tuple[
         is_separator_regex=True,
         chunk_size=800, chunk_overlap=0
     )
-    split_body = CharacterTextSplitter(chunk_size=800, chunk_overlap=100)
+    split_body = CharacterTextSplitter(chunk_size=800, chunk_overlap=0)
 
     proc_map, qna_map, wp_map = {}, {}, {}
     orig_proc, orig_qna, orig_wp = {}, {}, {}
@@ -767,7 +767,30 @@ def build_ensemble(
         )
     return ers
 
+@traceable(
+    name="질문_처리",
+    tags={"step": "{step}", "qtype": "{qtype}", "evidence_docs": "{evidence_docs}"}
+)
+def generate_answer(
+    prompt: ChatPromptTemplate,
+    llm: ChatOpenAI,
+    tracer,  # LangChainTracer 인스턴스
+    step: str,
+    qtype: str,
+    docs: List[Document],
+    **kwargs
+) -> str:
+    # evidence_docs 태그용 문자열 생성
+    evidence_docs = ",".join(d.metadata.get("tag", d.metadata.get("title","")) for d in docs)
+    tracer.run_manager.set_tags({"evidence_docs": evidence_docs})
 
+    chain = LLMChain(
+        llm=llm,
+        prompt=prompt,
+        callbacks=[tracer]
+    )
+    return chain.predict(**kwargs)
+    
 # ─────────────────────────────────────────────────────
 # 8) 데이터 로드 & 벡터 DB 빌드
 # ─────────────────────────────────────────────────────
@@ -835,6 +858,15 @@ with qa_tab:
             with collect_runs() as run_collector:
                 if qna_scores and qna_scores[0][1] >= 0.7:
                     top_doc, _ = qna_scores[0]
+                    # ————————————————
+                    # LangSmith 태그 설정 (QnA 근거)
+                    if tracer:
+                        tracer.run_manager.set_tags({
+                            "step": step,
+                            "qtype": qtype,
+                            "evidence_docs": top_doc.metadata.get("tag","")
+                        })
+                    # ————————————————                    
                     prompt = ChatPromptTemplate.from_messages([
                         SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
                         HumanMessagePromptTemplate.from_template(
@@ -871,6 +903,15 @@ with qa_tab:
                         except Exception as e:
                             st.warning(f"⚠️ 절차 문서 검색 실패: {e}")
                     top_doc, _ = proc_scores[0] if proc_scores else (Document(page_content=""), 0)
+                    # ————————————————
+                    # LangSmith 태그 설정 (절차 문서 근거)
+                    if tracer:
+                        tracer.run_manager.set_tags({
+                            "step": step,
+                            "qtype": qtype,
+                            "evidence_docs": proc_scores and proc_scores[0][0].metadata.get("substep","")
+                        })
+                    # ————————————————
                     prompt = ChatPromptTemplate.from_messages([
                         SystemMessagePromptTemplate.from_template(select_persona_prompt(qtype)),
                         HumanMessagePromptTemplate.from_template(
