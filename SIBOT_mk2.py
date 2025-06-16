@@ -846,7 +846,8 @@ with qa_tab:
             status_placeholder.info("🔍 LangSmith Tracer 실행 중...")
             tracer = LangChainTracer(project_name="SIBOT_MK2")
         else:
-            tracer = None            
+            tracer = None
+            answer = None
         try:
             status_placeholder.info("⏳ 답변 생성 중...")
             
@@ -942,7 +943,10 @@ with qa_tab:
                 status_placeholder.success("✅ Tracer 실행 완료 (답변 완료)")
             else:
                 status_placeholder.success("✅ 답변 완료")
-        
+
+           # Answer가 정상 생성됐으면 화면에 출력
+           if answer:
+               st.write(answer)       
         except Exception as e:
             status_placeholder.error(f"❗ 오류 발생: {e}")
 
