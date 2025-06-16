@@ -573,6 +573,10 @@ def preprocess(text: str) -> str:
 # ─────────────────────────────────────────────────────
 # 7) 문서 로드 & VectorDB 생성
 # ─────────────────────────────────────────────────────
+@traceable(
+    name="문서_로드",
+    tags={"source_type": "proc,qna,wp", "cache_ttl": "{ttl}"}
+)
 @st.cache_data(ttl=86400)
 def load_all_docs() -> Tuple[
     Dict[str, List[Document]],
@@ -649,7 +653,7 @@ def load_all_docs() -> Tuple[
 
     return proc_map, qna_map, wp_map, original_pages
 
-
+@traceable(name="벡터DB_빌드", tags={"step": "{step}", "emb_model": "{model}"})
 @st.cache_resource(ttl=86400)
 def build_vectordbs(
     _proc_docs_map: Dict[str, List[Document]],
