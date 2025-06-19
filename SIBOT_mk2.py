@@ -847,17 +847,17 @@ with qa_tab:
             tracer = LangChainTracer(project_name="SIBOT_MK2")
         else:
             tracer = None
-            
+
         # NameError 방지용 answer 초기화
         answer = None
         try:
             status_placeholder.info("⏳ 답변 생성 중...")
-            
+
             qna_sub_map     = qna_substep_vectordbs.get(step, {})
             default_qna_vdb = qna_vectordbs.get(step)
             qna_vdb_for_sub = qna_sub_map.get(substep_option, default_qna_vdb)
             qna_scores      = qna_vdb_for_sub.similarity_search_with_score(query, k=3) if qna_vdb_for_sub else []
-        
+
             with collect_runs() as run_collector:
                 if qna_scores and qna_scores[0][1] >= 0.7:
                     top_doc, _ = qna_scores[0]
@@ -869,25 +869,25 @@ with qa_tab:
                             "qtype": qtype,
                             "evidence_docs": top_doc.metadata.get("tag","")
                         })
-                    # ————————————————                    
+                    # ————————————————
                     prompt = ChatPromptTemplate.from_messages([
-                        # Phase+질문유형 기반으로 가장 먼저 나오는, 전체 시스템 프롬프트
+                        # Phase+질문유형 기반 전체 시스템 프롬프트
                         SystemMessagePromptTemplate.from_template(
                             generate_prompt_by_phase_and_type(step, qtype)
                         ),
                         # 실제 사용자 질문 템플릿
                         HumanMessagePromptTemplate.from_template(
                             """세부절차: {substep}
-        QnA 질문: {tag}
-        질문 내용:
-        {question_context}
-        
-        답변 내용:
-        {answer_context}
-        
-        사용자 질문: {question}
-        
-        위 정보를 바탕으로 문장형으로 답변해 주세요."""
+QnA 질문: {tag}
+질문 내용:
+{question_context}
+
+답변 내용:
+{answer_context}
+
+사용자 질문: {question}
+
+위 정보를 바탕으로 문장형으로 답변해 주세요."""
                         )
                     ])
                     answer = LLMChain(
@@ -919,23 +919,23 @@ with qa_tab:
                             "evidence_docs": proc_scores and proc_scores[0][0].metadata.get("substep","")
                         })
                     # ————————————————
-                     prompt = ChatPromptTemplate.from_messages([
-                         # Phase+질문유형 기반으로 가장 먼저 나오는, 전체 시스템 프롬프트
-                         SystemMessagePromptTemplate.from_template(
-                             generate_prompt_by_phase_and_type(step, qtype)
-                         ),
-                         # 실제 사용자 질문 템플릿
-                         HumanMessagePromptTemplate.from_template(
-                             """세부절차: {substep}
-        절차 문서 청크:
-        {chunk}
-        
-        사용자 질문: {question}
-        
-        위 정보를 바탕으로 문장형으로 답변해 주세요."""
+                    prompt = ChatPromptTemplate.from_messages([
+                        # Phase+질문유형 기반 전체 시스템 프롬프트
+                        SystemMessagePromptTemplate.from_template(
+                            generate_prompt_by_phase_and_type(step, qtype)
+                        ),
+                        # 실제 사용자 질문 템플릿
+                        HumanMessagePromptTemplate.from_template(
+                            """세부절차: {substep}
+절차 문서 청크:
+{chunk}
+
+사용자 질문: {question}
+
+위 정보를 바탕으로 문장형으로 답변해 주세요."""
                         )
                     ])
-                        answer = LLMChain(
+                    answer = LLMChain(
                         llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
                         prompt=prompt,
                         callbacks=[tracer] if tracer else None
@@ -944,21 +944,23 @@ with qa_tab:
                         chunk=top_doc.page_content,
                         question=query
                     )
-        
-            # LangSmith run 정보 저장 (관리자 탭 등에서 활용 가능)
+
+            # LangSmith run 정보 저장
             run_id = run_collector.traced_runs[0].id if run_collector.traced_runs else None
             st.session_state["last_run_id"] = run_id
-        
+
             if tracer:
                 status_placeholder.success("✅ Tracer 실행 완료 (답변 완료)")
             else:
                 status_placeholder.success("✅ 답변 완료")
 
-               # Answer가 정상 생성됐으면 화면에 출력
+            # Answer가 정상 생성됐으면 화면에 출력
             if answer:
-                st.write(answer)       
+                st.write(answer)
+
         except Exception as e:
             status_placeholder.error(f"❗ 오류 발생: {e}")
+
 
     
         # 7) TOP3 절차 서브스텝
