@@ -920,13 +920,13 @@ with qa_tab:
                         })
                     # ————————————————
                      prompt = ChatPromptTemplate.from_messages([
-                     # Phase+질문유형 기반으로 가장 먼저 나오는, 전체 시스템 프롬프트
-                     SystemMessagePromptTemplate.from_template(
-                         generate_prompt_by_phase_and_type(step, qtype)
-                     ),
-                     # 실제 사용자 질문 템플릿
-                     HumanMessagePromptTemplate.from_template(
-                         """세부절차: {substep}
+                         # Phase+질문유형 기반으로 가장 먼저 나오는, 전체 시스템 프롬프트
+                         SystemMessagePromptTemplate.from_template(
+                             generate_prompt_by_phase_and_type(step, qtype)
+                         ),
+                         # 실제 사용자 질문 템플릿
+                         HumanMessagePromptTemplate.from_template(
+                             """세부절차: {substep}
         절차 문서 청크:
         {chunk}
         
