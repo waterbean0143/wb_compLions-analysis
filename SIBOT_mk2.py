@@ -919,7 +919,7 @@ with qa_tab:
                             "evidence_docs": proc_scores and proc_scores[0][0].metadata.get("substep","")
                         })
                     # ————————————————
-                 prompt = ChatPromptTemplate.from_messages([
+                     prompt = ChatPromptTemplate.from_messages([
                      # Phase+질문유형 기반으로 가장 먼저 나오는, 전체 시스템 프롬프트
                      SystemMessagePromptTemplate.from_template(
                          generate_prompt_by_phase_and_type(step, qtype)
@@ -935,7 +935,7 @@ with qa_tab:
         위 정보를 바탕으로 문장형으로 답변해 주세요."""
                         )
                     ])
-                    answer = LLMChain(
+                        answer = LLMChain(
                         llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
                         prompt=prompt,
                         callbacks=[tracer] if tracer else None
