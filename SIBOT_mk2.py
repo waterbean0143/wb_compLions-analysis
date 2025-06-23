@@ -1021,12 +1021,14 @@ QnA 질문: {tag}
 # ─────────────────────────────────────────────────────
 with admin_debug_tab:
     st.header("🔧 ADMIN DEBUG (LangSmith + Streamlit 상태 추적)")
-        st.sidebar.subheader("🔍 LangSmith 설정 확인")
+
+    # 🔍 LangSmith 설정 확인
+    st.subheader("🔍 LangSmith 설정 확인")
     try:
-        st.sidebar.json(dict(st.secrets["langsmith"]))  # 강제 dict 변환
+        st.json(dict(st.secrets["langsmith"]))  # 탭 내부이므로 st.json 사용
     except Exception as e:
-        st.sidebar.error("❌ secrets['langsmith'] 확인 불가")
-        st.sidebar.code(str(e))
+        st.error("❌ secrets['langsmith'] 확인 불가")
+        st.code(str(e))
 
     # 1. LangSmith 정보 출력
     if "last_run_id" in st.session_state:
@@ -1041,11 +1043,17 @@ with admin_debug_tab:
         "질문": query,
         "단계": step,
         "서브스텝": substep_option,
-        "QnA 점수": [(doc.metadata.get("tag", ""), f"{score:.2f}") for doc, score in qna_scores] if qna_scores else "없음",
-        "절차 점수": [(doc.page_content[:30], f"{score:.2f}") for doc, score in proc_scores] if 'proc_scores' in locals() else "없음"
+        "QnA 점수": [
+            (doc.metadata.get("tag", ""), f"{score:.2f}") 
+            for doc, score in qna_scores
+        ] if qna_scores else "없음",
+        "절차 점수": [
+            (doc.page_content[:30], f"{score:.2f}") 
+            for doc, score in proc_scores
+        ] if 'proc_scores' in locals() else "없음"
     })
 
-    # 3. 프롬프트 내용 확인 (PromptTemplate에서 .format() 사용해보기)
+    # 3. 프롬프트 내용 확인
     st.subheader("📝 생성된 프롬프트 내용")
     try:
         formatted_prompt = prompt.format(
@@ -1060,7 +1068,6 @@ with admin_debug_tab:
         st.write("⚠️ 프롬프트 포맷 실패")
 
     # 4. 생성된 답변 출력
-    answer = None
     if answer:
         st.subheader("🧾 생성된 답변")
         st.markdown(answer)
