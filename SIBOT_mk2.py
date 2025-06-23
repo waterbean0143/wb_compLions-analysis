@@ -563,7 +563,11 @@ WORDPOOL_PDF_URLS = {
 # ─────────────────────────────────────────────────────
 # 5) UI & 탭 정의
 # ─────────────────────────────────────────────────────
-run_mode = st.sidebar.radio("⚙️ 실행 모드", ["Retrieval + LLMChain 적용", "LangSmith Tracer 적용"])
+# run_mode 라디오 버튼 숨기기
+# run_mode = st.sidebar.radio("⚙️ 실행 모드", ["Retrieval + LLMChain 적용", "LangSmith Tracer 적용"])
+# 기본값을 LangSmith Tracer 적용으로 고정
+run_mode = "LangSmith Tracer 적용"
+
 if st.sidebar.button("🧪 LangSmith 수동 디버그"):
     tracer = LangChainTracer(project_name="SIBOT_MK2_DEBUG")
     debug_prompt = ChatPromptTemplate.from_template("LangSmith 수동 트레이스 테스트입니다. 이름: {name}")
