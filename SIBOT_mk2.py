@@ -816,6 +816,16 @@ with st.spinner("📦 데이터 로드 중…"):
 with qa_tab:
     st.header("AX SI 방법론 이행봇 - Q&A")
 
+    answer = None
+        # 0) LangSmith 설정 확인
+     st.subheader("🔍 LangSmith 설정 확인")
+     st.json({
+         "api_key":    st.secrets["langsmith"]["api_key"],
+         "project":    st.secrets["langsmith"]["project"],
+         "endpoint":   st.secrets["langsmith"]["endpoint"],
+         "tracing":    st.secrets["langsmith"]["tracing"]
+     })
+
     # 1) STEP 선택
     step = st.selectbox("📂 절차 단계를 선택해 주세요", list(PROCESS_PDF_URLS.keys()), key="sel_step")
 
@@ -1016,19 +1026,24 @@ QnA 질문: {tag}
         if answer:
             with st.expander("3) 생성된 문장형 답변", expanded=True):
                 st.markdown(answer)
+                
 # ─────────────────────────────────────────────────────
 # 10) ADMIN DEBUG 탭 
 # ─────────────────────────────────────────────────────
-with admin_debug_tab:
-    st.header("🔧 ADMIN DEBUG (LangSmith + Streamlit 상태 추적)")
+with qa_tab:
+    st.header("AX SI 방법론 이행봇 - Q&A")
 
-    # 🔍 LangSmith 설정 확인
+    # 답변 변수 초기화 (NameError 방지)
+    answer = None
+
+    # 0) LangSmith 설정 확인
     st.subheader("🔍 LangSmith 설정 확인")
-    try:
-        st.json(dict(st.secrets["langsmith"]))  # 탭 내부이므로 st.json 사용
-    except Exception as e:
-        st.error("❌ secrets['langsmith'] 확인 불가")
-        st.code(str(e))
+    st.json({
+        "api_key":    st.secrets["langsmith"]["api_key"],
+        "project":    st.secrets["langsmith"]["project"],
+        "endpoint":   st.secrets["langsmith"]["endpoint"],
+        "tracing":    st.secrets["langsmith"]["tracing"]
+    })
 
     # 1. LangSmith 정보 출력
     if "last_run_id" in st.session_state:
