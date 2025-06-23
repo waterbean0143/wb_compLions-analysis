@@ -815,18 +815,10 @@ with st.spinner("📦 데이터 로드 중…"):
 # ─────────────────────────────────────────────────────
 with qa_tab:
     st.header("AX SI 방법론 이행봇 - Q&A")
+    langsmith_config = dict(st.secrets["langsmith"])
 
     # 답변 변수 초기화 (NameError 방지)
     answer = None
-
-    # 0) LangSmith 설정 확인
-    st.subheader("🔍 LangSmith 설정 확인")
-    st.json({
-        "api_key":    st.secrets["langsmith"]["api_key"],
-        "project":    st.secrets["langsmith"]["project"],
-        "endpoint":   st.secrets["langsmith"]["endpoint"],
-        "tracing":    st.secrets["langsmith"]["tracing"]
-    })
 
     # 1) STEP 선택
     step = st.selectbox("📂 절차 단계를 선택해 주세요", list(PROCESS_PDF_URLS.keys()), key="sel_step")
