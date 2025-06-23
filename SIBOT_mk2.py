@@ -514,14 +514,7 @@ users = {
 }
 if 'logged_in' not in st.session_state:
     st.sidebar.title("🔒 로그인")
-
-    st.sidebar.subheader("🔍 LangSmith 설정 확인")
-    try:
-        st.sidebar.json(dict(st.secrets["langsmith"]))  # 강제 dict 변환
-    except Exception as e:
-        st.sidebar.error("❌ secrets['langsmith'] 확인 불가")
-        st.sidebar.code(str(e))
-    
+   
     uid = st.sidebar.text_input("ID"); pwd = st.sidebar.text_input("PW", type="password")
     if st.sidebar.button("로그인"):
         if uid in users and users[uid]==pwd:
@@ -1028,6 +1021,12 @@ QnA 질문: {tag}
 # ─────────────────────────────────────────────────────
 with admin_debug_tab:
     st.header("🔧 ADMIN DEBUG (LangSmith + Streamlit 상태 추적)")
+        st.sidebar.subheader("🔍 LangSmith 설정 확인")
+    try:
+        st.sidebar.json(dict(st.secrets["langsmith"]))  # 강제 dict 변환
+    except Exception as e:
+        st.sidebar.error("❌ secrets['langsmith'] 확인 불가")
+        st.sidebar.code(str(e))
 
     # 1. LangSmith 정보 출력
     if "last_run_id" in st.session_state:
