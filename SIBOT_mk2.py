@@ -876,53 +876,54 @@ with qa_tab:
     substep_scores = []
     qna_scores = []
 
-# 4) 질문 요청
-if st.button("질문 요청", key="btn_query"):
-    if not query.strip():
-        st.warning("❗ 질문을 입력한 후 버튼을 눌러 주세요.")
-        st.stop()
+    # 4) 질문 요청
+    if st.button("질문 요청", key="btn_query"):
+        if not query.strip():
+            st.warning("❗ 질문을 입력한 후 버튼을 눌러 주세요.")
+            st.stop()
 
-    # Tracer 설정
-    tracer = LangChainTracer(project_name="SIBOT_MK2") if run_mode=="LangSmith Tracer 적용" else None
+        # Tracer 설정
+        tracer = LangChainTracer(project_name="SIBOT_MK2") if run_mode=="LangSmith Tracer 적용" else None
 
-    # 1) 단계별 QnA 최고 유사도 점수 계산
-    step_qna_scores = {}
-    for step in selected_steps:
-        vdb = qna_vectordbs.get(step)
-        if vdb:
-            scores = vdb.similarity_search_with_score(query, k=1)
-            step_qna_scores[step] = scores[0][1] if scores else 0.0
+        # 1) 단계별 QnA 최고 유사도 점수 계산
+        step_qna_scores = {}
+        for step in selected_steps:
+            vdb = qna_vectordbs.get(step)
+            if vdb:
+                scores = vdb.similarity_search_with_score(query, k=1)
+                step_qna_scores[step] = scores[0][1] if scores else 0.0
+            else:
+                step_qna_scores[step] = 0.0
+
+        # 2) 최적 단계 및 최고 점수 추출
+        best_step, best_score = max(step_qna_scores.items(), key=lambda x: x[1])
+
+        # 3) 유사도 임계치 판정
+        THRESHOLD = 0.7
+        if best_score >= THRESHOLD:
+            st.info(f"🔎 유사도 {best_score:.2f} 이상의 단계만 답변: {best_step}")
+            focus_steps = [best_step]
         else:
-            step_qna_scores[step] = 0.0
+            st.info(f"🔎 모든 단계 유사도 낮음({best_score:.2f}), 전체 단계 답변")
+            focus_steps = selected_steps
 
-    # 2) 최적 단계(best_step) 및 최고 점수(best_score) 추출
-    best_step, best_score = max(step_qna_scores.items(), key=lambda x: x[1])
+        # 4) 선택된 단계만 순회하여 답변 생성
+        for step in focus_steps:
+            # (옵션) 전체 서브절차 목록
+            idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
+            with st.expander(f"🔖 [{step}] 전체 세부절차 목록", expanded=False):
+                for doc in idx_docs:
+                    st.write(f"- {doc.metadata['title']}")
 
-    # 3) 유사도 임계치(threshold) 판정
-    THRESHOLD = 0.7
-    if best_score >= THRESHOLD:
-        st.info(f"🔎 유사도 {best_score:.2f} 이상의 단계만 답변: {best_step}")
-        focus_steps = [best_step]
-    else:
-        st.info(f"🔎 모든 단계 유사도 낮음({best_score:.2f}), 전체 단계 답변")
-        focus_steps = selected_steps
+            st.subheader(f"■ {step} 단계 결과")
+            ans = answer_for_step(step, qtype, query, tracer)
+            st.markdown(ans)
 
-    # 4) 선택된(focus) 단계만 순회하여 답변 생성
-    for step in focus_steps:
-        # (옵션) 각 단계별 전체 서브절차 목록
-        idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
-        with st.expander(f"🔖 [{step}] 전체 세부절차 목록", expanded=False):
-            for doc in idx_docs:
-                st.write(f"- {doc.metadata['title']}")
+        # 5) 세션 상태 저장 (Admin Debug 용)
+        st.session_state["last_query"]    = query
+        st.session_state["last_qtype"]    = qtype
+        st.session_state["last_selected"] = focus_steps
 
-        st.subheader(f"■ {step} 단계 결과")
-        ans = answer_for_step(step, qtype, query, tracer)
-        st.markdown(ans)
-
-    # 5) 세션 상태 저장 (Admin Debug 용)
-    st.session_state["last_query"]    = query
-    st.session_state["last_qtype"]    = qtype
-    st.session_state["last_selected"] = focus_steps
 
         # 5) Substep 자동 추론
         idx_scores = index_vectordbs[step].similarity_search_with_score(query, k=1)
