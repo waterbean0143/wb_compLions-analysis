@@ -790,6 +790,7 @@ def build_multi_qtype_prompt(phase: str, qtypes: List[str]) -> str:
     blocks = [QUESTION_TYPE_PROMPTS[q] for q in qtypes if q in QUESTION_TYPE_PROMPTS]
     return base + "\n\n" + "\n\n".join(blocks)
 
+
 @traceable(
     name="질문_처리",
     tags={"step": "{step}", "qtype": "{qtype}", "evidence_docs": "{evidence_docs}"}
@@ -842,7 +843,7 @@ def generate_answer(
         [ref.strip() for ref in re.findall(r"참고자료\d+:\s*(.+?)(?=\n|$)", top_text)]
     )
 
- # 4) LangSmith 태그 설정
+    # 4) LangSmith 태그 설정
     if tracer and hasattr(tracer, "run_manager"):
         tracer.run_manager.set_tags({
             "step":         step,
@@ -866,10 +867,11 @@ def generate_answer(
         callbacks=[tracer] if tracer else None,
     )
     return chain.predict(**kwargs)
-    
+
+
 def answer_for_step(
     step: str,
-    qtype: str,
+    qtypes: List[str],
     query: str,
     tracer
 ) -> str:
@@ -892,7 +894,7 @@ def answer_for_step(
     # 3) 프롬프트 구성
     prompt = ChatPromptTemplate.from_messages([
         SystemMessagePromptTemplate.from_template(
-            generate_prompt_by_phase_and_types(step, selected_qtypes)
+            build_multi_qtype_prompt(step, qtypes)
         ),
         HumanMessagePromptTemplate.from_template(
             "세부절차: {substep}\n사용자 질문: {question}"
@@ -906,12 +908,11 @@ def answer_for_step(
         ChatOpenAI(model="gpt-4o-mini", temperature=0),
         tracer,
         step,
-        qtype,
-        docs,
+        qtype=",".join(qtypes),
+        docs=docs,
         question=query,
         substep=substep
     )
-
 # ─────────────────────────────────────────────────────
 # 8) 데이터 로드 & 벡터 DB 빌드
 # ─────────────────────────────────────────────────────
