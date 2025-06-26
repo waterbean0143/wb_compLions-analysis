@@ -790,7 +790,8 @@ def generate_answer(
 ) -> str:
     # evidence_docs 태그용 문자열 생성
     evidence_docs = ",".join(d.metadata.get("tag", d.metadata.get("title","")) for d in docs)
-    tracer.run_manager.set_tags({"evidence_docs": evidence_docs})
+    if tracer is not None and hasattr(tracer, "run_manager"):
+        tracer.run_manager.set_tags({"evidence_docs": evidence_docs})
 
     chain = LLMChain(
         llm=llm,
