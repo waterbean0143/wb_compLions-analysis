@@ -862,6 +862,7 @@ with qa_tab:
     if not selected_steps:
         st.warning("하나 이상의 절차 단계를 선택해 주세요.")
         st.stop()
+        st.session_state["selected_steps"] = selected_steps
 
     # 2) 질문 유형 선택
     qtype = st.selectbox("❓ 질문 유형을 선택해 주세요", QUESTION_TYPES, key="sel_qtype")
@@ -1082,10 +1083,10 @@ with admin_debug_tab:
     # 0) LangSmith 설정 확인
     st.subheader("🔍 LangSmith 설정 확인")
     st.json({
-        "api_key":    st.secrets["langsmith"]["api_key"],
-        "project":    st.secrets["langsmith"]["project"],
-        "endpoint":   st.secrets["langsmith"]["endpoint"],
-        "tracing":    st.secrets["langsmith"]["tracing"]
+        "selected_steps": st.session_state.get("selected_steps", []),
+        "질문":           st.session_state.get("input_query", ""),
+        "질문 유형":      st.session_state.get("sel_qtype", ""),
+        "last_run_id":    st.session_state.get("last_run_id", None)
     })
 
     # 1. LangSmith 정보 출력
