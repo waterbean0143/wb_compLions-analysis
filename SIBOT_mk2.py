@@ -1164,35 +1164,59 @@ QnA 질문: {tag}
 # ─────────────────────────────────────────────────────
 # 10) ADMIN DEBUG 탭 
 # ─────────────────────────────────────────────────────
-with admin_debug_tab:
-    st.header("🔧 ADMIN DEBUG")
+ith admin_debug_tab:
+    st.header("🔧 ADMIN DEBUG (LangSmith + Streamlit 상태 추적)")
 
-    # LangSmith 설정 출력…
+    # 1) LangSmith 설정 확인
     st.subheader("🔍 LangSmith 설정 확인")
-    st.json(st.session_state.get("langsmith_config", {}))
+    try:
+        st.json(dict(st.secrets["langsmith"]))
+    except:
+        st.error("❌ LangSmith 설정을 불러올 수 없습니다.")
 
-    # 1) 유사도 정보
+    # 2) 단계별 QnA 유사도 정보
     st.subheader("🔎 단계별 QnA 유사도")
-    step_scores = st.session_state.get("step_qna_scores", {})
-    st.json(step_scores)
+    step_qna_scores = st.session_state.get("step_qna_scores", {})
+    if step_qna_scores:
+        st.json(step_qna_scores)
+    else:
+        st.write("유사도 정보가 없습니다.")
 
-    # 2) 전체 세부절차 목록
+    # 3) 전체 세부절차 목록 (선택된 단계)
+    st.subheader("🔖 전체 세부절차 목록")
     selected = st.session_state.get("last_selected", [])
-    for step in selected:
-        st.subheader(f"[{step}] 전체 세부절차 목록")
-        docs = extract_index_chunks(PROCESS_PDF_URLS[step])
-        st.write([d.metadata["title"] for d in docs])
+    if selected:
+        for step in selected:
+            st.write(f"**{step}**")
+            titles = [doc.metadata["title"] for doc in extract_index_chunks(PROCESS_PDF_URLS[step])]
+            st.write(titles)
+    else:
+        st.write("선택된 단계가 없습니다.")
 
-    # 3) TOP3 절차 청크
-    top3_proc = st.session_state.get("last_top3_proc", {})
+    # 4) TOP3 - 절차 서브스텝
     st.subheader("1) TOP3 - 절차 서브스텝")
-    st.json(top3_proc)
+    top3_proc = st.session_state.get("last_top3_proc", {})
+    if top3_proc:
+        st.json(top3_proc)
+    else:
+        st.write("TOP3 절차 정보가 없습니다.")
 
-    # 4) TOP3 QnA 청크
-    top3_qna = st.session_state.get("last_top3_qna", {})
+    # 5) TOP3 - QnA 청크
     st.subheader("2) TOP3 - QnA 청크")
-    st.json(top3_qna)
+    top3_qna = st.session_state.get("last_top3_qna", {})
+    if top3_qna:
+        st.json(top3_qna)
+    else:
+        st.write("TOP3 QnA 정보가 없습니다.")
 
-    # 5) 마지막 답변
-    st.subheader("■ 마지막 답변")
-    st.markdown(st.session_state.get("last_answer", ""))
+    # 6) 마지막 쿼리 및 답변
+    st.subheader("🧾 마지막 질문 및 답변")
+    last_query = st.session_state.get("last_query", "")
+    last_qtype = st.session_state.get("last_qtype", "")
+    st.write(f"**질문 유형**: {last_qtype}")
+    st.write(f"**질문**: {last_query}")
+    last_answer = st.session_state.get("last_answer", "")
+    if last_answer:
+        st.markdown(last_answer)
+    else:
+        st.write("생성된 답변이 없습니다.")
