@@ -877,7 +877,7 @@ def answer_for_step(
     # 3) 프롬프트 구성
     prompt = ChatPromptTemplate.from_messages([
         SystemMessagePromptTemplate.from_template(
-            generate_prompt_by_phase_and_type(step, qtype)
+            generate_prompt_by_phase_and_types(step, selected_qtypes)
         ),
         HumanMessagePromptTemplate.from_template(
             "세부절차: {substep}\n사용자 질문: {question}"
