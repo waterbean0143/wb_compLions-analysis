@@ -780,23 +780,56 @@ def build_ensemble(
     tags={"step": "{step}", "qtype": "{qtype}", "evidence_docs": "{evidence_docs}"}
 )
 def generate_answer(
-    prompt: ChatPromptTemplate,
-    llm: ChatOpenAI,
-    tracer,  # LangChainTracer 인스턴스
-    step: str,
-    qtype: str,
-    docs: List[Document],
-    **kwargs
+    question: str,
+    retriever,
+    llm,
+    tracer=None,
+    step: str = "",
+    qtype: str = "",
+    docs=None,
+    **kwargs,
 ) -> str:
-    # evidence_docs 태그용 문자열 생성
-    evidence_docs = ",".join(d.metadata.get("tag", d.metadata.get("title","")) for d in docs)
-    if tracer is not None and hasattr(tracer, "run_manager"):
-        tracer.run_manager.set_tags({"evidence_docs": evidence_docs})
+    # 1) evidence_docs 문자열 생성
+    evidence_docs = ",".join(
+        d.metadata.get("tag", d.metadata.get("title", "")) for d in docs or []
+    )
 
+    # 2) top_doc 페이지 콘텐츠 (절차 텍스트) 추출
+    top_text = docs[0].page_content if docs else ""
+
+    # 3) 정규표현식으로 필드 파싱
+    summary     = re.search(r"요약:\s*(.+)",      top_text)?.group(1) or ""
+    timing      = re.search(r"시기:\s*(.+)",      top_text)?.group(1) or ""
+    owner       = re.search(r"책임자:\s*(.+)",    top_text)?.group(1) or ""
+    executor    = re.search(r"실무자:\s*(.+)",    top_text)?.group(1) or ""
+    support     = re.search(r"협조 및 지원부서:\s*(.+)", top_text)?.group(1) or ""
+    system_app  = re.search(r"적용시스템:\s*(.+)", top_text)?.group(1) or ""
+    deliverable = re.search(r"산출물:\s*(.+)",     top_text)?.group(1) or ""
+    activities  = ",".join(re.findall(r"\[주요활동\d+\]\s*(.+?)(?=\[|$)", top_text))
+    references  = ",".join(re.findall(r"참고자료\d+:\s*(.+?)(?=\n|$)",     top_text))
+
+    # 4) LangSmith 태그에 모든 변수 매핑
+    if tracer and hasattr(tracer, "run_manager"):
+        tracer.run_manager.set_tags({
+            "step":         step,
+            "qtype":        qtype,
+            "summary":      summary,
+            "timing":       timing,
+            "owner":        owner,
+            "executor":     executor,
+            "support":      support,
+            "system_app":   system_app,
+            "deliverable":  deliverable,
+            "activities":   activities,
+            "references":   references,
+            "evidence_docs": evidence_docs
+        })
+
+    # 5) 실제 체인 실행
     chain = LLMChain(
         llm=llm,
         prompt=prompt,
-        callbacks=[tracer]
+        callbacks=[tracer] if tracer else None,
     )
     return chain.predict(**kwargs)
     
