@@ -862,18 +862,30 @@ def answer_for_step(
     idx_scores = index_vectordbs[step].similarity_search_with_score(query, k=1)
     substep = idx_scores[0][0].page_content
 
-    # 2) 프롬프트 구성
+    # 2) 해당 substep의 전체 블록(요약·시기·책임자·산출물 등)을 가져오기
+    pages = original_pages.get(f"proc:{step}", [])
+    full_block = ""
+    for page in pages:
+        if substep in page.page_content:
+            # ##<번호>.substep ~ 다음 ## 시작 전까지의 텍스트
+            pattern = rf"(##\d+\.\s*{re.escape(substep)}[\s\S]*?)(?=^##\d+\.)"
+            m = re.search(pattern, page.page_content, flags=re.MULTILINE)
+            full_block = m.group(1).strip() if m else page.page_content
+            break
+
+    docs = [Document(page_content=full_block, metadata={"tag": substep})]
+
+    # 3) 프롬프트 구성
     prompt = ChatPromptTemplate.from_messages([
         SystemMessagePromptTemplate.from_template(
             generate_prompt_by_phase_and_type(step, qtype)
         ),
         HumanMessagePromptTemplate.from_template(
-            f"세부절차: {{substep}}\n사용자 질문: {{question}}"
+            "세부절차: {substep}\n사용자 질문: {question}"
         )
     ])
-    docs = [Document(page_content=substep, metadata={"tag": substep})]
 
-    # 3) generate_answer 재사용
+    # 4) generate_answer 재사용
     return generate_answer(
         prompt=prompt,
         llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
@@ -881,7 +893,6 @@ def answer_for_step(
         step=step,
         qtype=qtype,
         docs=docs,
-        substep=substep,
         question=query
     )
 
