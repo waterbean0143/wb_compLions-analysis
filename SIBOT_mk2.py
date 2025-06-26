@@ -893,7 +893,8 @@ def answer_for_step(
         step,
         qtype,
         docs,
-        question=query
+        question=query,
+        substep=substep
     )
 
 # ─────────────────────────────────────────────────────
