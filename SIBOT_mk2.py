@@ -789,7 +789,7 @@ def build_multi_qtype_prompt(phase: str, qtypes: List[str]) -> str:
     # 2) 나머지 qtypes 에 해당하는 prompt 블록만 추가
     extra = qtypes[1:]
     blocks = [QUESTION_TYPE_PROMPTS[q] for q in extra if q in QUESTION_TYPE_PROMPTS]
-    return base + ("\n\n" + "\n\n".join(blocks) if blocks else ""
+    return base + ( "\n\n" + "\n\n".join(blocks) if blocks else "" )
 
 @traceable(
     name="질문_처리",
