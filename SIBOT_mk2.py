@@ -973,20 +973,17 @@ with qa_tab:
 
         # 4) 선택된 단계만 순회하여 답변 생성
         for step in focus_steps:
-            # (옵션) 전체 서브절차 목록
-            idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
-            with st.expander(f"🔖 [{step}] 전체 세부절차 목록", expanded=False):
-                for doc in idx_docs:
-                    st.write(f"- {doc.metadata['title']}")
-
             st.subheader(f"■ {step} 단계 결과")
             ans = answer_for_step(step, qtype, query, tracer)
             st.markdown(ans)
 
         # 5) 세션 상태 저장 (Admin Debug 용)
-        st.session_state["last_query"]    = query
-        st.session_state["last_qtype"]    = qtype
-        st.session_state["last_selected"] = focus_steps
+        st.session_state["langsmith_config"]   = dict(st.secrets["langsmith"])
+        st.session_state["step_qna_scores"]    = step_qna_scores
+        st.session_state["last_selected"]      = focus_steps
+        st.session_state["last_top3_proc"]     = { step: [d.metadata.get("substep", "") for d,_ in index_vectordbs[step].similarity_search_with_score(query, k=3)] for step in focus_steps }
+        st.session_state["last_top3_qna"]      = { step: [d.metadata.get("tag","") for d,_ in qna_vectordbs.get(step, []).similarity_search_with_score(query, k=3)] for step in focus_steps }
+        st.session_state["last_answer"]        = ans  # 마지막 단계 답변
 
 
         # 5) Substep 자동 추론
@@ -1168,18 +1165,34 @@ QnA 질문: {tag}
 # 10) ADMIN DEBUG 탭 
 # ─────────────────────────────────────────────────────
 with admin_debug_tab:
-    st.header("🔧 ADMIN DEBUG (LangSmith + Streamlit 상태 추적)")
+    st.header("🔧 ADMIN DEBUG")
 
-    # LangSmith 설정 확인
+    # LangSmith 설정 출력…
     st.subheader("🔍 LangSmith 설정 확인")
-    st.json(dict(st.secrets["langsmith"]))
+    st.json(st.session_state.get("langsmith_config", {}))
 
-    # Streamlit 세션 상태 출력 (session_state 에서 읽어옴)
-    st.subheader("📦 Streamlit 세션 상태")
-    st.json({
-        "마지막 질문":        st.session_state.get("last_query", ""),
-        "마지막 질문 유형":   st.session_state.get("last_qtype", ""),
-        "선택된 단계":        st.session_state.get("last_selected", []),
-        "Last Run ID":       st.session_state.get("last_run_id", None)
-    })
+    # 1) 유사도 정보
+    st.subheader("🔎 단계별 QnA 유사도")
+    step_scores = st.session_state.get("step_qna_scores", {})
+    st.json(step_scores)
 
+    # 2) 전체 세부절차 목록
+    selected = st.session_state.get("last_selected", [])
+    for step in selected:
+        st.subheader(f"[{step}] 전체 세부절차 목록")
+        docs = extract_index_chunks(PROCESS_PDF_URLS[step])
+        st.write([d.metadata["title"] for d in docs])
+
+    # 3) TOP3 절차 청크
+    top3_proc = st.session_state.get("last_top3_proc", {})
+    st.subheader("1) TOP3 - 절차 서브스텝")
+    st.json(top3_proc)
+
+    # 4) TOP3 QnA 청크
+    top3_qna = st.session_state.get("last_top3_qna", {})
+    st.subheader("2) TOP3 - QnA 청크")
+    st.json(top3_qna)
+
+    # 5) 마지막 답변
+    st.subheader("■ 마지막 답변")
+    st.markdown(st.session_state.get("last_answer", ""))
