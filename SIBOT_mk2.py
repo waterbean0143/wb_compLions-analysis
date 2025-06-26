@@ -887,13 +887,14 @@ def answer_for_step(
 
     # 4) generate_answer 재사용
     return generate_answer(
+        retriever=index_vectordbs[step],                  # 추가된 부분
+        question=query,
         prompt=prompt,
         llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
         tracer=tracer,
         step=step,
         qtype=qtype,
-        docs=docs,
-        question=query
+        docs=docs
     )
 
 # ─────────────────────────────────────────────────────
