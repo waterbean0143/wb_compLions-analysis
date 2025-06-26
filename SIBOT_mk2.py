@@ -101,6 +101,14 @@ QUESTION_TYPES = [
     "산출물·문서 요구 사항", "책임·역할 분담", "일정·마일스톤 확인"
 ]
 
+QUESTION_TYPE_PROMPTS = {
+    "자유 질의": "",
+    "정의 요청": "• 정의 요청: 이 절차에서 사용된 주요 용어와 개념을 정의해주세요.",
+    "수행 절차 안내": "• 수행 절차 안내: 이 절차가 어떤 순서로 진행되는지 단계별로 설명해주세요.",
+    "산출물·문서 요구 사항": "• 산출물·문서 요구 사항: 이 절차에서 생성되는 산출물과 문서 요구사항을 알려주세요.",
+    "책임·역할 분담": "• 책임·역할 분담: 이 단계에서 각 역할(책임자, 실무자 등)의 책임을 구분해 설명해주세요.",
+    "일정·마일스톤 확인": "• 일정·마일스톤 확인: 이 절차의 주요 일정과 마일스톤을 정리해주세요.",
+}
 def generate_prompt_by_phase_and_type(phase: str, qtype: str) -> str:
     # base_prompt, phase_prompts, question_type_prompts는 별도 모듈로 분리 가능
     base_prompt = """당신은 대기업이자 사기업인 KT의 이행 절차 전문 PM입니다. 질문자는 기본적으로 KT 직원으로, 공직자가 아닌 민간 기업의 직원입니다. KT는 정부 기관이 아니며, 직원들은 공무원이 아닙니다."""
@@ -925,15 +933,33 @@ with qa_tab:
         st.stop()
 
     # 2) 질문 유형 선택
-    qtype = st.selectbox(
-        "❓ 질문 유형을 선택해 주세요",
-        QUESTION_TYPES,
-        key="sel_qtype"
+       query = st.text_input("💬 질문을 입력하세요", key="input_query")
+    if query:
+        # 사용자가 입력을 마치면 자동 분류 실행
+        auto = classify_with_llm(query)  
+        # "정의 요청, 일정·마일스톤 확인" 같은 문자열 → 리스트
+        selected_qtypes = [
+            s.strip() for s in auto.split(",") 
+            if s.strip() in QUESTION_TYPES
+        ]
+    else:
+        selected_qtypes = []
+
+    # 2-1) (선택) 자동 분류된 유형 보여주기
+    if selected_qtypes:
+        st.info(f"💡 감지된 질문 유형: {', '.join(selected_qtypes)}")
+
+    # 3) 직접 복수 유형 선택 (자동 분류 결과 병합)
+    manual = st.multiselect(
+        "❓ 질문 유형을 추가로 선택해 주세요",
+        options=QUESTION_TYPES,
+        default=selected_qtypes
     )
-
-    # 3) 질문 입력
-    query = st.text_input("💬 질문을 입력하세요", key="input_query")
-
+    # 최종 질문유형은 자동 + 수동 병합
+    selected_qtypes = list(dict.fromkeys(selected_qtypes + manual))
+    if not selected_qtypes:
+        st.warning("하나 이상의 질문유형을 선택해 주세요.")
+        st.stop()
    # 4) 질문 요청 버튼
     if st.button("질문 요청", key="btn_query"):
         if not query.strip():
