@@ -863,12 +863,6 @@ with qa_tab:
         st.warning("하나 이상의 절차 단계를 선택해 주세요.")
         st.stop()
 
-    # 1-1) 전체 INDEX(서브절차) 목록
-    idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
-    with st.expander("🔖 전체 세부절차 목록", expanded=False):
-        for doc in idx_docs:
-            st.write(f"- {doc.metadata['title']}")
-
     # 2) 질문 유형 선택
     qtype = st.selectbox("❓ 질문 유형을 선택해 주세요", QUESTION_TYPES, key="sel_qtype")
 
@@ -890,10 +884,16 @@ with qa_tab:
         tracer = LangChainTracer(project_name="SIBOT_MK2") if run_mode=="LangSmith Tracer 적용" else None
 
         # 다중 단계 순회
-        for step in selected_steps:
-            st.subheader(f"■ {step} 단계 결과")
-            ans = answer_for_step(step, qtype, query, tracer)
-            st.markdown(ans)
+         for step in selected_steps:
+            # (옵션) 각 단계마다 별도 expander에 전체 서브절차 목록 표시
+            idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
+            with st.expander(f"🔖 [{step}] 전체 세부절차 목록", expanded=False):
+                for doc in idx_docs:
+                    st.write(f"- {doc.metadata['title']}")
+
+             st.subheader(f"■ {step} 단계 결과")
+             ans = answer_for_step(step, qtype, query, tracer)
+             st.markdown(ans)
         
 
         # 5) Substep 자동 추론
