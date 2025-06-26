@@ -934,7 +934,7 @@ with qa_tab:
     # 3) 질문 입력
     query = st.text_input("💬 질문을 입력하세요", key="input_query")
 
-    # 4) 질문 요청 버튼
+   # 4) 질문 요청 버튼
     if st.button("질문 요청", key="btn_query"):
         if not query.strip():
             st.warning("❗ 질문을 입력한 후 버튼을 눌러 주세요.")
@@ -961,9 +961,43 @@ with qa_tab:
 
         # (C) 사용자용 답변 생성·출력
         for step in focus_steps:
+            # 프롬프트 생성 (다중 질문유형 반영)
+            prompt = ChatPromptTemplate.from_messages([
+                SystemMessagePromptTemplate.from_template(
+                    generate_prompt_by_phase_and_types(step, selected_qtypes)
+                ),
+                HumanMessagePromptTemplate.from_template(
+                    "세부절차: {substep}\n사용자 질문: {question}"
+                )
+            ])
+            # 해당 서브스텝과 문서 준비
+            idx_scores = index_vectordbs[step].similarity_search_with_score(query, k=1)
+            substep = idx_scores[0][0].page_content
+            pages = original_pages.get(f"proc:{step}", [])
+            full_block = ""
+            for page in pages:
+                if substep in page.page_content:
+                    pattern = rf"(##\d+\.\s*{re.escape(substep)}[\s\S]*?)(?=^##\d+\.)"
+                    m = re.search(pattern, page.page_content, flags=re.MULTILINE)
+                    full_block = m.group(1).strip() if m else page.page_content
+                    break
+            docs = [Document(page_content=full_block, metadata={"tag": substep})]
+
+            # 답변 생성
+            answer = generate_answer(
+                prompt,
+                index_vectordbs[step],
+                ChatOpenAI(model="gpt-4o-mini", temperature=0),
+                tracer,
+                step,
+                qtypes=",".join(selected_qtypes),
+                docs=docs,
+                question=query,
+                substep=substep
+            )
+            # 출력
             st.subheader(f"■ {step} 단계 결과")
-            ans = answer_for_step(step, qtype, query, tracer)
-            st.markdown(ans)
+            st.markdown(answer)
 
         # (D) 디버그 탭용 세션 상태 저장
         st.session_state["langsmith_config"] = dict(st.secrets["langsmith"])
@@ -971,7 +1005,7 @@ with qa_tab:
         st.session_state["last_selected"]    = focus_steps
         st.session_state["last_query"]       = query
         st.session_state["last_qtype"]       = qtype
-        st.session_state["last_answer"]      = ans
+        st.session_state["last_answer"]      = answer
 
 # ─────────────────────────────────────────────────────
 # 10) ADMIN DEBUG 탭: 내부 상태 및 디버그 정보
