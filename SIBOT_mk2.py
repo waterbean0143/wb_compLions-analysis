@@ -784,12 +784,12 @@ def build_ensemble(
     return ers
 
 def build_multi_qtype_prompt(phase: str, qtypes: List[str]) -> str:
-    # 1) phase별 기본 안내
-    base = generate_prompt_by_phase(phase)  # 기존 phase‐system 템플릿 함수
-    # 2) 선택된 qtype 블록들을 순서대로 붙이기
-    blocks = [QUESTION_TYPE_PROMPTS[q] for q in qtypes if q in QUESTION_TYPE_PROMPTS]
-    return base + "\n\n" + "\n\n".join(blocks)
-
+    # 1) 첫 qtype 에 대한 phase+type 시스템 메시지를 베이스로 가져오기
+    base = generate_prompt_by_phase_and_type(phase, qtypes[0])
+    # 2) 나머지 qtypes 에 해당하는 prompt 블록만 추가
+    extra = qtypes[1:]
+    blocks = [QUESTION_TYPE_PROMPTS[q] for q in extra if q in QUESTION_TYPE_PROMPTS]
+    return base + ("\n\n" + "\n\n".join(blocks) if blocks else ""
 
 @traceable(
     name="질문_처리",
