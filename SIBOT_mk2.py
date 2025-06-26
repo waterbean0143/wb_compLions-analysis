@@ -927,6 +927,9 @@ with st.spinner("📦 데이터 로드 중…"):
 # ─────────────────────────────────────────────────────
 # 9) Q&A 탭 (STEP→SUBSTEP 추론→TOP3 절차→TOP3 QnA→답변)
 # ─────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────
+# 9) Q&A 탭 (STEP→SUBSTEP 추론→다중유형 복합 답변)
+# ─────────────────────────────────────────────────────
 with qa_tab:
     st.header("AX SI 방법론 이행봇 - Q&A")
 
@@ -940,35 +943,33 @@ with qa_tab:
         st.warning("하나 이상의 절차 단계를 선택해 주세요.")
         st.stop()
 
-    # 2) 질문 유형 선택
-       query = st.text_input("💬 질문을 입력하세요", key="input_query")
+    # 2) 질문 입력
+    query = st.text_input("💬 질문을 입력하세요", key="input_query")
     if query:
-        # 사용자가 입력을 마치면 자동 분류 실행
-        auto = classify_with_llm(query)  
-        # "정의 요청, 일정·마일스톤 확인" 같은 문자열 → 리스트
+        # 자동 분류 실행
+        auto = classify_with_llm(query)
         selected_qtypes = [
-            s.strip() for s in auto.split(",") 
-            if s.strip() in QUESTION_TYPES
+            s.strip() for s in auto.split(",") if s.strip() in QUESTION_TYPES
         ]
     else:
         selected_qtypes = []
 
-    # 2-1) (선택) 자동 분류된 유형 보여주기
+    # 2-1) 자동 분류 결과 표시
     if selected_qtypes:
         st.info(f"💡 감지된 질문 유형: {', '.join(selected_qtypes)}")
 
-    # 3) 직접 복수 유형 선택 (자동 분류 결과 병합)
+    # 3) 질문 유형 직접 선택 (자동 분류 결과 병합)
     manual = st.multiselect(
         "❓ 질문 유형을 추가로 선택해 주세요",
         options=QUESTION_TYPES,
         default=selected_qtypes
     )
-    # 최종 질문유형은 자동 + 수동 병합
     selected_qtypes = list(dict.fromkeys(selected_qtypes + manual))
     if not selected_qtypes:
-        st.warning("하나 이상의 질문유형을 선택해 주세요.")
+        st.warning("하나 이상의 질문 유형을 선택해 주세요.")
         st.stop()
-   # 4) 질문 요청 버튼
+
+    # 4) 질문 요청 버튼
     if st.button("질문 요청", key="btn_query"):
         if not query.strip():
             st.warning("❗ 질문을 입력한 후 버튼을 눌러 주세요.")
@@ -976,7 +977,7 @@ with qa_tab:
 
         # LangSmith Tracer 설정
         tracer = LangChainTracer(project_name="SIBOT_MK2") \
-                 if run_mode == "LangSmith Tracer 적용" else None
+            if run_mode == "LangSmith Tracer 적용" else None
 
         # (A) 단계별 QnA 유사도 계산
         step_qna_scores = {}
@@ -998,13 +999,14 @@ with qa_tab:
             # 프롬프트 생성 (다중 질문유형 반영)
             prompt = ChatPromptTemplate.from_messages([
                 SystemMessagePromptTemplate.from_template(
-                    generate_prompt_by_phase_and_types(step, selected_qtypes)
+                    build_multi_qtype_prompt(step, selected_qtypes)
                 ),
                 HumanMessagePromptTemplate.from_template(
                     "세부절차: {substep}\n사용자 질문: {question}"
                 )
             ])
-            # 해당 서브스텝과 문서 준비
+
+            # 서브스텝 및 문서 준비
             idx_scores = index_vectordbs[step].similarity_search_with_score(query, k=1)
             substep = idx_scores[0][0].page_content
             pages = original_pages.get(f"proc:{step}", [])
@@ -1029,6 +1031,7 @@ with qa_tab:
                 question=query,
                 substep=substep
             )
+
             # 출력
             st.subheader(f"■ {step} 단계 결과")
             st.markdown(answer)
@@ -1038,7 +1041,7 @@ with qa_tab:
         st.session_state["step_qna_scores"]  = step_qna_scores
         st.session_state["last_selected"]    = focus_steps
         st.session_state["last_query"]       = query
-        st.session_state["last_qtype"]       = qtype
+        st.session_state["last_qtype"]       = ",".join(selected_qtypes)
         st.session_state["last_answer"]      = answer
 
 # ─────────────────────────────────────────────────────
