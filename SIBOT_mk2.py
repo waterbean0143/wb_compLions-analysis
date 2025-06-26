@@ -875,7 +875,7 @@ with qa_tab:
     substep_scores = []
     qna_scores = []
 
-    # 4) 질문 요청
+  # 4) 질문 요청
     if st.button("질문 요청", key="btn_query"):
         if not query.strip():
             st.warning("❗ 질문을 입력한 후 버튼을 눌러 주세요.")
@@ -895,6 +895,15 @@ with qa_tab:
             st.subheader(f"■ {step} 단계 결과")
             ans = answer_for_step(step, qtype, query, tracer)
             st.markdown(ans)
+
+        # ─────────────────────────────────────────────────────
+        # QA 탭 변수 세션에 저장 (Admin Debug 용)
+        # ─────────────────────────────────────────────────────
+        st.session_state["last_query"]    = query
+        st.session_state["last_qtype"]    = qtype
+        st.session_state["last_selected"] = selected_steps
+        # last_run_id는 이미 run 처리 로직에서 session_state에 저장되었다 가정
+        # st.session_state["last_run_id"] = st.session_state.get("last_run_id")
 
         # 5) Substep 자동 추론
         idx_scores = index_vectordbs[step].similarity_search_with_score(query, k=1)
