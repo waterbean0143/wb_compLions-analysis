@@ -884,17 +884,16 @@ with qa_tab:
         tracer = LangChainTracer(project_name="SIBOT_MK2") if run_mode=="LangSmith Tracer 적용" else None
 
         # 다중 단계 순회
-         for step in selected_steps:
+        for step in selected_steps:
             # (옵션) 각 단계마다 별도 expander에 전체 서브절차 목록 표시
             idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
             with st.expander(f"🔖 [{step}] 전체 세부절차 목록", expanded=False):
                 for doc in idx_docs:
                     st.write(f"- {doc.metadata['title']}")
 
-             st.subheader(f"■ {step} 단계 결과")
-             ans = answer_for_step(step, qtype, query, tracer)
-             st.markdown(ans)
-        
+            st.subheader(f"■ {step} 단계 결과")
+            ans = answer_for_step(step, qtype, query, tracer)
+            st.markdown(ans)
 
         # 5) Substep 자동 추론
         idx_scores = index_vectordbs[step].similarity_search_with_score(query, k=1)
