@@ -789,26 +789,45 @@ def generate_answer(
     docs=None,
     **kwargs,
 ) -> str:
-    # 1) evidence_docs 문자열 생성
+    # 1) evidence_docs 생성
     evidence_docs = ",".join(
         d.metadata.get("tag", d.metadata.get("title", "")) for d in docs or []
     )
 
-    # 2) top_doc 페이지 콘텐츠 (절차 텍스트) 추출
+    # 2) top_text 추출
     top_text = docs[0].page_content if docs else ""
 
-    # 3) 정규표현식으로 필드 파싱
-    summary     = re.search(r"요약:\s*(.+)",      top_text)?.group(1) or ""
-    timing      = re.search(r"시기:\s*(.+)",      top_text)?.group(1) or ""
-    owner       = re.search(r"책임자:\s*(.+)",    top_text)?.group(1) or ""
-    executor    = re.search(r"실무자:\s*(.+)",    top_text)?.group(1) or ""
-    support     = re.search(r"협조 및 지원부서:\s*(.+)", top_text)?.group(1) or ""
-    system_app  = re.search(r"적용시스템:\s*(.+)", top_text)?.group(1) or ""
-    deliverable = re.search(r"산출물:\s*(.+)",     top_text)?.group(1) or ""
-    activities  = ",".join(re.findall(r"\[주요활동\d+\]\s*(.+?)(?=\[|$)", top_text))
-    references  = ",".join(re.findall(r"참고자료\d+:\s*(.+?)(?=\n|$)",     top_text))
+    # 3) 필드별 정규식 파싱
+    m = re.search(r"요약:\s*(.+)", top_text)
+    summary = m.group(1).strip() if m else ""
 
-    # 4) LangSmith 태그에 모든 변수 매핑
+    m = re.search(r"시기:\s*(.+)", top_text)
+    timing = m.group(1).strip() if m else ""
+
+    m = re.search(r"책임자:\s*(.+)", top_text)
+    owner = m.group(1).strip() if m else ""
+
+    m = re.search(r"실무자:\s*(.+)", top_text)
+    executor = m.group(1).strip() if m else ""
+
+    m = re.search(r"협조 및 지원부서:\s*(.+)", top_text)
+    support = m.group(1).strip() if m else ""
+
+    m = re.search(r"적용시스템:\s*(.+)", top_text)
+    system_app = m.group(1).strip() if m else ""
+
+    m = re.search(r"산출물:\s*(.+)", top_text)
+    deliverable = m.group(1).strip() if m else ""
+
+    activities = ",".join(
+        [act.strip() for act in re.findall(r"\[주요활동\d+\]\s*(.+?)(?=\[|$)", top_text)]
+    )
+
+    references = ",".join(
+        [ref.strip() for ref in re.findall(r"참고자료\d+:\s*(.+?)(?=\n|$)", top_text)]
+    )
+
+    # 4) LangSmith 태그 설정
     if tracer and hasattr(tracer, "run_manager"):
         tracer.run_manager.set_tags({
             "step":         step,
@@ -825,7 +844,7 @@ def generate_answer(
             "evidence_docs": evidence_docs
         })
 
-    # 5) 실제 체인 실행
+    # 5) 원래 체인 수행
     chain = LLMChain(
         llm=llm,
         prompt=prompt,
