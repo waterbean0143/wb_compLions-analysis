@@ -913,10 +913,6 @@ with st.spinner("📦 데이터 로드 중…"):
 # ─────────────────────────────────────────────────────
 with qa_tab:
     st.header("AX SI 방법론 이행봇 - Q&A")
-    langsmith_config = dict(st.secrets["langsmith"])
-
-    # 답변 변수 초기화 (NameError 방지)
-    answer = None
 
     # 1) STEP 다중 선택
     selected_steps = st.multiselect(
@@ -927,49 +923,54 @@ with qa_tab:
     if not selected_steps:
         st.warning("하나 이상의 절차 단계를 선택해 주세요.")
         st.stop()
-        st.session_state["selected_steps"] = selected_steps
 
     # 2) 질문 유형 선택
-    qtype = st.selectbox("❓ 질문 유형을 선택해 주세요", QUESTION_TYPES, key="sel_qtype")
+    qtype = st.selectbox(
+        "❓ 질문 유형을 선택해 주세요",
+        QUESTION_TYPES,
+        key="sel_qtype"
+    )
 
     # 3) 질문 입력
     query = st.text_input("💬 질문을 입력하세요", key="input_query")
-    status_placeholder = st.empty()
 
-    substep_option = ""
-    substep_scores = []
-    qna_scores = []
-
-    # 4) 질문 요청
+    # 4) 질문 요청 버튼
     if st.button("질문 요청", key="btn_query"):
-        # (A) 입력 검증, Tracer 설정, 유사도 계산 → focus_steps 결정
+        if not query.strip():
+            st.warning("❗ 질문을 입력한 후 버튼을 눌러 주세요.")
+            st.stop()
 
-        # (B) 사용자용 답변 생성/출력
+        # LangSmith Tracer 설정
+        tracer = LangChainTracer(project_name="SIBOT_MK2") \
+                 if run_mode == "LangSmith Tracer 적용" else None
+
+        # (A) 단계별 QnA 유사도 계산
+        step_qna_scores = {}
+        for step in selected_steps:
+            vdb = qna_vectordbs.get(step)
+            scores = vdb.similarity_search_with_score(query, k=1) if vdb else []
+            step_qna_scores[step] = scores[0][1] if scores else 0.0
+
+        # (B) 유사도 임계치 판정 → focus_steps 결정
+        best_step, best_score = max(step_qna_scores.items(), key=lambda x: x[1])
+        THRESHOLD = 0.7
+        if best_score >= THRESHOLD:
+            focus_steps = [best_step]
+        else:
+            focus_steps = selected_steps
+
+        # (C) 사용자용 답변 생성·출력
         for step in focus_steps:
             st.subheader(f"■ {step} 단계 결과")
             ans = answer_for_step(step, qtype, query, tracer)
             st.markdown(ans)
 
-        # ─────────────────────────────────────
-        # (C) **여기에** 세션 상태 저장 코드를 추가하세요
-        # ─────────────────────────────────────
+        # (D) 디버그 탭용 세션 상태 저장
         st.session_state["langsmith_config"] = dict(st.secrets["langsmith"])
         st.session_state["step_qna_scores"]  = step_qna_scores
         st.session_state["last_selected"]    = focus_steps
-        st.session_state["last_top3_proc"]   = {
-            step: [
-                d.metadata.get("substep", "")
-                for d, _ in index_vectordbs[step].similarity_search_with_score(query, k=3)
-            ]
-            for step in focus_steps
-        }
-        st.session_state["last_top3_qna"]    = {
-            step: [
-                d.metadata.get("tag", "")
-                for d, _ in qna_vectordbs.get(step, []).similarity_search_with_score(query, k=3)
-            ]
-            for step in focus_steps
-        }
+        st.session_state["last_query"]       = query
+        st.session_state["last_qtype"]       = qtype
         st.session_state["last_answer"]      = ans
 
 # ─────────────────────────────────────────────────────
