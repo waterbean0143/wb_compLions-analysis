@@ -799,6 +799,39 @@ def generate_answer(
     )
     return chain.predict(**kwargs)
     
+def answer_for_step(
+    step: str,
+    qtype: str,
+    query: str,
+    tracer
+) -> str:
+    # 1) 서브스텝 추론
+    idx_scores = index_vectordbs[step].similarity_search_with_score(query, k=1)
+    substep = idx_scores[0][0].page_content
+
+    # 2) 프롬프트 구성
+    prompt = ChatPromptTemplate.from_messages([
+        SystemMessagePromptTemplate.from_template(
+            generate_prompt_by_phase_and_type(step, qtype)
+        ),
+        HumanMessagePromptTemplate.from_template(
+            f"세부절차: {{substep}}\n사용자 질문: {{question}}"
+        )
+    ])
+    docs = [Document(page_content=substep, metadata={"tag": substep})]
+
+    # 3) generate_answer 재사용
+    return generate_answer(
+        prompt=prompt,
+        llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
+        tracer=tracer,
+        step=step,
+        qtype=qtype,
+        docs=docs,
+        substep=substep,
+        question=query
+    )
+
 # ─────────────────────────────────────────────────────
 # 8) 데이터 로드 & 벡터 DB 빌드
 # ─────────────────────────────────────────────────────
@@ -820,8 +853,15 @@ with qa_tab:
     # 답변 변수 초기화 (NameError 방지)
     answer = None
 
-    # 1) STEP 선택
-    step = st.selectbox("📂 절차 단계를 선택해 주세요", list(PROCESS_PDF_URLS.keys()), key="sel_step")
+    # 1) STEP 다중 선택
+    selected_steps = st.multiselect(
+        "📂 절차 단계를 하나 이상 선택해 주세요",
+        options=list(PROCESS_PDF_URLS.keys()),
+        default=[]
+    )
+    if not selected_steps:
+        st.warning("하나 이상의 절차 단계를 선택해 주세요.")
+        st.stop()
 
     # 1-1) 전체 INDEX(서브절차) 목록
     idx_docs = extract_index_chunks(PROCESS_PDF_URLS[step])
@@ -845,6 +885,16 @@ with qa_tab:
         if not query.strip():
             st.warning("❗ 질문을 입력한 후 버튼을 눌러 주세요.")
             st.stop()
+
+        # Tracer 설정
+        tracer = LangChainTracer(project_name="SIBOT_MK2") if run_mode=="LangSmith Tracer 적용" else None
+
+        # 다중 단계 순회
+        for step in selected_steps:
+            st.subheader(f"■ {step} 단계 결과")
+            ans = answer_for_step(step, qtype, query, tracer)
+            st.markdown(ans)
+        
 
         # 5) Substep 자동 추론
         idx_scores = index_vectordbs[step].similarity_search_with_score(query, k=1)
