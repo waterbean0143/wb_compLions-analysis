@@ -924,11 +924,9 @@ with st.spinner("📦 데이터 로드 중…"):
     qna_substep_vectordbs = build_qna_substep_vectordbs(qna_docs_map)
     bm25s                 = build_bm25(proc_docs_map)
     ensemble_retrievers   = build_ensemble(index_vectordbs, bm25s)
+
 # ─────────────────────────────────────────────────────
-# 9) Q&A 탭 (STEP→SUBSTEP 추론→TOP3 절차→TOP3 QnA→답변)
-# ─────────────────────────────────────────────────────
-# ─────────────────────────────────────────────────────
-# 9) Q&A 탭 (STEP→SUBSTEP 추론→다중유형 복합 답변)
+# 9) Q&A 탭: 멀티스텝·멀티유형 복합 질문 처리
 # ─────────────────────────────────────────────────────
 with qa_tab:
     st.header("AX SI 방법론 이행봇 - Q&A")
@@ -949,7 +947,8 @@ with qa_tab:
         # 자동 분류 실행
         auto = classify_with_llm(query)
         selected_qtypes = [
-            s.strip() for s in auto.split(",") if s.strip() in QUESTION_TYPES
+            s.strip() for s in auto.split(",")
+            if s.strip() in QUESTION_TYPES
         ]
     else:
         selected_qtypes = []
@@ -958,12 +957,13 @@ with qa_tab:
     if selected_qtypes:
         st.info(f"💡 감지된 질문 유형: {', '.join(selected_qtypes)}")
 
-    # 3) 질문 유형 직접 선택 (자동 분류 결과 병합)
+    # 3) 질문 유형 직접 선택 (자동분류+수동 병합)
     manual = st.multiselect(
         "❓ 질문 유형을 추가로 선택해 주세요",
         options=QUESTION_TYPES,
         default=selected_qtypes
     )
+    # 중복 제거하며 병합
     selected_qtypes = list(dict.fromkeys(selected_qtypes + manual))
     if not selected_qtypes:
         st.warning("하나 이상의 질문 유형을 선택해 주세요.")
@@ -986,17 +986,14 @@ with qa_tab:
             scores = vdb.similarity_search_with_score(query, k=1) if vdb else []
             step_qna_scores[step] = scores[0][1] if scores else 0.0
 
-        # (B) 유사도 임계치 판정 → focus_steps 결정
+        # (B) 임계치 기반 focus_steps 결정
         best_step, best_score = max(step_qna_scores.items(), key=lambda x: x[1])
         THRESHOLD = 0.7
-        if best_score >= THRESHOLD:
-            focus_steps = [best_step]
-        else:
-            focus_steps = selected_steps
+        focus_steps = [best_step] if best_score >= THRESHOLD else selected_steps
 
-        # (C) 사용자용 답변 생성·출력
+        # (C) 멀티스텝·멀티유형 답변 생성 및 출력
         for step in focus_steps:
-            # 프롬프트 생성 (다중 질문유형 반영)
+            # 1) 멀티유형 프롬프트 빌드
             prompt = ChatPromptTemplate.from_messages([
                 SystemMessagePromptTemplate.from_template(
                     build_multi_qtype_prompt(step, selected_qtypes)
@@ -1006,7 +1003,7 @@ with qa_tab:
                 )
             ])
 
-            # 서브스텝 및 문서 준비
+            # 2) 해당 서브스텝 및 문서 블록 추출
             idx_scores = index_vectordbs[step].similarity_search_with_score(query, k=1)
             substep = idx_scores[0][0].page_content
             pages = original_pages.get(f"proc:{step}", [])
@@ -1019,7 +1016,7 @@ with qa_tab:
                     break
             docs = [Document(page_content=full_block, metadata={"tag": substep})]
 
-            # 답변 생성
+            # 3) 답변 생성
             answer = generate_answer(
                 prompt,
                 index_vectordbs[step],
@@ -1032,11 +1029,11 @@ with qa_tab:
                 substep=substep
             )
 
-            # 출력
+            # 4) 사용자에게 출력
             st.subheader(f"■ {step} 단계 결과")
             st.markdown(answer)
 
-        # (D) 디버그 탭용 세션 상태 저장
+        # (D) Admin Debug 탭용 세션 상태 저장
         st.session_state["langsmith_config"] = dict(st.secrets["langsmith"])
         st.session_state["step_qna_scores"]  = step_qna_scores
         st.session_state["last_selected"]    = focus_steps
@@ -1071,65 +1068,32 @@ with admin_debug_tab:
     if selected:
         for step in selected:
             st.markdown(f"**{step}**")
-            titles = [doc.metadata["title"] for doc in extract_index_chunks(PROCESS_PDF_URLS[step])]
+            titles = [
+                doc.metadata["title"]
+                for doc in extract_index_chunks(PROCESS_PDF_URLS[step])
+            ]
             st.write(titles)
     else:
         st.write("선택된 단계가 없습니다.")
 
     # 4) QA 내부 로직 (숨겨진 expander)
-    with st.expander("🔍 QA 내부 로직 (Substep→Tracer→Top3→답변)", expanded=False):
-        for step in st.session_state.get("last_selected", []):
-            st.markdown(f"### {step} 단계 내부 흐름")
+    with st.expander("🔍 QA 내부 로직 (3중 루프 결과)", expanded=False):
+        runs = st.session_state.get("all_runs", [])
+        if runs:
+            for run in runs:
+                st.markdown(
+                    f"- **Step:** {run['step']} | **Type:** {run['qtype']} | **Doc:** {run['doc_tag']}"
+                )
+                st.text(run["answer"])
+        else:
+            st.write("내부 실행 기록이 없습니다.")
 
-            # a) Substep 자동 추론
-            last_query = st.session_state.get("last_query", "")
-            idx_scores = index_vectordbs[step].similarity_search_with_score(
-                st.session_state["last_query"], k=1
-            )
-            substep_option = idx_scores[0][0].page_content
-            st.write(f"📌 Substep 추론: {substep_option}")
-
-            # b) Substep Top3 유사도
-            substep_scores = index_vectordbs[step].similarity_search_with_score(
-                st.session_state["last_query"], k=3
-            )
-            st.write("🔖 Substep Top3 유사도:")
-            st.write([
-                f"{doc.page_content[:30]}… ({1-dist:.2f})"
-                for doc, dist in substep_scores
-            ])
-
-            # c) Tracer 모드 확인
-            st.write(f"🔍 Tracer 사용: {run_mode == 'LangSmith Tracer 적용'}")
-
-            # d) TOP3 - 절차 서브스텝
-            st.subheader("1) TOP3 - 절차 서브스텝")
-            for i, (sub_doc, dist) in enumerate(substep_scores, start=1):
-                st.markdown(f"- TOP_{i}: {sub_doc.page_content[:30]}… (유사도 {1-dist:.2f})")
-
-            # e) TOP3 - QnA 청크
-            st.subheader("2) TOP3 - QnA 청크")
-            top3_qna = st.session_state.get("last_top3_qna", {}).get(step, [])
-            for i, tag in enumerate(top3_qna, start=1):
-                st.markdown(f"- TOP_{i}: {tag}")
-
-            # f) 생성된 문장형 답변
-            st.subheader("3) 생성된 문장형 답변")
-            st.markdown(st.session_state.get("last_answer", ""))
-
-    # 5) (선택사항) 저장된 TOP3 절차·QnA를 별도 확인
-    st.subheader("▶ 저장된 TOP3 절차/QA 요약 보기")
-    st.write("- TOP3 절차:", st.session_state.get("last_top3_proc", {}))
-    st.write("- TOP3 QnA:", st.session_state.get("last_top3_qna", {}))
-
-    # 6) 마지막 질문 및 답변
-    st.subheader("🧾 마지막 질문 및 답변")
-    last_qtype = st.session_state.get("last_qtype", "")
-    last_query = st.session_state.get("last_query", "")
-    st.write(f"**질문 유형**: {last_qtype}")
-    st.write(f"**질문**: {last_query}")
-    last_answer = st.session_state.get("last_answer", "")
-    if last_answer:
-        st.markdown(last_answer)
+    # 5) 마지막 질문 및 최종 요약
+    st.subheader("🧾 마지막 질문 및 요약 답변")
+    st.write(f"**질문:** {st.session_state.get('last_query', '')}")
+    st.write(f"**질문유형:** {st.session_state.get('last_qtype', '')}")
+    summary = st.session_state.get("last_summary") or st.session_state.get("last_answer", "")
+    if summary:
+        st.markdown(summary)
     else:
-        st.write("생성된 답변 없음")
+        st.write("생성된 요약 답변이 없습니다.")
