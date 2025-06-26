@@ -468,7 +468,7 @@ def select_persona_prompt(qtype: str) -> str:
 # 1) 페이지 설정 및 Secrets
 # ─────────────────────────────────────────────────────
 st.set_page_config(page_title="AX이행봇 LangSmith 통합 테스트봇", layout="wide")
-st.title("테스트페이지 | AX SI 방법론 이행봇 - Q&A")
+st.title("📌 SIBOT + LangSmith QA")
 
 
 # 🔐 OpenAI 설정
@@ -514,14 +514,7 @@ users = {
 }
 if 'logged_in' not in st.session_state:
     st.sidebar.title("🔒 로그인")
-
-    st.sidebar.subheader("🔍 LangSmith 설정 확인")
-    try:
-        st.sidebar.json(dict(st.secrets["langsmith"]))  # 강제 dict 변환
-    except Exception as e:
-        st.sidebar.error("❌ secrets['langsmith'] 확인 불가")
-        st.sidebar.code(str(e))
-    
+   
     uid = st.sidebar.text_input("ID"); pwd = st.sidebar.text_input("PW", type="password")
     if st.sidebar.button("로그인"):
         if uid in users and users[uid]==pwd:
@@ -563,7 +556,11 @@ WORDPOOL_PDF_URLS = {
 # ─────────────────────────────────────────────────────
 # 5) UI & 탭 정의
 # ─────────────────────────────────────────────────────
-run_mode = st.sidebar.radio("⚙️ 실행 모드", ["Retrieval + LLMChain 적용", "LangSmith Tracer 적용"])
+# run_mode 라디오 버튼 숨기기
+# run_mode = st.sidebar.radio("⚙️ 실행 모드", ["Retrieval + LLMChain 적용", "LangSmith Tracer 적용"])
+# 기본값을 LangSmith Tracer 적용으로 고정
+run_mode = "LangSmith Tracer 적용"
+
 if st.sidebar.button("🧪 LangSmith 수동 디버그"):
     tracer = LangChainTracer(project_name="SIBOT_MK2_DEBUG")
     debug_prompt = ChatPromptTemplate.from_template("LangSmith 수동 트레이스 테스트입니다. 이름: {name}")
@@ -818,6 +815,10 @@ with st.spinner("📦 데이터 로드 중…"):
 # ─────────────────────────────────────────────────────
 with qa_tab:
     st.header("AX SI 방법론 이행봇 - Q&A")
+    langsmith_config = dict(st.secrets["langsmith"])
+
+    # 답변 변수 초기화 (NameError 방지)
+    answer = None
 
     # 1) STEP 선택
     step = st.selectbox("📂 절차 단계를 선택해 주세요", list(PROCESS_PDF_URLS.keys()), key="sel_step")
@@ -1019,11 +1020,24 @@ QnA 질문: {tag}
         if answer:
             with st.expander("3) 생성된 문장형 답변", expanded=True):
                 st.markdown(answer)
+                
 # ─────────────────────────────────────────────────────
 # 10) ADMIN DEBUG 탭 
 # ─────────────────────────────────────────────────────
 with admin_debug_tab:
-    st.header("🔧 ADMIN DEBUG (LangSmith + Streamlit 상태 추적)")
+    st.header("AX SI 방법론 이행봇 - Q&A")
+
+    # 답변 변수 초기화 (NameError 방지)
+    answer = None
+
+    # 0) LangSmith 설정 확인
+    st.subheader("🔍 LangSmith 설정 확인")
+    st.json({
+        "api_key":    st.secrets["langsmith"]["api_key"],
+        "project":    st.secrets["langsmith"]["project"],
+        "endpoint":   st.secrets["langsmith"]["endpoint"],
+        "tracing":    st.secrets["langsmith"]["tracing"]
+    })
 
     # 1. LangSmith 정보 출력
     if "last_run_id" in st.session_state:
@@ -1038,11 +1052,17 @@ with admin_debug_tab:
         "질문": query,
         "단계": step,
         "서브스텝": substep_option,
-        "QnA 점수": [(doc.metadata.get("tag", ""), f"{score:.2f}") for doc, score in qna_scores] if qna_scores else "없음",
-        "절차 점수": [(doc.page_content[:30], f"{score:.2f}") for doc, score in proc_scores] if 'proc_scores' in locals() else "없음"
+        "QnA 점수": [
+            (doc.metadata.get("tag", ""), f"{score:.2f}") 
+            for doc, score in qna_scores
+        ] if qna_scores else "없음",
+        "절차 점수": [
+            (doc.page_content[:30], f"{score:.2f}") 
+            for doc, score in proc_scores
+        ] if 'proc_scores' in locals() else "없음"
     })
 
-    # 3. 프롬프트 내용 확인 (PromptTemplate에서 .format() 사용해보기)
+    # 3. 프롬프트 내용 확인
     st.subheader("📝 생성된 프롬프트 내용")
     try:
         formatted_prompt = prompt.format(
@@ -1057,7 +1077,6 @@ with admin_debug_tab:
         st.write("⚠️ 프롬프트 포맷 실패")
 
     # 4. 생성된 답변 출력
-    answer = None
     if answer:
         st.subheader("🧾 생성된 답변")
         st.markdown(answer)
