@@ -896,14 +896,9 @@ with qa_tab:
             ans = answer_for_step(step, qtype, query, tracer)
             st.markdown(ans)
 
-        # ─────────────────────────────────────────────────────
-        # QA 탭 변수 세션에 저장 (Admin Debug 용)
-        # ─────────────────────────────────────────────────────
         st.session_state["last_query"]    = query
         st.session_state["last_qtype"]    = qtype
         st.session_state["last_selected"] = selected_steps
-        # last_run_id는 이미 run 처리 로직에서 session_state에 저장되었다 가정
-        # st.session_state["last_run_id"] = st.session_state.get("last_run_id")
 
         # 5) Substep 자동 추론
         idx_scores = index_vectordbs[step].similarity_search_with_score(query, k=1)
@@ -1084,18 +1079,19 @@ QnA 질문: {tag}
 # 10) ADMIN DEBUG 탭 
 # ─────────────────────────────────────────────────────
 with admin_debug_tab:
-    st.header("AX SI 방법론 이행봇 - Q&A")
+    st.header("🔧 ADMIN DEBUG (LangSmith + Streamlit 상태 추적)")
 
-    # 답변 변수 초기화 (NameError 방지)
-    answer = None
-
-    # 0) LangSmith 설정 확인
+    # LangSmith 설정 확인
     st.subheader("🔍 LangSmith 설정 확인")
+    st.json(dict(st.secrets["langsmith"]))
+
+    # Streamlit 세션 상태 출력 (session_state 에서 읽어옴)
+    st.subheader("📦 Streamlit 세션 상태")
     st.json({
-        "selected_steps": st.session_state.get("selected_steps", []),
-        "질문":           st.session_state.get("input_query", ""),
-        "질문 유형":      st.session_state.get("sel_qtype", ""),
-        "last_run_id":    st.session_state.get("last_run_id", None)
+        "마지막 질문":        st.session_state.get("last_query", ""),
+        "마지막 질문 유형":   st.session_state.get("last_qtype", ""),
+        "선택된 단계":        st.session_state.get("last_selected", []),
+        "Last Run ID":       st.session_state.get("last_run_id", None)
     })
 
     # 1. LangSmith 정보 출력
