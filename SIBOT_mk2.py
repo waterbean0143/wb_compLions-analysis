@@ -1164,7 +1164,7 @@ QnA 질문: {tag}
 # ─────────────────────────────────────────────────────
 # 10) ADMIN DEBUG 탭 
 # ─────────────────────────────────────────────────────
-ith admin_debug_tab:
+with admin_debug_tab:
     st.header("🔧 ADMIN DEBUG (LangSmith + Streamlit 상태 추적)")
 
     # 1) LangSmith 설정 확인
